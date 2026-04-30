@@ -116,7 +116,7 @@ export default function TerminePage() {
           <DayPanel date={selected} events={events.filter((e) => {
             const dt = new Date(e.date);
             return dt.toDateString() === selected.toDateString();
-          })} onClose={() => setSelected(null)} onDelete={async (id) => { await deleteAppointment(id); refresh(); toast.success("Gelöscht"); }} />
+          })} onClose={() => setSelected(null)} onDelete={async (id: string) => { await deleteAppointment(id); refresh(); toast.success("Gelöscht"); }} />
         )}
         {addOpen && <AddTerminModal onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); refresh(); }} />}
       </AnimatePresence>
