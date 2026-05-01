@@ -18,21 +18,21 @@ export function RegisterForm({ onRegister }: { onRegister: (email: string) => vo
   };
 
   const validatePassword = (pwd: string) => {
-    const hasMinLength = pwd.length >= 12;
+    const hasMinLength = pwd.length >= 8;
+    const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pwd);
     const hasUpperCase = /[A-Z]/.test(pwd);
     const hasLowerCase = /[a-z]/.test(pwd);
     const hasNumber = /[0-9]/.test(pwd);
-    const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pwd);
 
     const strength =
       (hasMinLength ? 1 : 0) +
+      (hasSpecialChar ? 1 : 0) +
       (hasUpperCase ? 1 : 0) +
       (hasLowerCase ? 1 : 0) +
-      (hasNumber ? 1 : 0) +
-      (hasSpecialChar ? 1 : 0);
+      (hasNumber ? 1 : 0);
 
     setPasswordStrength(strength);
-    return hasMinLength && hasUpperCase && hasLowerCase && hasNumber && hasSpecialChar;
+    return hasMinLength && hasSpecialChar;
   };
 
   const handleEmailStep = async (e: React.FormEvent) => {
@@ -90,7 +90,7 @@ export function RegisterForm({ onRegister }: { onRegister: (email: string) => vo
       }
 
       if (!validatePassword(password)) {
-        setError("Passwort muss mindestens 12 Zeichen mit Groß- und Kleinbuchstaben, Zahlen und Sonderzeichen enthalten");
+        setError("Passwort muss mindestens 8 Zeichen und mindestens ein Sonderzeichen enthalten");
         setIsLoading(false);
         return;
       }
@@ -285,13 +285,16 @@ export function RegisterForm({ onRegister }: { onRegister: (email: string) => vo
                   ))}
                 </div>
                 <div className="text-xs text-muted-foreground space-y-1">
-                  <p>Anforderungen:</p>
+                  <p className="font-medium">Erforderlich:</p>
                   <ul className="list-disc list-inside text-[11px]">
-                    <li>Min. 12 Zeichen</li>
+                    <li>Min. 8 Zeichen</li>
+                    <li>Mindestens ein Sonderzeichen (!@#$%^&* usw.)</li>
+                  </ul>
+                  <p className="font-medium mt-2">Optional:</p>
+                  <ul className="list-disc list-inside text-[11px]">
                     <li>Großbuchstaben (A-Z)</li>
                     <li>Kleinbuchstaben (a-z)</li>
                     <li>Zahlen (0-9)</li>
-                    <li>Sonderzeichen (!@#$%^&*)</li>
                   </ul>
                 </div>
               </div>
