@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Sparkles, Mail, Lock, ArrowRight } from "lucide-react";
-import { Link } from "@tanstack/react-router";
 import { supabase } from "../integrations/supabase/client";
 
 export function LoginForm({ onLogin }: { onLogin: (email: string) => void }) {
@@ -175,12 +174,12 @@ export function LoginForm({ onLogin }: { onLogin: (email: string) => void }) {
             </div>
             <div className="pt-2 border-t border-border/20">
               <p>Noch kein Konto?{" "}
-                <Link
-                  to="/register"
+                <a
+                  href="/register"
                   className="text-violet-400 hover:text-violet-300 font-medium transition"
                 >
                   Hier registrieren
-                </Link>
+                </a>
               </p>
             </div>
           </div>
