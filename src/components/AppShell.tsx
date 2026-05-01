@@ -15,17 +15,48 @@ export function AppShell() {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [isChecking, setIsChecking] = useState(true);
 
   useEffect(() => {
-    const email = localStorage.getItem("auth_email");
-    if (!email && path !== "/login" && path !== "/register") {
-      navigate({ to: "/login" });
-    }
-    setUserEmail(email);
+    const checkAuth = async () => {
+      try {
+        const res = await fetch("/api/auth/me", {
+          credentials: "include",
+        });
+
+        if (!res.ok) {
+          setUserEmail(null);
+          if (path !== "/login" && path !== "/register") {
+            navigate({ to: "/login" });
+          }
+          return;
+        }
+
+        const data = await res.json();
+        setUserEmail(data.email);
+      } catch {
+        setUserEmail(null);
+        if (path !== "/login" && path !== "/register") {
+          navigate({ to: "/login" });
+        }
+      } finally {
+        setIsChecking(false);
+      }
+    };
+
+    checkAuth();
   }, [path, navigate]);
 
-  const handleLogout = () => {
-    localStorage.removeItem("auth_email");
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch {
+      // logout failed but proceed anyway
+    }
+    setUserEmail(null);
     navigate({ to: "/login" });
   };
 
