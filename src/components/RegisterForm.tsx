@@ -125,6 +125,9 @@ export function RegisterForm({ onRegister }: { onRegister: (email: string) => vo
         }
 
         if (data?.user) {
+          // For demo: log the verification code
+          console.log("📧 Demo-Mode: Verification code would be sent to", email);
+          console.log("🔐 For testing, you can use any 6-digit code or skip verification");
           setStep("verify");
           setIsLoading(false);
         }
@@ -150,7 +153,14 @@ export function RegisterForm({ onRegister }: { onRegister: (email: string) => vo
         return;
       }
 
-      // In production, verify OTP with Supabase
+      // For demo: accept any 6-digit code
+      if (!/^\d{6}$/.test(otp)) {
+        setError("Bitte geben Sie einen 6-stelligen Code ein");
+        setIsLoading(false);
+        return;
+      }
+
+      // Demo: Auto-accept verification
       localStorage.setItem("auth_email", email);
       onRegister(email);
     } catch (err) {
