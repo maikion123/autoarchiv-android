@@ -105,7 +105,16 @@ export function RegisterForm({ onRegister }: { onRegister: (email: string) => vo
       });
 
       if (authError) {
-        setError(authError.message || "Registrierung fehlgeschlagen");
+        let errorMsg = authError.message || "Registrierung fehlgeschlagen";
+
+        // Better error messages for common Supabase errors
+        if (errorMsg.includes("weak") || errorMsg.includes("easy to guess")) {
+          errorMsg = "Dieses Passwort ist zu häufig. Versuchen Sie etwas Einzigartiges (z.B. Geburtsdatum + Lieblingsort + Sonderzeichen)";
+        } else if (errorMsg.includes("already registered")) {
+          errorMsg = "Diese E-Mail-Adresse ist bereits registriert. Melden Sie sich an oder verwenden Sie eine andere E-Mail.";
+        }
+
+        setError(errorMsg);
         setIsLoading(false);
         return;
       }
