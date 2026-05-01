@@ -18,13 +18,21 @@ export function RegisterForm({ onRegister }: { onRegister: (email: string) => vo
   };
 
   const validatePassword = (pwd: string) => {
+    const hasMinLength = pwd.length >= 12;
+    const hasUpperCase = /[A-Z]/.test(pwd);
+    const hasLowerCase = /[a-z]/.test(pwd);
+    const hasNumber = /[0-9]/.test(pwd);
+    const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pwd);
+
     const strength =
-      (pwd.length >= 8 ? 1 : 0) +
-      (/[A-Z]/.test(pwd) ? 1 : 0) +
-      (/[0-9]/.test(pwd) ? 1 : 0) +
-      (/[^A-Za-z0-9]/.test(pwd) ? 1 : 0);
+      (hasMinLength ? 1 : 0) +
+      (hasUpperCase ? 1 : 0) +
+      (hasLowerCase ? 1 : 0) +
+      (hasNumber ? 1 : 0) +
+      (hasSpecialChar ? 1 : 0);
+
     setPasswordStrength(strength);
-    return strength >= 3;
+    return hasMinLength && hasUpperCase && hasLowerCase && hasNumber && hasSpecialChar;
   };
 
   const handleEmailStep = async (e: React.FormEvent) => {
@@ -82,7 +90,7 @@ export function RegisterForm({ onRegister }: { onRegister: (email: string) => vo
       }
 
       if (!validatePassword(password)) {
-        setError("Passwort muss mindestens 8 Zeichen mit Großbuchstaben, Zahlen und Sonderzeichen enthalten");
+        setError("Passwort muss mindestens 12 Zeichen mit Groß- und Kleinbuchstaben, Zahlen und Sonderzeichen enthalten");
         setIsLoading(false);
         return;
       }
@@ -272,11 +280,20 @@ export function RegisterForm({ onRegister }: { onRegister: (email: string) => vo
                   />
                 </div>
                 <div className="flex gap-1 mt-2">
-                  {[...Array(4)].map((_, i) => (
+                  {[...Array(5)].map((_, i) => (
                     <div key={i} className={`h-1 flex-1 rounded-full ${i < passwordStrength ? "bg-emerald-500" : "bg-border/40"}`} />
                   ))}
                 </div>
-                <p className="text-xs text-muted-foreground">Min. 8 Zeichen, Großbuchstaben, Zahlen, Sonderzeichen</p>
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <p>Anforderungen:</p>
+                  <ul className="list-disc list-inside text-[11px]">
+                    <li>Min. 12 Zeichen</li>
+                    <li>Großbuchstaben (A-Z)</li>
+                    <li>Kleinbuchstaben (a-z)</li>
+                    <li>Zahlen (0-9)</li>
+                    <li>Sonderzeichen (!@#$%^&*)</li>
+                  </ul>
+                </div>
               </div>
 
               <div className="space-y-2">
