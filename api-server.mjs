@@ -147,13 +147,98 @@ app.use(cors({
   origin: process.env.FRONTEND_ORIGIN || 'https://nextkm.de',
   credentials: true,
 }));
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 
 // ── ROUTES ────────────────────────────────────────────────────────────────────
 
 // Health
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+
+const FOLDERS = {
+  fahrzeug: '01_Fahrzeug',
+  finanzen: '02_Finanzen',
+  versicherung: '03_Versicherungen',
+  vertrag: '04_Verträge',
+  behoerde: '05_Behörden',
+  gesundheit: '06_Gesundheit',
+  sonstiges: '07_Sonstiges',
+};
+
+function inferDocument(filename = '', mimeType = '') {
+  const name = filename.toLowerCase();
+  const text = `${name} ${mimeType.toLowerCase()}`;
+
+  const has = (...words) => words.some((word) => text.includes(word));
+
+  let folder = FOLDERS.sonstiges;
+  let dokumenttyp = 'Sonstiges';
+  let wichtigkeit = 'mittel';
+  const tags = [];
+
+  if (has('rechnung', 'invoice', 'zahlung', 'quittung', 'beleg')) {
+    folder = FOLDERS.finanzen;
+    dokumenttyp = 'Rechnung';
+    tags.push('zahlung');
+  } else if (has('vertrag', 'contract', 'abo', 'miete')) {
+    folder = FOLDERS.vertrag;
+    dokumenttyp = 'Vertrag';
+    tags.push('vertrag');
+  } else if (has('versicherung', 'police', 'haftpflicht', 'kasko')) {
+    folder = FOLDERS.versicherung;
+    dokumenttyp = 'Versicherung';
+    tags.push('versicherung');
+  } else if (has('tuv', 'tüv', 'hu', 'fahrzeug', 'auto', 'zulassung')) {
+    folder = FOLDERS.fahrzeug;
+    dokumenttyp = 'Bescheid';
+    wichtigkeit = 'hoch';
+    tags.push('fahrzeug');
+  } else if (has('amt', 'bescheid', 'steuer', 'finanzamt', 'behorde', 'behörde')) {
+    folder = FOLDERS.behoerde;
+    dokumenttyp = 'Bescheid';
+    wichtigkeit = 'hoch';
+    tags.push('behoerde');
+  } else if (has('arzt', 'gesundheit', 'krankenkasse', 'rezept', 'befund')) {
+    folder = FOLDERS.gesundheit;
+    dokumenttyp = 'Bescheid';
+    tags.push('gesundheit');
+  } else if (has('brief', 'letter')) {
+    dokumenttyp = 'Brief';
+  }
+
+  if (mimeType.startsWith('image/')) tags.push('bild');
+  if (mimeType === 'application/pdf') tags.push('pdf');
+
+  return {
+    absender: 'Unbekannt',
+    dokumenttyp,
+    zusammenfassung: filename
+      ? `Automatisch aus "${filename}" angelegt. Bitte Angaben prüfen und bei Bedarf ergänzen.`
+      : 'Automatisch angelegtes Dokument. Bitte Angaben prüfen und bei Bedarf ergänzen.',
+    zahlungsbetrag: null,
+    faelligkeitsdatum: null,
+    ablaufdatum: null,
+    vorgeschlagenerOrdner: folder,
+    vorgeschlagenerUnterordner: '',
+    wichtigkeit,
+    tags: Array.from(new Set(tags)).slice(0, 8),
+  };
+}
+
+// ── POST /api/analyze-document ────────────────────────────────────────────────
+app.post('/api/analyze-document', requireAuth, (req, res) => {
+  const { filename = '', mimeType = '' } = req.body ?? {};
+
+  if (!filename || !mimeType) {
+    return res.status(400).json({ error: 'Dateiname und MIME-Type erforderlich' });
+  }
+
+  if (!(mimeType.startsWith('image/') || mimeType === 'application/pdf')) {
+    return res.status(400).json({ error: 'Nur Bilder und PDFs werden unterstützt' });
+  }
+
+  return res.status(200).json(inferDocument(filename, mimeType));
+});
 
 // ── POST /api/auth/register ───────────────────────────────────────────────────
 app.post('/api/auth/register', authLimiter, async (req, res) => {

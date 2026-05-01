@@ -6,7 +6,6 @@ import { useArchive } from "../lib/store";
 import { saveDocument, savePayment, uid, type ArchivedDoc, type Importance } from "../lib/db";
 import { listAllFolderPaths, FOLDER_TREE } from "../lib/folders";
 import { fmtBytes, fmtEUR, fmtDate } from "../lib/format";
-import { supabase } from "../integrations/supabase/client";
 import { toast } from "sonner";
 
 type Stage = "queued" | "analyzing" | "ready" | "archived" | "error";
@@ -30,16 +29,6 @@ interface QueueItem {
   };
 }
 
-const fileToBase64 = (file: File) => new Promise<string>((resolve, reject) => {
-  const r = new FileReader();
-  r.onload = () => {
-    const s = String(r.result || "");
-    resolve(s.includes(",") ? s.split(",")[1] : s);
-  };
-  r.onerror = reject;
-  r.readAsDataURL(file);
-});
-
 export default function EingangPage() {
   const { refresh } = useArchive();
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -47,11 +36,18 @@ export default function EingangPage() {
   const analyze = useCallback(async (item: QueueItem) => {
     setQueue((q) => q.map((x) => x.id === item.id ? { ...x, stage: "analyzing" } : x));
     try {
-      const b64 = await fileToBase64(item.file);
-      const { data, error } = await supabase.functions.invoke("analyze-document", {
-        body: { imageBase64: b64, mimeType: item.file.type || "application/octet-stream", filename: item.file.name },
+      const res = await fetch("/api/analyze-document", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mimeType: item.file.type || "application/octet-stream",
+          filename: item.file.name,
+          size: item.file.size,
+        }),
       });
-      if (error) throw error;
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "KI-Analyse fehlgeschlagen");
       if ((data as any)?.error) throw new Error((data as any).error);
       const r = data as any;
       const folderPath = r.vorgeschlagenerUnterordner

@@ -13,6 +13,7 @@ import { Route as ZahlungenRouteImport } from './routes/zahlungen'
 import { Route as SucheRouteImport } from './routes/suche'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as EingangRouteImport } from './routes/eingang'
 import { Route as IndexRouteImport } from './routes/index'
 
 const ZahlungenRoute = ZahlungenRouteImport.update({
@@ -35,6 +36,11 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EingangRoute = EingangRouteImport.update({
+  id: '/eingang',
+  path: '/eingang',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -43,6 +49,7 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/eingang': typeof EingangRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/suche': typeof SucheRoute
@@ -50,6 +57,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/eingang': typeof EingangRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/suche': typeof SucheRoute
@@ -58,6 +66,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/eingang': typeof EingangRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/suche': typeof SucheRoute
@@ -65,14 +74,22 @@ export interface FileRoutesById {
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/register' | '/suche' | '/zahlungen'
+  fullPaths: '/' | '/eingang' | '/login' | '/register' | '/suche' | '/zahlungen'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/register' | '/suche' | '/zahlungen'
-  id: '__root__' | '/' | '/login' | '/register' | '/suche' | '/zahlungen'
+  to: '/' | '/eingang' | '/login' | '/register' | '/suche' | '/zahlungen'
+  id:
+    | '__root__'
+    | '/'
+    | '/eingang'
+    | '/login'
+    | '/register'
+    | '/suche'
+    | '/zahlungen'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  EingangRoute: typeof EingangRoute
   LoginRoute: typeof LoginRoute
   RegisterRoute: typeof RegisterRoute
   SucheRoute: typeof SucheRoute
@@ -109,6 +126,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/eingang': {
+      id: '/eingang'
+      path: '/eingang'
+      fullPath: '/eingang'
+      preLoaderRoute: typeof EingangRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -121,6 +145,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  EingangRoute: EingangRoute,
   LoginRoute: LoginRoute,
   RegisterRoute: RegisterRoute,
   SucheRoute: SucheRoute,
