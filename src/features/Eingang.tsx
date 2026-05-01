@@ -29,6 +29,16 @@ interface QueueItem {
   };
 }
 
+const fileToBase64 = (file: File) => new Promise<string>((resolve, reject) => {
+  const r = new FileReader();
+  r.onload = () => {
+    const s = String(r.result || "");
+    resolve(s.includes(",") ? s.split(",")[1] : s);
+  };
+  r.onerror = reject;
+  r.readAsDataURL(file);
+});
+
 export default function EingangPage() {
   const { refresh } = useArchive();
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -36,11 +46,13 @@ export default function EingangPage() {
   const analyze = useCallback(async (item: QueueItem) => {
     setQueue((q) => q.map((x) => x.id === item.id ? { ...x, stage: "analyzing" } : x));
     try {
+      const b64 = await fileToBase64(item.file);
       const res = await fetch("/api/analyze-document", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          imageBase64: b64,
           mimeType: item.file.type || "application/octet-stream",
           filename: item.file.name,
           size: item.file.size,

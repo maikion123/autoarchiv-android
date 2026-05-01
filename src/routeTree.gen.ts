@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ZahlungenRouteImport } from './routes/zahlungen'
+import { Route as TermineRouteImport } from './routes/termine'
 import { Route as SucheRouteImport } from './routes/suche'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as LoginRouteImport } from './routes/login'
@@ -19,6 +20,11 @@ import { Route as IndexRouteImport } from './routes/index'
 const ZahlungenRoute = ZahlungenRouteImport.update({
   id: '/zahlungen',
   path: '/zahlungen',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TermineRoute = TermineRouteImport.update({
+  id: '/termine',
+  path: '/termine',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SucheRoute = SucheRouteImport.update({
@@ -53,6 +59,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/suche': typeof SucheRoute
+  '/termine': typeof TermineRoute
   '/zahlungen': typeof ZahlungenRoute
 }
 export interface FileRoutesByTo {
@@ -61,6 +68,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/suche': typeof SucheRoute
+  '/termine': typeof TermineRoute
   '/zahlungen': typeof ZahlungenRoute
 }
 export interface FileRoutesById {
@@ -70,13 +78,28 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/suche': typeof SucheRoute
+  '/termine': typeof TermineRoute
   '/zahlungen': typeof ZahlungenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/eingang' | '/login' | '/register' | '/suche' | '/zahlungen'
+  fullPaths:
+    | '/'
+    | '/eingang'
+    | '/login'
+    | '/register'
+    | '/suche'
+    | '/termine'
+    | '/zahlungen'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/eingang' | '/login' | '/register' | '/suche' | '/zahlungen'
+  to:
+    | '/'
+    | '/eingang'
+    | '/login'
+    | '/register'
+    | '/suche'
+    | '/termine'
+    | '/zahlungen'
   id:
     | '__root__'
     | '/'
@@ -84,6 +107,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/register'
     | '/suche'
+    | '/termine'
     | '/zahlungen'
   fileRoutesById: FileRoutesById
 }
@@ -93,6 +117,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   RegisterRoute: typeof RegisterRoute
   SucheRoute: typeof SucheRoute
+  TermineRoute: typeof TermineRoute
   ZahlungenRoute: typeof ZahlungenRoute
 }
 
@@ -103,6 +128,13 @@ declare module '@tanstack/react-router' {
       path: '/zahlungen'
       fullPath: '/zahlungen'
       preLoaderRoute: typeof ZahlungenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/termine': {
+      id: '/termine'
+      path: '/termine'
+      fullPath: '/termine'
+      preLoaderRoute: typeof TermineRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/suche': {
@@ -149,6 +181,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   RegisterRoute: RegisterRoute,
   SucheRoute: SucheRoute,
+  TermineRoute: TermineRoute,
   ZahlungenRoute: ZahlungenRoute,
 }
 export const routeTree = rootRouteImport
