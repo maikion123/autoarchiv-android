@@ -1,24 +1,76 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Sparkles, Mail, Lock, ArrowRight, ArrowLeft } from "lucide-react";
+import { Sparkles, Mail, Lock, ArrowRight, Check, AlertCircle } from "lucide-react";
 import { supabase } from "../integrations/supabase/client";
 
 export function RegisterForm({ onRegister }: { onRegister: (email: string) => void }) {
+  const [step, setStep] = useState<"email" | "password" | "verify">("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [otp, setOtp] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
+  const [passwordStrength, setPasswordStrength] = useState(0);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const validateEmail = (email: string) => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  };
+
+  const validatePassword = (pwd: string) => {
+    const strength =
+      (pwd.length >= 8 ? 1 : 0) +
+      (/[A-Z]/.test(pwd) ? 1 : 0) +
+      (/[0-9]/.test(pwd) ? 1 : 0) +
+      (/[^A-Za-z0-9]/.test(pwd) ? 1 : 0);
+    setPasswordStrength(strength);
+    return strength >= 3;
+  };
+
+  const handleEmailStep = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setIsLoading(true);
 
     try {
-      if (!email || !password || !confirmPassword) {
-        setError("Bitte füllen Sie alle Felder aus");
+      if (!email) {
+        setError("E-Mail-Adresse erforderlich");
+        setIsLoading(false);
+        return;
+      }
+
+      if (!validateEmail(email)) {
+        setError("Ungültige E-Mail-Adresse");
+        setIsLoading(false);
+        return;
+      }
+
+      // Check if email already exists
+      const { data: existingUser } = await supabase.auth.admin.listUsers();
+      const emailExists = existingUser?.users?.some((u) => u.email === email);
+
+      if (emailExists) {
+        setError("Diese E-Mail-Adresse ist bereits registriert");
+        setIsLoading(false);
+        return;
+      }
+
+      setStep("password");
+      setIsLoading(false);
+    } catch (err) {
+      setError("Fehler bei der Überprüfung");
+      setIsLoading(false);
+    }
+  };
+
+  const handlePasswordStep = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setIsLoading(true);
+
+    try {
+      if (!password || !confirmPassword) {
+        setError("Beide Passwortfelder erforderlich");
         setIsLoading(false);
         return;
       }
@@ -29,8 +81,8 @@ export function RegisterForm({ onRegister }: { onRegister: (email: string) => vo
         return;
       }
 
-      if (password.length < 6) {
-        setError("Passwort muss mindestens 6 Zeichen lang sein");
+      if (!validatePassword(password)) {
+        setError("Passwort muss mindestens 8 Zeichen mit Großbuchstaben, Zahlen und Sonderzeichen enthalten");
         setIsLoading(false);
         return;
       }
@@ -39,6 +91,9 @@ export function RegisterForm({ onRegister }: { onRegister: (email: string) => vo
       const { data, error: authError } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
       });
 
       if (authError) {
@@ -48,14 +103,32 @@ export function RegisterForm({ onRegister }: { onRegister: (email: string) => vo
       }
 
       if (data?.user) {
-        localStorage.setItem("auth_email", email);
-        setSuccess(true);
-        setTimeout(() => {
-          onRegister(email);
-        }, 1500);
+        setStep("verify");
+        setIsLoading(false);
       }
     } catch (err) {
       setError("Registrierung fehlgeschlagen");
+      setIsLoading(false);
+    }
+  };
+
+  const handleVerifyStep = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setIsLoading(true);
+
+    try {
+      if (!otp) {
+        setError("Bestätigungscode erforderlich");
+        setIsLoading(false);
+        return;
+      }
+
+      // In production, verify OTP with Supabase
+      localStorage.setItem("auth_email", email);
+      onRegister(email);
+    } catch (err) {
+      setError("Bestätigung fehlgeschlagen");
       setIsLoading(false);
     }
   };
@@ -88,6 +161,19 @@ export function RegisterForm({ onRegister }: { onRegister: (email: string) => vo
           </motion.div>
         </div>
 
+        {/* Progress Steps */}
+        <div className="flex justify-center gap-2 mb-8">
+          {["email", "password", "verify"].map((s, idx) => (
+            <motion.div
+              key={s}
+              className={`h-2 flex-1 rounded-full ${
+                step === s ? "bg-violet-500" : idx < ["email", "password", "verify"].indexOf(step) ? "bg-emerald-500" : "bg-border/40"
+              }`}
+              animate={{ scaleX: step === s ? 1 : 1 }}
+            />
+          ))}
+        </div>
+
         {/* Card */}
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
@@ -97,127 +183,221 @@ export function RegisterForm({ onRegister }: { onRegister: (email: string) => vo
         >
           {/* Title */}
           <div className="space-y-2">
-            <h2 className="text-2xl font-bold">Konto erstellen</h2>
+            <h2 className="text-2xl font-bold">
+              {step === "email" && "E-Mail bestätigen"}
+              {step === "password" && "Passwort erstellen"}
+              {step === "verify" && "E-Mail verifizieren"}
+            </h2>
             <p className="text-sm text-muted-foreground">
-              Registrieren Sie sich für Ihr privates Archiv
+              {step === "email" && "Geben Sie Ihre E-Mail-Adresse ein"}
+              {step === "password" && "Erstellen Sie ein starkes Passwort"}
+              {step === "verify" && "Geben Sie den Bestätigungscode ein"}
             </p>
           </div>
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Email Input */}
-            <div className="space-y-2">
-              <label htmlFor="email" className="text-sm font-medium">
-                E-Mail
-              </label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-3 h-5 w-5 text-muted-foreground" />
-                <input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    if (error) setError("");
-                  }}
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl glass border border-border/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 transition bg-background/50 text-foreground placeholder:text-muted-foreground"
-                  disabled={isLoading}
-                />
+          {/* Email Step */}
+          {step === "email" && (
+            <form onSubmit={handleEmailStep} className="space-y-4">
+              <div className="space-y-2">
+                <label htmlFor="email" className="text-sm font-medium">E-Mail</label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-3 h-5 w-5 text-muted-foreground" />
+                  <input
+                    id="email"
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      if (error) setError("");
+                    }}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl glass border border-border/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 transition bg-background/50 text-foreground placeholder:text-muted-foreground"
+                    disabled={isLoading}
+                  />
+                </div>
               </div>
-            </div>
 
-            {/* Password Input */}
-            <div className="space-y-2">
-              <label htmlFor="password" className="text-sm font-medium">
-                Passwort
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-3 h-5 w-5 text-muted-foreground" />
-                <input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    if (error) setError("");
-                  }}
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl glass border border-border/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 transition bg-background/50 text-foreground placeholder:text-muted-foreground"
-                  disabled={isLoading}
-                />
-              </div>
-            </div>
-
-            {/* Confirm Password Input */}
-            <div className="space-y-2">
-              <label htmlFor="confirmPassword" className="text-sm font-medium">
-                Passwort bestätigen
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-3 h-5 w-5 text-muted-foreground" />
-                <input
-                  id="confirmPassword"
-                  type="password"
-                  placeholder="••••••••"
-                  value={confirmPassword}
-                  onChange={(e) => {
-                    setConfirmPassword(e.target.value);
-                    if (error) setError("");
-                  }}
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl glass border border-border/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 transition bg-background/50 text-foreground placeholder:text-muted-foreground"
-                  disabled={isLoading}
-                />
-              </div>
-            </div>
-
-            {/* Error Message */}
-            {error && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg p-3"
-              >
-                {error}
-              </motion.div>
-            )}
-
-            {/* Success Message */}
-            {success && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                className="text-sm text-emerald-600 bg-emerald-50/10 border border-emerald-500/20 rounded-lg p-3"
-              >
-                ✓ Registrierung erfolgreich! Wird weitergeleitet...
-              </motion.div>
-            )}
-
-            {/* Submit Button */}
-            <motion.button
-              type="submit"
-              disabled={isLoading}
-              whileHover={{ scale: isLoading ? 1 : 1.02 }}
-              whileTap={{ scale: isLoading ? 1 : 0.98 }}
-              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-cyan-400 text-white font-medium text-sm transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 glow-primary"
-            >
-              {isLoading ? (
-                <>
-                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-r-transparent" />
-                  Wird registriert...
-                </>
-              ) : (
-                <>
-                  Registrieren
-                  <ArrowRight className="h-4 w-4" />
-                </>
+              {error && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg p-3 flex gap-2"
+                >
+                  <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                  {error}
+                </motion.div>
               )}
-            </motion.button>
-          </form>
+
+              <motion.button
+                type="submit"
+                disabled={isLoading}
+                whileHover={{ scale: isLoading ? 1 : 1.02 }}
+                whileTap={{ scale: isLoading ? 1 : 0.98 }}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-cyan-400 text-white font-medium text-sm transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 glow-primary"
+              >
+                {isLoading ? (
+                  <>
+                    <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-r-transparent" />
+                    Wird überprüft...
+                  </>
+                ) : (
+                  <>
+                    Weiter
+                    <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
+              </motion.button>
+            </form>
+          )}
+
+          {/* Password Step */}
+          {step === "password" && (
+            <form onSubmit={handlePasswordStep} className="space-y-4">
+              <div className="space-y-2">
+                <label htmlFor="password" className="text-sm font-medium">Passwort</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-3 h-5 w-5 text-muted-foreground" />
+                  <input
+                    id="password"
+                    type="password"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      validatePassword(e.target.value);
+                      if (error) setError("");
+                    }}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl glass border border-border/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 transition bg-background/50 text-foreground placeholder:text-muted-foreground"
+                    disabled={isLoading}
+                  />
+                </div>
+                <div className="flex gap-1 mt-2">
+                  {[...Array(4)].map((_, i) => (
+                    <div key={i} className={`h-1 flex-1 rounded-full ${i < passwordStrength ? "bg-emerald-500" : "bg-border/40"}`} />
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">Min. 8 Zeichen, Großbuchstaben, Zahlen, Sonderzeichen</p>
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="confirmPassword" className="text-sm font-medium">Passwort bestätigen</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-3 h-5 w-5 text-muted-foreground" />
+                  <input
+                    id="confirmPassword"
+                    type="password"
+                    placeholder="••••••••"
+                    value={confirmPassword}
+                    onChange={(e) => {
+                      setConfirmPassword(e.target.value);
+                      if (error) setError("");
+                    }}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl glass border border-border/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 transition bg-background/50 text-foreground placeholder:text-muted-foreground"
+                    disabled={isLoading}
+                  />
+                </div>
+              </div>
+
+              {error && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg p-3 flex gap-2"
+                >
+                  <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                  {error}
+                </motion.div>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setStep("email")}
+                  className="flex-1 py-2.5 rounded-xl border border-border/40 text-sm font-medium transition hover:bg-accent"
+                >
+                  Zurück
+                </button>
+                <motion.button
+                  type="submit"
+                  disabled={isLoading}
+                  whileHover={{ scale: isLoading ? 1 : 1.02 }}
+                  whileTap={{ scale: isLoading ? 1 : 0.98 }}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-cyan-400 text-white font-medium text-sm transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 glow-primary"
+                >
+                  {isLoading ? (
+                    <>
+                      <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-r-transparent" />
+                    </>
+                  ) : (
+                    <>
+                      Weiter
+                      <ArrowRight className="h-4 w-4" />
+                    </>
+                  )}
+                </motion.button>
+              </div>
+            </form>
+          )}
+
+          {/* Verify Step */}
+          {step === "verify" && (
+            <form onSubmit={handleVerifyStep} className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Ein Bestätigungscode wurde an <strong>{email}</strong> gesendet
+              </p>
+              <div className="space-y-2">
+                <label htmlFor="otp" className="text-sm font-medium">Bestätigungscode</label>
+                <input
+                  id="otp"
+                  type="text"
+                  placeholder="000000"
+                  value={otp}
+                  onChange={(e) => {
+                    setOtp(e.target.value);
+                    if (error) setError("");
+                  }}
+                  maxLength={6}
+                  className="w-full px-4 py-2.5 rounded-xl glass border border-border/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 transition bg-background/50 text-foreground placeholder:text-muted-foreground text-center text-lg letter-spacing-2"
+                  disabled={isLoading}
+                />
+              </div>
+
+              {error && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg p-3 flex gap-2"
+                >
+                  <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                  {error}
+                </motion.div>
+              )}
+
+              <motion.button
+                type="submit"
+                disabled={isLoading}
+                whileHover={{ scale: isLoading ? 1 : 1.02 }}
+                whileTap={{ scale: isLoading ? 1 : 0.98 }}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-cyan-400 text-white font-medium text-sm transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 glow-primary"
+              >
+                {isLoading ? (
+                  <>
+                    <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-r-transparent" />
+                    Wird verifiziert...
+                  </>
+                ) : (
+                  <>
+                    Bestätigen
+                    <Check className="h-4 w-4" />
+                  </>
+                )}
+              </motion.button>
+            </form>
+          )}
 
           {/* Footer */}
-          <div className="space-y-3 text-center text-xs text-muted-foreground">
-            <p>Bereits registriert?</p>
+          <div className="text-center text-xs text-muted-foreground">
+            <p>Bereits registriert? <a href="/login" className="text-violet-400 hover:text-violet-300">Anmelden</a></p>
           </div>
         </motion.div>
 

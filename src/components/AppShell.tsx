@@ -1,6 +1,7 @@
-import { Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { Link, Outlet, useRouterState, useNavigate } from "@tanstack/react-router";
 import { motion } from "framer-motion";
-import { LayoutDashboard, Search, Wallet, CalendarDays, Inbox, Sparkles } from "lucide-react";
+import { LayoutDashboard, Search, Wallet, CalendarDays, Inbox, Sparkles, LogOut } from "lucide-react";
+import { useState, useEffect } from "react";
 
 const TABS = [
   { to: "/", label: "Übersicht", Icon: LayoutDashboard },
@@ -12,6 +13,21 @@ const TABS = [
 
 export function AppShell() {
   const path = useRouterState({ select: (s) => s.location.pathname });
+  const navigate = useNavigate();
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    const email = localStorage.getItem("auth_email");
+    if (!email && path !== "/login") {
+      navigate({ to: "/login" });
+    }
+    setUserEmail(email);
+  }, [path, navigate]);
+
+  const handleLogout = () => {
+    localStorage.removeItem("auth_email");
+    navigate({ to: "/login" });
+  };
 
   return (
     <div className="min-h-screen text-foreground scrollbar-thin">
@@ -51,11 +67,21 @@ export function AppShell() {
                 );
               })}
             </nav>
-            <div className="ml-auto text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-2 rounded-full glass px-3 py-1">
-                <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_oklch(0.72_0.18_155)]" />
-                Lokal verschlüsselt
-              </span>
+            <div className="ml-auto flex items-center gap-4">
+              <div className="text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-2 rounded-full glass px-3 py-1">
+                  <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_oklch(0.72_0.18_155)]" />
+                  Lokal verschlüsselt
+                </span>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition rounded-lg hover:bg-accent"
+                title={userEmail || "Abmelden"}
+              >
+                <LogOut className="h-4 w-4" />
+                <span className="hidden sm:inline text-xs max-w-[150px] truncate">{userEmail?.split("@")[0]}</span>
+              </button>
             </div>
           </div>
         </div>
