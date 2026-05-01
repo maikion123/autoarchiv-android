@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Sparkles, Mail, Lock, ArrowRight } from "lucide-react";
-import { supabase } from "../integrations/supabase/client";
+import { Mail, Lock, ArrowRight } from "lucide-react";
+import logoImg from "../assets/logo.png";
 
 export function LoginForm({ onLogin }: { onLogin: (email: string) => void }) {
   const [email, setEmail] = useState("");
@@ -12,33 +12,32 @@ export function LoginForm({ onLogin }: { onLogin: (email: string) => void }) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    if (!email || !password) {
+      setError("Bitte alle Felder ausfüllen");
+      return;
+    }
+
     setIsLoading(true);
-
     try {
-      if (!email || !password) {
-        setError("Bitte füllen Sie alle Felder aus");
-        setIsLoading(false);
-        return;
-      }
-
-      // Sign in with Supabase
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
       });
 
-      if (authError) {
-        setError(authError.message || "Anmeldung fehlgeschlagen");
-        setIsLoading(false);
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Anmeldung fehlgeschlagen");
         return;
       }
 
-      if (data?.user) {
-        localStorage.setItem("auth_email", email);
-        onLogin(email);
-      }
-    } catch (err) {
-      setError("Anmeldung fehlgeschlagen");
+      onLogin(data.email);
+    } catch {
+      setError("Verbindungsfehler. Bitte erneut versuchen.");
+    } finally {
       setIsLoading(false);
     }
   };
@@ -51,7 +50,6 @@ export function LoginForm({ onLogin }: { onLogin: (email: string) => void }) {
         transition={{ duration: 0.5 }}
         className="w-full max-w-md"
       >
-        {/* Logo */}
         <div className="flex justify-center mb-8">
           <motion.div
             initial={{ scale: 0 }}
@@ -59,9 +57,7 @@ export function LoginForm({ onLogin }: { onLogin: (email: string) => void }) {
             transition={{ delay: 0.2, type: "spring" }}
             className="flex items-center gap-3"
           >
-            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-violet-500 to-cyan-400 glow-primary">
-              <Sparkles className="h-6 w-6 text-white" />
-            </div>
+            <img src={logoImg} alt="nextKM Logo" className="h-12 w-12 rounded-2xl" />
             <div>
               <h1 className="text-2xl font-bold tracking-tight">
                 Auto<span className="text-gradient">Archiv</span>
@@ -71,68 +67,54 @@ export function LoginForm({ onLogin }: { onLogin: (email: string) => void }) {
           </motion.div>
         </div>
 
-        {/* Card */}
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.3 }}
           className="glass-strong rounded-3xl border-glow p-8 space-y-6"
         >
-          {/* Title */}
           <div className="space-y-2">
             <h2 className="text-2xl font-bold">Willkommen zurück</h2>
             <p className="text-sm text-muted-foreground">
-              Melden Sie sich an, um auf Ihr privates Archiv zuzugreifen
+              Melde dich an, um auf dein privates Archiv zuzugreifen
             </p>
           </div>
 
-          {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Email Input */}
             <div className="space-y-2">
-              <label htmlFor="email" className="text-sm font-medium">
-                E-Mail
-              </label>
+              <label htmlFor="email" className="text-sm font-medium">E-Mail</label>
               <div className="relative">
                 <Mail className="absolute left-3 top-3 h-5 w-5 text-muted-foreground" />
                 <input
                   id="email"
                   type="email"
-                  placeholder="you@example.com"
+                  autoComplete="email"
+                  placeholder="du@beispiel.de"
                   value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    if (error) setError("");
-                  }}
+                  onChange={(e) => { setEmail(e.target.value); setError(""); }}
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl glass border border-border/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 transition bg-background/50 text-foreground placeholder:text-muted-foreground"
                   disabled={isLoading}
                 />
               </div>
             </div>
 
-            {/* Password Input */}
             <div className="space-y-2">
-              <label htmlFor="password" className="text-sm font-medium">
-                Passwort
-              </label>
+              <label htmlFor="password" className="text-sm font-medium">Passwort</label>
               <div className="relative">
                 <Lock className="absolute left-3 top-3 h-5 w-5 text-muted-foreground" />
                 <input
                   id="password"
                   type="password"
+                  autoComplete="current-password"
                   placeholder="••••••••"
                   value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    if (error) setError("");
-                  }}
+                  onChange={(e) => { setPassword(e.target.value); setError(""); }}
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl glass border border-border/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 transition bg-background/50 text-foreground placeholder:text-muted-foreground"
                   disabled={isLoading}
                 />
               </div>
             </div>
 
-            {/* Error Message */}
             {error && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
@@ -143,7 +125,6 @@ export function LoginForm({ onLogin }: { onLogin: (email: string) => void }) {
               </motion.div>
             )}
 
-            {/* Submit Button */}
             <motion.button
               type="submit"
               disabled={isLoading}
@@ -154,7 +135,7 @@ export function LoginForm({ onLogin }: { onLogin: (email: string) => void }) {
               {isLoading ? (
                 <>
                   <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-r-transparent" />
-                  Wird angemeldet...
+                  Wird angemeldet…
                 </>
               ) : (
                 <>
@@ -165,27 +146,16 @@ export function LoginForm({ onLogin }: { onLogin: (email: string) => void }) {
             </motion.button>
           </form>
 
-          {/* Footer */}
-          <div className="space-y-3 text-center text-xs text-muted-foreground">
-            <p>Demo: Beliebige E-Mail und Passwort</p>
-            <div className="flex items-center justify-center gap-2 text-[11px]">
-              <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_oklch(0.72_0.18_155)]" />
-              Lokal verschlüsselt
-            </div>
-            <div className="pt-2 border-t border-border/20">
-              <p>Noch kein Konto?{" "}
-                <a
-                  href="/register"
-                  className="text-violet-400 hover:text-violet-300 font-medium transition"
-                >
-                  Hier registrieren
-                </a>
-              </p>
-            </div>
+          <div className="pt-2 border-t border-border/20 text-center text-xs text-muted-foreground">
+            <p>
+              Noch kein Konto?{" "}
+              <a href="/register" className="text-violet-400 hover:text-violet-300 font-medium transition">
+                Hier registrieren
+              </a>
+            </p>
           </div>
         </motion.div>
 
-        {/* Background Decorations */}
         <div className="absolute inset-0 -z-10 overflow-hidden pointer-events-none">
           <div className="absolute top-20 right-10 h-40 w-40 rounded-full bg-violet-500/10 blur-3xl" />
           <div className="absolute bottom-20 left-10 h-40 w-40 rounded-full bg-cyan-400/10 blur-3xl" />

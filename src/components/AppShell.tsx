@@ -1,7 +1,8 @@
 import { Link, Outlet, useRouterState, useNavigate } from "@tanstack/react-router";
 import { motion } from "framer-motion";
-import { LayoutDashboard, Search, Wallet, CalendarDays, Inbox, Sparkles, LogOut } from "lucide-react";
+import { LayoutDashboard, Search, Wallet, CalendarDays, Inbox, LogOut } from "lucide-react";
 import { useState, useEffect } from "react";
+import logoImg from "../assets/logo.png";
 
 const TABS = [
   { to: "/", label: "Übersicht", Icon: LayoutDashboard },
@@ -67,9 +68,7 @@ export function AppShell() {
         <div className="glass-strong border-b border-border/40">
           <div className="mx-auto flex max-w-7xl items-center gap-8 px-6 py-3">
             <Link to="/" className="flex items-center gap-2">
-              <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-violet-500 to-cyan-400 glow-primary">
-                <Sparkles className="h-4 w-4 text-white" />
-              </div>
+              <img src={logoImg} alt="nextKM Logo" className="h-9 w-9 rounded-xl" />
               <span className="text-lg font-semibold tracking-tight">
                 Auto<span className="text-gradient">Archiv</span>
               </span>
@@ -122,9 +121,7 @@ export function AppShell() {
       <header className="sticky top-0 z-40 md:hidden glass-strong border-b border-border/40">
         <div className="flex items-center justify-between px-4 py-3">
           <Link to="/" className="flex items-center gap-2">
-            <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-cyan-400 glow-primary">
-              <Sparkles className="h-4 w-4 text-white" />
-            </div>
+            <img src={logoImg} alt="nextKM Logo" className="h-8 w-8 rounded-lg" />
             <span className="text-base font-semibold">
               Auto<span className="text-gradient">Archiv</span>
             </span>

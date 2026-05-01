@@ -1,0 +1,411 @@
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
+import { rateLimit } from 'express-rate-limit';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import nodemailer from 'nodemailer';
+import Database from 'better-sqlite3';
+import crypto from 'crypto';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// ── ENV ──────────────────────────────────────────────────────────────────────
+function requireEnv(name) {
+  const val = process.env[name];
+  if (!val) throw new Error(`Fehlende ENV-Variable: ${name}`);
+  return val;
+}
+
+const JWT_SECRET   = requireEnv('JWT_SECRET');
+const SMTP_HOST    = requireEnv('SMTP_HOST');
+const SMTP_PORT    = parseInt(process.env.SMTP_PORT || '587', 10);
+const SMTP_USER    = requireEnv('SMTP_USER');
+const SMTP_PASS    = requireEnv('SMTP_PASSWORD');
+const SMTP_FROM    = process.env.SMTP_FROM || SMTP_USER;
+const SMTP_SECURE  = process.env.SMTP_SECURE === 'true';
+const DB_PATH      = process.env.DB_PATH || join(__dirname, 'data/autoarchiv.db');
+const API_PORT     = parseInt(process.env.API_PORT || '3001', 10);
+const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || undefined;
+
+// ── DATENBANK ─────────────────────────────────────────────────────────────────
+const db = new Database(DB_PATH);
+db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id           TEXT PRIMARY KEY,
+    email        TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    email_verified INTEGER NOT NULL DEFAULT 0,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS email_verification_codes (
+    id           TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code_hash    TEXT NOT NULL,
+    expires_at   TEXT NOT NULL,
+    attempts     INTEGER NOT NULL DEFAULT 0,
+    consumed_at  TEXT,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS auth_logs (
+    id         TEXT PRIMARY KEY,
+    user_id    TEXT,
+    action     TEXT NOT NULL,
+    ip         TEXT,
+    detail     TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
+// ── HILFSFUNKTIONEN ──────────────────────────────────────────────────────────
+function uid() {
+  return crypto.randomUUID();
+}
+
+function hashCode(code) {
+  return crypto.createHash('sha256').update(code).digest('hex');
+}
+
+function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  return forwarded ? forwarded.split(',')[0].trim() : req.socket.remoteAddress;
+}
+
+function log(action, { userId = null, ip = null, detail = null } = {}) {
+  db.prepare(
+    'INSERT INTO auth_logs (id, user_id, action, ip, detail) VALUES (?, ?, ?, ?, ?)'
+  ).run(uid(), userId, action, ip, detail);
+}
+
+// ── MAILER ────────────────────────────────────────────────────────────────────
+const transporter = nodemailer.createTransport({
+  host: SMTP_HOST,
+  port: SMTP_PORT,
+  secure: SMTP_SECURE,
+  auth: { user: SMTP_USER, pass: SMTP_PASS },
+});
+
+async function sendVerificationMail(email, code) {
+  await transporter.sendMail({
+    from: `"AutoArchiv" <${SMTP_FROM}>`,
+    to: email,
+    subject: 'Dein Verifizierungscode',
+    text: `Dein Bestätigungscode lautet: ${code}\n\nDer Code ist 10 Minuten gültig.\n\nFalls du diese Registrierung nicht angefordert hast, ignoriere diese E-Mail.`,
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:auto">
+        <h2>Dein Bestätigungscode</h2>
+        <p style="font-size:2rem;letter-spacing:.3rem;font-weight:bold;color:#7c3aed">${code}</p>
+        <p>Der Code ist <strong>10 Minuten gültig</strong>.</p>
+        <p style="color:#888;font-size:.85rem">Falls du diese Registrierung nicht angefordert hast, ignoriere diese E-Mail.</p>
+      </div>
+    `,
+  });
+}
+
+// ── RATE LIMITER ──────────────────────────────────────────────────────────────
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Zu viele Anfragen. Bitte in 15 Minuten erneut versuchen.' },
+});
+
+// ── JWT-MIDDLEWARE ─────────────────────────────────────────────────────────────
+function requireAuth(req, res, next) {
+  const token = req.cookies?.auth_token;
+  if (!token) return res.status(401).json({ error: 'Nicht angemeldet' });
+  try {
+    req.user = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    res.clearCookie('auth_token');
+    return res.status(401).json({ error: 'Sitzung abgelaufen' });
+  }
+}
+
+// ── APP ───────────────────────────────────────────────────────────────────────
+const app = express();
+
+app.set('trust proxy', 1);
+
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'same-origin' },
+}));
+app.use(cors({
+  origin: process.env.FRONTEND_ORIGIN || 'https://nextkm.de',
+  credentials: true,
+}));
+app.use(express.json());
+app.use(cookieParser());
+
+// ── ROUTES ────────────────────────────────────────────────────────────────────
+
+// Health
+app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+
+// ── POST /api/auth/register ───────────────────────────────────────────────────
+app.post('/api/auth/register', authLimiter, async (req, res) => {
+  const ip = getClientIp(req);
+  const { email, password } = req.body ?? {};
+
+  // Validierung
+  if (!email || !password)
+    return res.status(400).json({ error: 'E-Mail und Passwort erforderlich' });
+
+  const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRx.test(email))
+    return res.status(400).json({ error: 'Ungültige E-Mail-Adresse' });
+
+  if (password.length < 8)
+    return res.status(400).json({ error: 'Passwort muss mindestens 8 Zeichen lang sein' });
+
+  const specialRx = /[!@#$%^&*()\-_=+\[\]{};':"\\|,.<>\/?]/;
+  if (!specialRx.test(password))
+    return res.status(400).json({ error: 'Passwort muss mindestens ein Sonderzeichen enthalten' });
+
+  try {
+    // Prüfen ob E-Mail bereits existiert
+    const existing = db.prepare('SELECT id, email_verified FROM users WHERE email = ?').get(email.toLowerCase());
+
+    if (existing) {
+      if (existing.email_verified) {
+        log('REGISTER_DUPLICATE', { ip, detail: 'email already verified' });
+        return res.status(409).json({ error: 'Diese E-Mail-Adresse ist bereits registriert' });
+      }
+      // Nicht verifizierter Account → neuen OTP senden
+      const code = String(crypto.randomInt(100000, 999999));
+      const codeHash = hashCode(code);
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+      // Alte Codes invalidieren
+      db.prepare('DELETE FROM email_verification_codes WHERE user_id = ?').run(existing.id);
+      db.prepare(
+        'INSERT INTO email_verification_codes (id, user_id, code_hash, expires_at) VALUES (?, ?, ?, ?)'
+      ).run(uid(), existing.id, codeHash, expiresAt);
+
+      try {
+        await sendVerificationMail(email, code);
+        log('OTP_RESENT', { userId: existing.id, ip });
+      } catch {
+        log('EMAIL_SEND_FAILED', { userId: existing.id, ip });
+        return res.status(500).json({ error: 'E-Mail konnte nicht gesendet werden' });
+      }
+
+      return res.status(200).json({ message: 'Bestätigungscode erneut gesendet' });
+    }
+
+    // Neuer User
+    const passwordHash = await bcrypt.hash(password, 12);
+    const userId = uid();
+    const normalizedEmail = email.toLowerCase().trim();
+
+    db.prepare(
+      'INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)'
+    ).run(userId, normalizedEmail, passwordHash);
+
+    log('REGISTER_STARTED', { userId, ip });
+
+    // OTP erstellen
+    const code = String(crypto.randomInt(100000, 999999));
+    const codeHash = hashCode(code);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+    db.prepare(
+      'INSERT INTO email_verification_codes (id, user_id, code_hash, expires_at) VALUES (?, ?, ?, ?)'
+    ).run(uid(), userId, codeHash, expiresAt);
+
+    log('OTP_CREATED', { userId, ip });
+
+    try {
+      await sendVerificationMail(normalizedEmail, code);
+      log('EMAIL_SENT', { userId, ip });
+    } catch {
+      log('EMAIL_SEND_FAILED', { userId, ip });
+      return res.status(500).json({ error: 'E-Mail konnte nicht gesendet werden. Bitte versuche es erneut.' });
+    }
+
+    return res.status(201).json({ message: 'Registrierung gestartet. Bitte E-Mail prüfen.' });
+  } catch (err) {
+    log('REGISTER_ERROR', { ip, detail: err.message });
+    return res.status(500).json({ error: 'Interner Fehler bei der Registrierung' });
+  }
+});
+
+// ── POST /api/auth/verify-otp ─────────────────────────────────────────────────
+app.post('/api/auth/verify-otp', authLimiter, async (req, res) => {
+  const ip = getClientIp(req);
+  const { email, code } = req.body ?? {};
+
+  if (!email || !code)
+    return res.status(400).json({ error: 'E-Mail und Code erforderlich' });
+
+  if (!/^\d{6}$/.test(code))
+    return res.status(400).json({ error: 'Code muss 6 Ziffern haben' });
+
+  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase());
+  if (!user)
+    return res.status(404).json({ error: 'Kein Konto mit dieser E-Mail gefunden' });
+
+  if (user.email_verified)
+    return res.status(400).json({ error: 'E-Mail ist bereits verifiziert. Bitte anmelden.' });
+
+  const otpRow = db.prepare(
+    'SELECT * FROM email_verification_codes WHERE user_id = ? AND consumed_at IS NULL ORDER BY created_at DESC LIMIT 1'
+  ).get(user.id);
+
+  if (!otpRow) {
+    log('OTP_NOT_FOUND', { userId: user.id, ip });
+    return res.status(400).json({ error: 'Kein gültiger Code gefunden. Bitte neu anfordern.' });
+  }
+
+  // Ablauf prüfen
+  if (new Date(otpRow.expires_at) < new Date()) {
+    log('OTP_EXPIRED', { userId: user.id, ip });
+    return res.status(400).json({ error: 'Code abgelaufen. Bitte neuen Code anfordern.' });
+  }
+
+  // Max-Versuche prüfen
+  if (otpRow.attempts >= 5) {
+    log('OTP_MAX_ATTEMPTS', { userId: user.id, ip });
+    return res.status(429).json({ error: 'Zu viele Fehlversuche. Bitte neuen Code anfordern.' });
+  }
+
+  const codeHash = hashCode(code);
+
+  if (codeHash !== otpRow.code_hash) {
+    db.prepare('UPDATE email_verification_codes SET attempts = attempts + 1 WHERE id = ?').run(otpRow.id);
+    log('OTP_WRONG', { userId: user.id, ip });
+    const remaining = 5 - (otpRow.attempts + 1);
+    return res.status(400).json({ error: `Falscher Code. Noch ${remaining} Versuch(e).` });
+  }
+
+  // Erfolg: User verifizieren, Code verbrauchen
+  const now = new Date().toISOString();
+  db.prepare('UPDATE email_verification_codes SET consumed_at = ? WHERE id = ?').run(now, otpRow.id);
+  db.prepare("UPDATE users SET email_verified = 1, updated_at = ? WHERE id = ?").run(now, user.id);
+
+  log('REGISTER_COMPLETED', { userId: user.id, ip });
+
+  return res.status(200).json({ message: 'E-Mail erfolgreich verifiziert. Du kannst dich jetzt anmelden.' });
+});
+
+// ── POST /api/auth/resend-otp ─────────────────────────────────────────────────
+app.post('/api/auth/resend-otp', authLimiter, async (req, res) => {
+  const ip = getClientIp(req);
+  const { email } = req.body ?? {};
+
+  if (!email)
+    return res.status(400).json({ error: 'E-Mail erforderlich' });
+
+  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase());
+  if (!user || user.email_verified)
+    return res.status(200).json({ message: 'Falls ein unverifiziertes Konto existiert, wurde ein Code gesendet.' });
+
+  // Alten Code invalidieren
+  db.prepare('DELETE FROM email_verification_codes WHERE user_id = ?').run(user.id);
+
+  const code = String(crypto.randomInt(100000, 999999));
+  const codeHash = hashCode(code);
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+  db.prepare(
+    'INSERT INTO email_verification_codes (id, user_id, code_hash, expires_at) VALUES (?, ?, ?, ?)'
+  ).run(uid(), user.id, codeHash, expiresAt);
+
+  try {
+    await sendVerificationMail(user.email, code);
+    log('OTP_RESENT', { userId: user.id, ip });
+    return res.status(200).json({ message: 'Neuer Code gesendet' });
+  } catch {
+    log('EMAIL_SEND_FAILED', { userId: user.id, ip });
+    return res.status(500).json({ error: 'E-Mail konnte nicht gesendet werden' });
+  }
+});
+
+// ── POST /api/auth/login ──────────────────────────────────────────────────────
+app.post('/api/auth/login', authLimiter, async (req, res) => {
+  const ip = getClientIp(req);
+  const { email, password } = req.body ?? {};
+
+  if (!email || !password)
+    return res.status(400).json({ error: 'E-Mail und Passwort erforderlich' });
+
+  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase());
+
+  // Timing-sicherer Check auch bei fehlendem User
+  const dummyHash = '$2a$12$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+  const passwordMatch = await bcrypt.compare(password, user?.password_hash ?? dummyHash);
+
+  if (!user || !passwordMatch) {
+    log('LOGIN_FAILED', { userId: user?.id, ip });
+    return res.status(401).json({ error: 'E-Mail oder Passwort falsch' });
+  }
+
+  if (!user.email_verified) {
+    log('LOGIN_UNVERIFIED', { userId: user.id, ip });
+    return res.status(403).json({ error: 'E-Mail-Adresse noch nicht verifiziert. Bitte prüfe deinen Posteingang.' });
+  }
+
+  const token = jwt.sign(
+    { userId: user.id, email: user.email },
+    JWT_SECRET,
+    { expiresIn: '15d' }
+  );
+
+  res.cookie('auth_token', token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'strict',
+    maxAge: 15 * 24 * 60 * 60 * 1000,
+    domain: COOKIE_DOMAIN,
+  });
+
+  log('LOGIN_SUCCESS', { userId: user.id, ip });
+  return res.status(200).json({ email: user.email });
+});
+
+// ── POST /api/auth/logout ─────────────────────────────────────────────────────
+app.post('/api/auth/logout', (req, res) => {
+  const ip = getClientIp(req);
+  const token = req.cookies?.auth_token;
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      log('LOGOUT', { userId: decoded.userId, ip });
+    } catch { /* abgelaufener Token – trotzdem löschen */ }
+  }
+  res.clearCookie('auth_token', { httpOnly: true, secure: true, sameSite: 'strict' });
+  return res.status(200).json({ message: 'Abgemeldet' });
+});
+
+// ── GET /api/auth/me ──────────────────────────────────────────────────────────
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  return res.status(200).json({ email: req.user.email });
+});
+
+// ── START ─────────────────────────────────────────────────────────────────────
+transporter.verify()
+  .then(() => console.log(`✓ SMTP verbunden (${SMTP_HOST}:${SMTP_PORT})`))
+  .catch(err => console.error(`✗ SMTP-Fehler: ${err.message}`));
+
+app.listen(API_PORT, '127.0.0.1', () => {
+  console.log(`✓ API-Server läuft auf http://127.0.0.1:${API_PORT}`);
+  console.log(`✓ Datenbank: ${DB_PATH}`);
+});
+
+process.on('SIGTERM', () => {
+  db.close();
+  process.exit(0);
+});

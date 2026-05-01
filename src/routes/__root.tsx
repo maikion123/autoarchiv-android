@@ -1,6 +1,7 @@
 import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 
 import appCss from "../styles.css?url";
+import logoImg from "../assets/logo.png";
 import { Toaster } from "sonner";
 import { AppShell } from "../components/AppShell";
 
@@ -43,6 +44,11 @@ export const Route = createRootRoute({
       {
         rel: "stylesheet",
         href: appCss,
+      },
+      {
+        rel: "icon",
+        href: logoImg,
+        type: "image/png",
       },
     ],
   }),
