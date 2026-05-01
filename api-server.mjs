@@ -9,9 +9,13 @@ import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import Database from 'better-sqlite3';
 import crypto from 'crypto';
-import { readFileSync } from 'fs';
+import { writeFile, unlink } from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { tmpdir } from 'os';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -32,8 +36,8 @@ const SMTP_SECURE  = process.env.SMTP_SECURE === 'true';
 const DB_PATH      = process.env.DB_PATH || join(__dirname, 'data/autoarchiv.db');
 const API_PORT     = parseInt(process.env.API_PORT || '3001', 10);
 const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || undefined;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
+
+const execFileAsync = promisify(execFile);
 
 // ── DATENBANK ─────────────────────────────────────────────────────────────────
 const db = new Database(DB_PATH);
@@ -227,156 +231,146 @@ function inferDocument(filename = '', mimeType = '') {
   };
 }
 
-function safeJsonParse(text) {
-  try {
-    return JSON.parse(text);
-  } catch {
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    try {
-      return JSON.parse(match[0]);
-    } catch {
-      return null;
-    }
+function textHas(text, ...words) {
+  const lower = text.toLowerCase();
+  return words.some((word) => lower.includes(word));
+}
+
+function parseGermanAmount(text) {
+  const matches = [...text.matchAll(/(?:betrag|summe|gesamt|gesamtbetrag|zu zahlen|rechnungsbetrag)[^\d]{0,40}(\d{1,3}(?:[.\s]\d{3})*(?:,\d{2})|\d+(?:,\d{2}))/gi)];
+  const raw = matches[0]?.[1] || text.match(/(\d{1,3}(?:[.\s]\d{3})*,\d{2})\s*(?:€|eur)/i)?.[1];
+  if (!raw) return null;
+  const value = Number(raw.replace(/[.\s]/g, '').replace(',', '.'));
+  return Number.isFinite(value) ? value : null;
+}
+
+function toIsoDate(day, month, year) {
+  const d = Number(day);
+  const m = Number(month);
+  let y = Number(year);
+  if (y < 100) y += 2000;
+  if (d < 1 || d > 31 || m < 1 || m > 12 || y < 2000 || y > 2100) return null;
+  return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+function parseDateNear(text, labels) {
+  for (const label of labels) {
+    const rx = new RegExp(`${label}[^\\d]{0,40}(\\d{1,2})[.\\-/](\\d{1,2})[.\\-/](\\d{2,4})`, 'i');
+    const match = text.match(rx);
+    if (match) return toIsoDate(match[1], match[2], match[3]);
   }
+  return null;
 }
 
-function getResponseText(data) {
-  if (typeof data.output_text === 'string') return data.output_text;
-  const chunks = [];
-  for (const item of data.output || []) {
-    for (const content of item.content || []) {
-      if (content.type === 'output_text' && typeof content.text === 'string') {
-        chunks.push(content.text);
-      }
-    }
-  }
-  return chunks.join('\n');
+function inferSender(text, filename) {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 3 && !/^\d|^(rechnung|datum|seite|tel\.?|fax|email|e-mail)\b/i.test(line));
+
+  const candidate = lines.find((line) => /gmbh|ag|kg|ug|verein|versicherung|bank|amt|behörde|praxis|klinik|stadt|gemeinde/i.test(line))
+    || lines[0];
+
+  return candidate?.slice(0, 80) || inferDocument(filename, '').absender;
 }
 
-function normalizeAnalysis(raw, fallback) {
-  const folders = Object.values(FOLDERS);
-  const docTypes = new Set(['Rechnung', 'Vertrag', 'Bescheid', 'Brief', 'Versicherung', 'Sonstiges']);
-  const importance = new Set(['hoch', 'mittel', 'niedrig']);
-
-  return {
-    absender: typeof raw?.absender === 'string' && raw.absender.trim() ? raw.absender.trim() : fallback.absender,
-    dokumenttyp: docTypes.has(raw?.dokumenttyp) ? raw.dokumenttyp : fallback.dokumenttyp,
-    zusammenfassung: typeof raw?.zusammenfassung === 'string' && raw.zusammenfassung.trim()
-      ? raw.zusammenfassung.trim()
-      : fallback.zusammenfassung,
-    zahlungsbetrag: typeof raw?.zahlungsbetrag === 'number' ? raw.zahlungsbetrag : null,
-    faelligkeitsdatum: typeof raw?.faelligkeitsdatum === 'string' && raw.faelligkeitsdatum ? raw.faelligkeitsdatum : null,
-    ablaufdatum: typeof raw?.ablaufdatum === 'string' && raw.ablaufdatum ? raw.ablaufdatum : null,
-    vorgeschlagenerOrdner: folders.includes(raw?.vorgeschlagenerOrdner) ? raw.vorgeschlagenerOrdner : fallback.vorgeschlagenerOrdner,
-    vorgeschlagenerUnterordner: typeof raw?.vorgeschlagenerUnterordner === 'string' ? raw.vorgeschlagenerUnterordner : '',
-    wichtigkeit: importance.has(raw?.wichtigkeit) ? raw.wichtigkeit : fallback.wichtigkeit,
-    tags: Array.isArray(raw?.tags)
-      ? raw.tags.filter((tag) => typeof tag === 'string' && tag.trim()).map((tag) => tag.trim()).slice(0, 8)
-      : fallback.tags,
-  };
-}
-
-async function analyzeWithOpenAI({ filename, mimeType, imageBase64 }) {
+function analyzeExtractedText({ filename, mimeType, text }) {
   const fallback = inferDocument(filename, mimeType);
+  const combined = `${filename}\n${text}`;
+  const tags = new Set(fallback.tags);
+  const result = { ...fallback };
 
-  if (!OPENAI_API_KEY || !imageBase64) return fallback;
-
-  const supportedImage = /^(image\/png|image\/jpe?g|image\/webp|image\/gif)$/i.test(mimeType);
-  const supportedPdf = mimeType === 'application/pdf';
-  if (!supportedImage && !supportedPdf) return fallback;
-
-  const fileContent = supportedPdf
-    ? {
-        type: 'input_file',
-        filename,
-        file_data: `data:application/pdf;base64,${imageBase64}`,
-      }
-    : {
-        type: 'input_image',
-        image_url: `data:${mimeType};base64,${imageBase64}`,
-        detail: 'high',
-      };
-
-  const prompt = `Analysiere dieses deutsche Privatdokument fuer AutoArchiv.
-
-Dateiname: ${filename}
-MIME-Type: ${mimeType}
-
-Extrahiere sichtbaren Text/OCR, erkenne Absender, Dokumenttyp, Zahlungsbetrag, Faelligkeiten, Ablaufdaten, Wichtigkeit, Tags und den passenden Hauptordner. Antworte nur mit den Feldern des JSON-Schemas. Nutze null fuer nicht erkennbare Datums- oder Betragswerte. Datumsformat: YYYY-MM-DD.`;
-
-  const aiRes = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      instructions: 'Du bist ein praeziser Dokumentenarchivar fuer deutsche Privatdokumente. Erfinde keine Werte, wenn sie nicht sichtbar sind.',
-      input: [
-        {
-          role: 'user',
-          content: [
-            { type: 'input_text', text: prompt },
-            fileContent,
-          ],
-        },
-      ],
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'autoarchiv_document_analysis',
-          strict: true,
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              absender: { type: 'string' },
-              dokumenttyp: { type: 'string', enum: ['Rechnung', 'Vertrag', 'Bescheid', 'Brief', 'Versicherung', 'Sonstiges'] },
-              zusammenfassung: { type: 'string' },
-              zahlungsbetrag: { type: ['number', 'null'] },
-              faelligkeitsdatum: { type: ['string', 'null'] },
-              ablaufdatum: { type: ['string', 'null'] },
-              vorgeschlagenerOrdner: { type: 'string', enum: Object.values(FOLDERS) },
-              vorgeschlagenerUnterordner: { type: 'string' },
-              wichtigkeit: { type: 'string', enum: ['hoch', 'mittel', 'niedrig'] },
-              tags: {
-                type: 'array',
-                maxItems: 8,
-                items: { type: 'string' },
-              },
-            },
-            required: [
-              'absender',
-              'dokumenttyp',
-              'zusammenfassung',
-              'zahlungsbetrag',
-              'faelligkeitsdatum',
-              'ablaufdatum',
-              'vorgeschlagenerOrdner',
-              'vorgeschlagenerUnterordner',
-              'wichtigkeit',
-              'tags',
-            ],
-          },
-        },
-      },
-      max_output_tokens: 1200,
-      store: false,
-    }),
-  });
-
-  if (!aiRes.ok) {
-    const body = await aiRes.text();
-    throw new Error(`OpenAI analyse failed (${aiRes.status}): ${body.slice(0, 500)}`);
+  if (textHas(combined, 'rechnung', 'rechnungsnummer', 'gesamtbetrag', 'zu zahlen')) {
+    result.dokumenttyp = 'Rechnung';
+    result.vorgeschlagenerOrdner = FOLDERS.finanzen;
+    tags.add('rechnung');
+    tags.add('zahlung');
+  }
+  if (textHas(combined, 'vertrag', 'vertragsnummer', 'laufzeit', 'kündigung')) {
+    result.dokumenttyp = 'Vertrag';
+    result.vorgeschlagenerOrdner = FOLDERS.vertrag;
+    tags.add('vertrag');
+  }
+  if (textHas(combined, 'versicherung', 'police', 'versicherungsnummer', 'schaden')) {
+    result.dokumenttyp = 'Versicherung';
+    result.vorgeschlagenerOrdner = FOLDERS.versicherung;
+    tags.add('versicherung');
+  }
+  if (textHas(combined, 'bescheid', 'finanzamt', 'stadt', 'gemeinde', 'behörde', 'amt')) {
+    result.dokumenttyp = 'Bescheid';
+    result.vorgeschlagenerOrdner = FOLDERS.behoerde;
+    result.wichtigkeit = 'hoch';
+    tags.add('behoerde');
+  }
+  if (textHas(combined, 'tüv', 'hauptuntersuchung', 'zulassung', 'fahrzeug', 'kennzeichen')) {
+    result.vorgeschlagenerOrdner = FOLDERS.fahrzeug;
+    tags.add('fahrzeug');
+  }
+  if (textHas(combined, 'arzt', 'befund', 'rezept', 'krankenkasse', 'patient')) {
+    result.vorgeschlagenerOrdner = FOLDERS.gesundheit;
+    tags.add('gesundheit');
   }
 
-  const data = await aiRes.json();
-  const parsed = safeJsonParse(getResponseText(data));
-  if (!parsed) throw new Error('OpenAI response did not contain valid JSON');
+  result.absender = text ? inferSender(text, filename) : fallback.absender;
+  result.zahlungsbetrag = parseGermanAmount(text);
+  result.faelligkeitsdatum = parseDateNear(text, ['fällig', 'faellig', 'zahlbar bis', 'bis zum', 'zahlung bis']);
+  result.ablaufdatum = parseDateNear(text, ['gültig bis', 'gueltig bis', 'ablauf', 'läuft ab', 'endet am']);
+  result.zusammenfassung = text
+    ? text.replace(/\s+/g, ' ').trim().slice(0, 240)
+    : fallback.zusammenfassung;
+  result.tags = Array.from(tags).slice(0, 8);
 
-  return normalizeAnalysis(parsed, fallback);
+  return result;
+}
+
+async function extractPdfText(buffer) {
+  const loadingTask = getDocument({ data: new Uint8Array(buffer), useWorkerFetch: false, isEvalSupported: false });
+  const pdf = await loadingTask.promise;
+  const pages = Math.min(pdf.numPages, 8);
+  const parts = [];
+
+  for (let pageNum = 1; pageNum <= pages; pageNum += 1) {
+    const page = await pdf.getPage(pageNum);
+    const content = await page.getTextContent();
+    parts.push(content.items.map((item) => item.str || '').join(' '));
+  }
+
+  await pdf.destroy();
+  return parts.join('\n').trim();
+}
+
+function extForMime(mimeType) {
+  if (mimeType === 'image/png') return '.png';
+  if (mimeType === 'image/webp') return '.webp';
+  if (mimeType === 'image/gif') return '.gif';
+  return '.jpg';
+}
+
+async function extractImageText(buffer, mimeType) {
+  const inputPath = join(tmpdir(), `autoarchiv-${crypto.randomUUID()}${extForMime(mimeType)}`);
+  await writeFile(inputPath, buffer);
+  try {
+    const { stdout } = await execFileAsync('tesseract', [inputPath, 'stdout', '-l', 'deu+eng', '--psm', '6'], {
+      timeout: 30000,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    return stdout.trim();
+  } finally {
+    await unlink(inputPath).catch(() => {});
+  }
+}
+
+async function analyzeLocally({ filename, mimeType, imageBase64 }) {
+  const buffer = Buffer.from(imageBase64, 'base64');
+  let text = '';
+
+  if (mimeType === 'application/pdf') {
+    text = await extractPdfText(buffer);
+  } else if (mimeType.startsWith('image/')) {
+    text = await extractImageText(buffer, mimeType);
+  }
+
+  return analyzeExtractedText({ filename, mimeType, text });
 }
 
 // ── POST /api/analyze-document ────────────────────────────────────────────────
@@ -396,10 +390,12 @@ app.post('/api/analyze-document', requireAuth, async (req, res) => {
   }
 
   try {
-    const result = await analyzeWithOpenAI({ filename, mimeType, imageBase64 });
+    const result = imageBase64
+      ? await analyzeLocally({ filename, mimeType, imageBase64 })
+      : inferDocument(filename, mimeType);
     return res.status(200).json(result);
   } catch (err) {
-    console.error('analyze-document OpenAI fallback', err.message);
+    console.error('analyze-document local OCR fallback', err.message);
     return res.status(200).json(inferDocument(filename, mimeType));
   }
 });
