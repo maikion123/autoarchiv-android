@@ -18,7 +18,7 @@ export function AppShell() {
 
   useEffect(() => {
     const email = localStorage.getItem("auth_email");
-    if (!email && path !== "/login") {
+    if (!email && path !== "/login" && path !== "/register") {
       navigate({ to: "/login" });
     }
     setUserEmail(email);
