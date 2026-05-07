@@ -136,14 +136,16 @@ export function AppShell() {
                   Lokal verschlüsselt
                 </span>
               </div>
-              <button
-                onClick={handleLogout}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-foreground transition rounded-lg bg-accent/40 hover:bg-accent/60 border border-accent/40 hover:border-accent/80"
-                title={userEmail || "Abmelden"}
-              >
-                <LogOut className="h-4 w-4" />
-                <span className="hidden sm:inline text-xs max-w-[150px] truncate">{userEmail?.split("@")[0]}</span>
-              </button>
+              {userEmail && (
+                <button
+                  onClick={handleLogout}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-foreground transition rounded-lg bg-accent/40 hover:bg-accent/60 border border-accent/40 hover:border-accent/80"
+                  title={userEmail || "Abmelden"}
+                >
+                  <LogOut className="h-4 w-4" />
+                  <span className="hidden sm:inline text-xs max-w-[150px] truncate">{userEmail?.split("@")[0]}</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -162,13 +164,15 @@ export function AppShell() {
             <span className="text-[10px] inline-flex items-center gap-1.5 rounded-full glass px-2 py-1">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> sicher
             </span>
-            <button
-              onClick={handleLogout}
-              className="inline-flex items-center px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground transition rounded-lg hover:bg-accent"
-              title="Abmelden"
-            >
-              <LogOut className="h-4 w-4" />
-            </button>
+            {userEmail && (
+              <button
+                onClick={handleLogout}
+                className="inline-flex items-center px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground transition rounded-lg hover:bg-accent"
+                title="Abmelden"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </div>
       </header>

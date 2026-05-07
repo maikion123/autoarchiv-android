@@ -8,6 +8,20 @@ type: project
 
 ## Changelog
 
+### [2026-05-07] Bug Fix: Logout Button Visibility on Unauth Pages
+**Problem:** Logout Button war auch auf /login und anderen unauth-Seiten sichtbar.
+
+**Root Cause:** Button wurde immer gerendert, unabhängig von Auth-Status.
+
+**Solution:** Conditional Rendering mit `{userEmail && <button>}` — Button nur sichtbar wenn Benutzer angemeldet ist.
+
+**Files Modified:**
+- `src/components/AppShell.tsx` (2 Buttons: Desktop + Mobile)
+
+**Build Status:** ✅ Erfolgreich
+
+---
+
 ### [2026-05-07] Bug Fix: Flash of Unauth Content on Page Load
 **Problem:** Beim Aufrufen von nextkm.de sah man kurz die Übersicht-Seite, bevor man auf /login weitergeleitet wurde (FOUC - Flash of Unauth Content).
 
