@@ -1,0 +1,76 @@
+╔════════════════════════════════════════════════════════════════╗
+║   AutoArchiv: Quick Documentation Guide for Code Changes       ║
+╚════════════════════════════════════════════════════════════════╝
+
+EVERY TIME YOU CHANGE CODE:
+
+1️⃣  Code + Build
+    ├─ Implement feature/fix
+    ├─ npm run build (verify success)
+    └─ Test locally
+
+2️⃣  Git Commit
+    └─ Clear commit message with "why"
+
+3️⃣  Update Memory Files (in this order)
+
+    A) .claude/memory/changelog.md
+       └─ Add new [YYYY-MM-DD] entry with:
+          • What changed
+          • Files modified
+          • Build status
+          • Testing steps
+
+    B) .claude/memory/project_status.md
+       └─ Update "Recent Changes" section with new entry
+
+    C) .claude/memory/working_approach.md (if relevant)
+       ├─ New code pattern? → Add to "Code Patterns That Work"
+       ├─ New gotcha? → Add to "Key Gotchas"
+       └─ New testing steps? → Add to "Testing Workflow"
+
+    D) Other memory files (if relevant)
+       ├─ auth_system.md (if auth changes)
+       ├─ deployment_checklist.md (if deploy-relevant)
+       └─ team_collaboration.md (if collaboration-relevant)
+
+    E) CLAUDE.md
+       └─ Update "Last Updated: YYYY-MM-DD"
+
+4️⃣  Commit the documentation updates
+    └─ git commit -m "Docs: Update changelog & memory for [feature name]"
+
+═══════════════════════════════════════════════════════════════════
+
+🎯 WHY THIS MATTERS:
+
+✅ Future agents know what changed (no surprises)
+✅ Debugging is faster (see what broke recently)
+✅ Patterns are reusable (copy-paste working code)
+✅ Gotchas are documented (don't repeat mistakes)
+✅ Deployment is safe (nothing forgotten)
+
+═══════════════════════════════════════════════════════════════════
+
+📍 KEY FILES YOU'LL UPDATE:
+
+| File | When | What |
+|------|------|------|
+| changelog.md | ALWAYS | New [YYYY-MM-DD] entry |
+| project_status.md | ALWAYS | Recent Changes section |
+| working_approach.md | Code patterns/gotchas | Add to relevant section |
+| CLAUDE.md | End of session | Update "Last Updated" date |
+
+═══════════════════════════════════════════════════════════════════
+
+⏱️  TIME ESTIMATE:
+
+Code change: 30 min - 2 hours
+Documentation: 5-10 min (copy the template from changelog.md)
+Total: Negligible overhead
+
+═══════════════════════════════════════════════════════════════════
+
+❓ QUESTIONS?
+
+See: .claude/memory/changelog.md → "Documentation Process"

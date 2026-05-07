@@ -1,0 +1,6 @@
+- [Project Status & Architecture](project_status.md) — Current production setup, stack, deployment
+- [Changelog & Documentation Process](changelog.md) — All changes, when to update docs, templates
+- [Auth System Details](auth_system.md) — How backend auth works, endpoints, security
+- [Deployment Checklist](deployment_checklist.md) — Steps to go live, verification tests
+- [Working Approach & Patterns](working_approach.md) — What works, how to debug, patterns that succeed
+- [Team & Collaboration](team_collaboration.md) — How multiple agents collaborate on this project

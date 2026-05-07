@@ -11,7 +11,7 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
 
 ## Start Here
 
-1. **Read** `/home/kevin/.claude/projects/-srv-projects-autoarchiv/memory/MEMORY.md`
+1. **Read** `.claude/memory/MEMORY.md`
    - Indexes everything you need to know
 
 2. **Understand** the architecture:
@@ -74,11 +74,12 @@ curl -I https://nextkm.de/api/health    # Test through Nginx
 
 Read these based on what you're working on:
 
-- **Working on auth?** → `memory/auth_system.md`
-- **Debugging something?** → `memory/working_approach.md`
-- **Deploying?** → `memory/deployment_checklist.md`
-- **New feature?** → `memory/project_status.md` (architecture)
-- **Multiple agents?** → `memory/team_collaboration.md`
+- **What changed?** → `.claude/memory/changelog.md` (recent changes & docs process)
+- **Working on auth?** → `.claude/memory/auth_system.md`
+- **Debugging something?** → `.claude/memory/working_approach.md`
+- **Deploying?** → `.claude/memory/deployment_checklist.md`
+- **New feature?** → `.claude/memory/project_status.md` (architecture)
+- **Multiple agents?** → `.claude/memory/team_collaboration.md`
 
 ## The Golden Rule
 
@@ -95,10 +96,10 @@ Everything is documented there. No surprises.
 ### "The registration is broken"
 1. Check PM2 logs: `pm2 logs autoarchiv-api --lines 100`
 2. Look for SMTP error, dotenv issue, or database lock
-3. See `memory/working_approach.md` → "Debugging Strategy"
+3. See `.claude/memory/working_approach.md` → "Debugging Strategy"
 
 ### "How do I change the auth flow?"
-1. Understand current flow: `memory/auth_system.md` → "Flow: Registration → OTP → Login"
+1. Understand current flow: `.claude/memory/auth_system.md` → "Flow: Registration → OTP → Login"
 2. Update api-server.mjs (backend) or LoginForm/RegisterForm (frontend)
 3. Test locally, commit, deploy
 
@@ -110,7 +111,7 @@ Everything is documented there. No surprises.
 ### "I need to add a new environment variable"
 1. Add to `.env`
 2. Add to `.env.example` (without value)
-3. Update `memory/project_status.md` to document it
+3. Update `.claude/memory/project_status.md` to document it
 4. Restart api-server: `pm2 restart autoarchiv-api`
 
 ## Before You Deploy
@@ -129,12 +130,12 @@ Checklist:
 If something is totally broken:
 
 1. Check logs: `pm2 logs autoarchiv-api --lines 200 | grep -i error`
-2. Check memory: `memory/deployment_checklist.md` → "Emergency Fixes"
+2. Check memory: `.claude/memory/deployment_checklist.md` → "Emergency Fixes"
 3. Last resort: `git log --oneline` → see what changed, consider reverting
 
 ## Working with Other Agents
 
-See `memory/team_collaboration.md` for:
+See `.claude/memory/team_collaboration.md` for:
 - How to avoid merge conflicts
 - How to divide work
 - Communication protocol
@@ -142,14 +143,14 @@ See `memory/team_collaboration.md` for:
 
 ## Questions?
 
-- Architecture question? → `memory/project_status.md`
-- How to debug? → `memory/working_approach.md`
-- Deployment issues? → `memory/deployment_checklist.md`
-- Auth details? → `memory/auth_system.md`
-- Collaboration? → `memory/team_collaboration.md`
+- Architecture question? → `.claude/memory/project_status.md`
+- How to debug? → `.claude/memory/working_approach.md`
+- Deployment issues? → `.claude/memory/deployment_checklist.md`
+- Auth details? → `.claude/memory/auth_system.md`
+- Collaboration? → `.claude/memory/team_collaboration.md`
 
 ---
 
-**Last Updated:** 2026-05-01  
-**Memory System:** `/home/kevin/.claude/projects/-srv-projects-autoarchiv/memory/`  
+**Last Updated:** 2026-05-07  
+**Memory System:** `.claude/memory/` (6 Dateien, Changelog eingeführt)  
 **Production Status:** ✅ Live and stable

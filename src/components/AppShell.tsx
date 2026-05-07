@@ -1,7 +1,7 @@
 import { Link, Outlet, useRouterState, useNavigate } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import { LayoutDashboard, Search, Wallet, CalendarDays, Inbox, LogOut } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import logoImg from "../assets/logo.png";
 
 const TABS = [
@@ -61,6 +61,38 @@ export function AppShell() {
     navigate({ to: "/login" });
   };
 
+  // 30-minute inactivity timeout
+  const handleLogoutRef = useRef(handleLogout);
+  useEffect(() => {
+    handleLogoutRef.current = handleLogout;
+  }, [handleLogout]);
+
+  const lastActivityRef = useRef<number>(Date.now());
+
+  useEffect(() => {
+    const TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+    const resetTimer = () => {
+      lastActivityRef.current = Date.now();
+    };
+
+    const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"];
+    events.forEach((e) =>
+      window.addEventListener(e, resetTimer, { passive: true })
+    );
+
+    const interval = setInterval(() => {
+      if (Date.now() - lastActivityRef.current >= TIMEOUT_MS) {
+        handleLogoutRef.current();
+      }
+    }, 60_000); // Check every minute
+
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, resetTimer));
+      clearInterval(interval);
+    };
+  }, []);
+
   return (
     <div className="min-h-screen text-foreground scrollbar-thin">
       {/* Top nav (desktop) */}
@@ -106,7 +138,7 @@ export function AppShell() {
               </div>
               <button
                 onClick={handleLogout}
-                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition rounded-lg hover:bg-accent"
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-foreground transition rounded-lg bg-accent/40 hover:bg-accent/60 border border-accent/40 hover:border-accent/80"
                 title={userEmail || "Abmelden"}
               >
                 <LogOut className="h-4 w-4" />
@@ -126,14 +158,23 @@ export function AppShell() {
               Auto<span className="text-gradient">Archiv</span>
             </span>
           </Link>
-          <span className="text-[10px] inline-flex items-center gap-1.5 rounded-full glass px-2 py-1">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> sicher
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] inline-flex items-center gap-1.5 rounded-full glass px-2 py-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> sicher
+            </span>
+            <button
+              onClick={handleLogout}
+              className="inline-flex items-center px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground transition rounded-lg hover:bg-accent"
+              title="Abmelden"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-7xl px-4 pb-28 pt-6 md:px-6 md:pb-12">
-        <Outlet />
+        {!isChecking && <Outlet />}
       </main>
 
       {/* Bottom tab bar (mobile) */}
