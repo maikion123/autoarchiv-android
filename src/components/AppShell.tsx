@@ -18,33 +18,33 @@ export function AppShell() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [isChecking, setIsChecking] = useState(true);
 
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const res = await fetch("/api/auth/me", {
-          credentials: "include",
-        });
+  const checkAuth = async () => {
+    try {
+      const res = await fetch("/api/auth/me", {
+        credentials: "include",
+      });
 
-        if (!res.ok) {
-          setUserEmail(null);
-          if (path !== "/login" && path !== "/register") {
-            navigate({ to: "/login" });
-          }
-          return;
-        }
-
-        const data = await res.json();
-        setUserEmail(data.email);
-      } catch {
+      if (!res.ok) {
         setUserEmail(null);
         if (path !== "/login" && path !== "/register") {
           navigate({ to: "/login" });
         }
-      } finally {
-        setIsChecking(false);
+        return;
       }
-    };
 
+      const data = await res.json();
+      setUserEmail(data.email);
+    } catch {
+      setUserEmail(null);
+      if (path !== "/login" && path !== "/register") {
+        navigate({ to: "/login" });
+      }
+    } finally {
+      setIsChecking(false);
+    }
+  };
+
+  useEffect(() => {
     checkAuth();
   }, [path, navigate]);
 
@@ -58,6 +58,7 @@ export function AppShell() {
       // logout failed but proceed anyway
     }
     setUserEmail(null);
+    await checkAuth();
     navigate({ to: "/login" });
   };
 
