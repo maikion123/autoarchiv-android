@@ -73,9 +73,9 @@ function RootShell({ children }: { children: React.ReactNode }) {
 
 function RootComponent() {
   return (
-    <>
+    <div className="min-h-screen bg-background">
       <AppShell />
       <Toaster theme="dark" position="top-right" toastOptions={{ className: "glass-strong border-glow" }} />
-    </>
+    </div>
   );
 }

@@ -94,7 +94,7 @@ export function AppShell() {
   }, []);
 
   return (
-    <div className="min-h-screen text-foreground scrollbar-thin">
+    <div className={`text-foreground scrollbar-thin ${userEmail ? 'min-h-screen' : ''}`}>
       {userEmail && (
         <>
           {/* Top nav (desktop) */}
