@@ -1511,6 +1511,109 @@ function mergeAnalyses(regexResult, llmResult, analysisMode) {
   return merged;
 }
 
+function formatEuroAmount(value) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `${value.toFixed(2).replace('.', ',')} EUR`
+    : null;
+}
+
+function formatDisplayDate(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? value.split('-').reverse().join('.')
+    : null;
+}
+
+function cleanSummaryText(value) {
+  const summary = cleanString(value);
+  if (!summary) return null;
+  return summary
+    .replace(/\s+/g, ' ')
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .trim()
+    .slice(0, 700);
+}
+
+function buildLocalUserSummary(analysis, text, filename) {
+  const sender = analysis.absender && analysis.absender !== 'Unbekannt' ? analysis.absender : null;
+  const type = analysis.dokumenttyp && analysis.dokumenttyp !== 'Sonstiges' ? analysis.dokumenttyp : 'Dokument';
+  const amount = formatEuroAmount(analysis.zahlungsbetrag);
+  const dueDate = formatDisplayDate(analysis.faelligkeitsdatum);
+  const expiryDate = formatDisplayDate(analysis.ablaufdatum);
+
+  const firstSentence = sender
+    ? `Dieses Dokument ist eine ${type} von ${sender}.`
+    : `Dieses Dokument wurde als ${type} erkannt.`;
+  const facts = [];
+  if (amount) facts.push(`Es geht um ${amount}`);
+  if (dueDate) facts.push(`fällig am ${dueDate}`);
+  if (expiryDate) facts.push(`gültig oder relevant bis ${expiryDate}`);
+
+  const action = dueDate
+    ? 'Prüfe, ob die Zahlung bereits erledigt ist oder bis zum Termin vorgemerkt werden muss.'
+    : 'Prüfe die erkannten Angaben und ergänze fehlende Details bei Bedarf.';
+
+  const excerpt = String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 180);
+
+  return [
+    firstSentence,
+    facts.length ? `${facts.join(', ')}.` : '',
+    action,
+    !facts.length && excerpt ? `Erkannter Inhalt: ${excerpt}` : '',
+    !excerpt && filename ? `Die Zusammenfassung basiert vorerst auf dem Dateinamen "${filename}".` : '',
+  ].filter(Boolean).join(' ');
+}
+
+function buildSummaryPrompt(text, filename, mimeType, analysis) {
+  const fields = {
+    absender: analysis.absender || null,
+    dokumenttyp: analysis.dokumenttyp || null,
+    zahlungsbetrag: analysis.zahlungsbetrag ?? null,
+    faelligkeitsdatum: analysis.faelligkeitsdatum ?? null,
+    ablaufdatum: analysis.ablaufdatum ?? null,
+    ordner: analysis.vorgeschlagenerUnterordner
+      ? `${analysis.vorgeschlagenerOrdner}/${analysis.vorgeschlagenerUnterordner}`
+      : analysis.vorgeschlagenerOrdner || null,
+    wichtigkeit: analysis.wichtigkeit || null,
+  };
+
+  return `Du schreibst fuer AutoArchiv eine kurze, verstaendliche Dokument-Zusammenfassung fuer eine Privatperson.
+
+Ziel:
+- Nicht nur Stichworte aufzaehlen.
+- Erklaere in 2 bis 4 Saetzen, worum es konkret geht.
+- Nenne wichtige Betraege, Fristen, Kennzeichen, Vertrags-/Rechnungsbezug nur wenn sie im Text stehen.
+- Schreibe klar, ob die Person etwas tun sollte, z.B. zahlen, pruefen, ablegen, Frist beachten.
+- Wenn der OCR-Text unsicher wirkt, formuliere vorsichtig und erfinde nichts.
+
+Antworte ausschliesslich mit gueltigem JSON:
+{
+  "zusammenfassung": "2 bis 4 kurze Saetze",
+  "wichtigkeitsgrund": "ein kurzer Grund oder null"
+}
+
+Bereits erkannte Felder:
+${JSON.stringify(fields, null, 2)}
+
+DATEINAME: ${filename}
+MIME: ${mimeType}
+
+DOKUMENTTEXT:
+---
+${text.substring(0, MAX_OLLAMA_TEXT_LENGTH)}
+---`;
+}
+
+function normalizeSummaryResponse(parsed) {
+  if (!parsed || typeof parsed !== 'object') return null;
+  return {
+    zusammenfassung: cleanSummaryText(parsed.zusammenfassung),
+    wichtigkeitsgrund: cleanString(parsed.wichtigkeitsgrund),
+  };
+}
+
 async function analyzeWithOllama(text, filename, mimeType) {
   const started = Date.now();
   const textLength = text.length;
@@ -1561,15 +1664,95 @@ async function analyzeWithOllama(text, filename, mimeType) {
   }
 }
 
+async function summarizeWithOllama(text, filename, mimeType, analysis) {
+  const started = Date.now();
+  const textLength = text.length;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(OLLAMA_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: OLLAMA_MODEL,
+        prompt: buildSummaryPrompt(text, filename, mimeType, analysis),
+        format: 'json',
+        options: OLLAMA_OPTIONS,
+        stream: false,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Ollama HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    const parsed = parseOllamaResponse(data?.response || '');
+    const normalized = normalizeSummaryResponse(parsed);
+    if (!normalized?.zusammenfassung) throw new Error('Ollama returned invalid summary JSON');
+
+    console.log({
+      model: OLLAMA_MODEL,
+      textLength,
+      durationMs: Date.now() - started,
+      summary: true,
+      success: true,
+    });
+    return normalized;
+  } catch (err) {
+    console.log({
+      model: OLLAMA_MODEL,
+      textLength,
+      durationMs: Date.now() - started,
+      summary: true,
+      success: false,
+    });
+    console.error('ollama summary failed', errorSummary(err));
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function addUserFriendlySummary({ analysis, filename, mimeType, text }) {
+  const localSummary = buildLocalUserSummary(analysis, text, filename);
+
+  if (!hasMeaningfulText(text) || !USE_OLLAMA_ANALYSIS || analysis.analysisMode !== 'llm') {
+    return {
+      ...analysis,
+      zusammenfassung: localSummary,
+    };
+  }
+
+  const summary = await summarizeWithOllama(
+    text.substring(0, MAX_OLLAMA_TEXT_LENGTH),
+    filename,
+    mimeType,
+    analysis,
+  );
+
+  return {
+    ...analysis,
+    zusammenfassung: summary?.zusammenfassung || localSummary,
+    wichtigkeitsgrund: summary?.wichtigkeitsgrund || analysis.wichtigkeitsgrund,
+    analysisMode: summary?.zusammenfassung ? 'llm' : analysis.analysisMode,
+  };
+}
+
 async function analyzeTextWithFallback({ filename, mimeType, text }) {
   const regexResult = analyzeExtractedText({ filename, mimeType, text });
+  let merged;
 
   if (!hasMeaningfulText(text)) {
-    return mergeAnalyses(regexResult, null, text ? 'regex' : 'fallback');
+    merged = mergeAnalyses(regexResult, null, text ? 'regex' : 'fallback');
+    return addUserFriendlySummary({ analysis: merged, filename, mimeType, text });
   }
 
   if (!USE_OLLAMA_ANALYSIS) {
-    return mergeAnalyses(regexResult, null, 'regex');
+    merged = mergeAnalyses(regexResult, null, 'regex');
+    return addUserFriendlySummary({ analysis: merged, filename, mimeType, text });
   }
 
   const llmResult = await analyzeWithOllama(
@@ -1578,9 +1761,10 @@ async function analyzeTextWithFallback({ filename, mimeType, text }) {
     mimeType,
   );
 
-  return llmResult
+  merged = llmResult
     ? mergeAnalyses(regexResult, llmResult, 'llm')
     : mergeAnalyses(regexResult, null, 'fallback');
+  return addUserFriendlySummary({ analysis: merged, filename, mimeType, text });
 }
 
 function normalizeBenchmarkText(text = '') {

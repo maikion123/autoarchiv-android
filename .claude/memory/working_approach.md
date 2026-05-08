@@ -117,6 +117,7 @@ npm run build
 **Current design:** After PDF text extraction or image OCR, `api-server.mjs` calls Ollama only when `USE_OLLAMA_ANALYSIS=true` and extracted text is meaningful. Text sent to Ollama is capped at 6000 chars.
 **Configured env:** `OLLAMA_URL=http://127.0.0.1:11434/api/generate`, `OLLAMA_MODEL=llama3:8b`, `OLLAMA_TIMEOUT_MS=90000`, `USE_OLLAMA_ANALYSIS=true`.
 **Fallback behavior:** Any Ollama failure (model missing, timeout, invalid JSON, service down) returns regex output instead of an API error. Response includes `analysisMode`: `llm`, `regex`, or `fallback`.
+**Summary behavior:** Field extraction and the displayed `zusammenfassung` are now separate. When Ollama extraction succeeds, a second dedicated summary prompt writes 2-4 user-friendly German sentences. If Ollama is disabled or extraction fails, the API skips the second Ollama call and uses a local summary template with sender, type, amount, due date, and a suggested next action.
 **Important:** `llama3:8b` is the current practical default for this VPS. Larger models such as `gemma4:26b` need much more RAM; if the model is unavailable or times out, the API falls back to regex output instead of failing the upload.
 **Debug checks:**
 ```bash

@@ -19,6 +19,7 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 **Folder Management:** ✅ Live (`/api/folders` API, Overview can create/rename/delete root folders and subfolders, Eingang uses the same folder source)
 **Team Workflow:** ✅ Documented so Claude Code and Codex know where to write status and how the login/session path currently behaves
 **Document AI Analysis:** ✅ Ollama integration added behind `USE_OLLAMA_ANALYSIS=true`; regex remains fallback. Current configured model is `llama3:8b`, which is the practical default for the VPS. Larger models such as `gemma4:26b` need much more RAM and are not the current target.
+**Document Summaries:** ✅ Improved. Analysis now separates field extraction from the user-facing summary. If Ollama succeeds, a dedicated prompt writes 2-4 clear German sentences with actions, amounts, and deadlines; otherwise a stronger local fallback summary is used.
 **OCR for Phone Photos:** ✅ Improved. Image uploads are now auto-rotated and preprocessed with `sharp` before Tesseract runs. Multiple OCR passes (`psm 6/4/11`) are scored, and the pipeline now prefers the variant with real invoice/date lines instead of just the longest noisy text.
 **Invoice Amount Selection:** ✅ Hardened. `Rechnungsbetrag` / `Gesamtbetrag` lines win over VAT lines, which fixed the heating-company photo that previously misread `38,59 EUR` instead of the actual `241,69 EUR`.
 **Database:** ✅ Fixed permission issues (directory 775, file 664, cleaned WAL files)

@@ -8,6 +8,28 @@ type: project
 
 ## Changelog
 
+### [2026-05-08] Improvement: User-Friendly Document Summaries
+**Description:**
+- Split document analysis into field extraction plus a separate user-facing summary step.
+- Added a dedicated Ollama prompt that writes 2-4 understandable German sentences for private users, including actions, amounts, deadlines, and cautious wording when OCR is uncertain.
+- Added a stronger local fallback summary so uploads still get a useful explanation when Ollama is disabled or fails.
+- Avoids a second Ollama timeout after a failed extraction call; in that case the local summary is used immediately.
+
+**Files Modified:**
+- `api-server.mjs`
+- `.claude/memory/project_status.md`
+- `.claude/memory/working_approach.md`
+- `.claude/memory/changelog.md`
+
+**Build Status:** ✅ Erfolgreich (`npm run build`)
+
+**Testing:**
+- `node --check api-server.mjs`
+- `npm run build`
+
+**Security Implications:**
+- None. The change uses the existing authenticated upload and analysis paths.
+
 ### [2026-05-07] OCR Fix: Phone Photos and Invoice Amounts
 **Description:**
 - Image uploads are now auto-rotated and preprocessed with `sharp` before OCR.
