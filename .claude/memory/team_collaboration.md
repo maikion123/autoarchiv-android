@@ -9,6 +9,41 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 ## Goal
 Enable multiple AI agents (Claude, Codex, etc.) to work in parallel without stepping on each other's toes, with full knowledge of project state.
 
+## Live Agent Dashboard
+
+The source of truth for active work is the live dashboard at `/agents`.
+
+The dashboard is organized by real working teams:
+- `Kevin + Codex`
+- `Maik + Claude Code`
+
+Codex should write updates as the technical agent for Kevin's team. Claude Code should write updates as the technical agent for Maik's team.
+
+All agents and humans must update their status there before meaningful work:
+
+```bash
+AGENT_FILES="api-server.mjs" AGENT_NEXT="Next test" npm run agent:start claude-code "Maik works with Claude Code on backend"
+AGENT_FILES="src/features/Agents.tsx" AGENT_NEXT="Browser test" npm run agent:start codex "Kevin works with Codex on frontend"
+```
+
+Progress, blockers, and completion must be logged with:
+
+```bash
+npm run agent:event claude-code "Progress note"
+npm run agent:block claude-code "What is blocking work"
+npm run agent:done claude-code "What was completed"
+```
+
+Codex uses `codex` instead of `claude-code`. Kevin and Maik normally update status manually in `/agents`, but can also use the CLI with agent ids `kevin` or `maik`.
+
+If files are affected, include them:
+
+```bash
+AGENT_FILES="api-server.mjs,src/features/Agents.tsx" npm run agent:start codex "Work on live dashboard"
+```
+
+Full workflow: `docs/AGENT_WORKFLOW.md`.
+
 ## The Memory System
 
 All shared knowledge lives in `/srv/projects/autoarchiv/.claude/memory/`:
@@ -23,8 +58,10 @@ All shared knowledge lives in `/srv/projects/autoarchiv/.claude/memory/`:
 Each agent:
 1. Reads MEMORY.md first
 2. Loads relevant knowledge files based on the task
-3. Updates files after making changes
-4. Never writes duplicate knowledge
+3. Reads `docs/AGENT_WORKFLOW.md`
+4. Updates `/agents` via CLI before starting work
+5. Updates files after making changes
+6. Never writes duplicate knowledge
 
 ## Division of Labor
 
@@ -35,6 +72,7 @@ Each agent:
 - Backend bug fixes
 - Deployment & infrastructure issues
 - Major refactors
+- Current shared focus: keep the login/session path stable and document every change so Claude Code can continue without guessing
 
 ### Codex
 **Strengths:** Frontend features, UI/UX, rapid iteration  
@@ -43,26 +81,31 @@ Each agent:
 - Styling & animations
 - Frontend tests
 - Accessibility improvements
+- Current shared focus: keep the `/agents` dashboard and login UI aligned with the backend state, especially around session confirmation after login
 
 ### Communication Protocol
 
 **Before starting work:**
 1. Read MEMORY.md to understand project state
 2. Check git status to see what's in progress
-3. In your opening message, state what you're about to do
-4. Mark the task as "claimed" in memory or use git branch naming
+3. Check `/agents` or `GET /api/agents` to see active work
+4. Claim the work with `npm run agent:start <agent-id> "..."`
+5. Include `AGENT_FILES="..."` for files or areas you expect to touch
+6. In your opening message, state what you're about to do
 
 **During work:**
-1. Commit frequently with clear messages
-2. Update relevant memory files if you discover something new
-3. If you find a gotcha not in `working_approach.md`, add it
+1. Log meaningful progress with `npm run agent:event <agent-id> "..."`
+2. Use `npm run agent:block <agent-id> "..."` when blocked
+3. Commit frequently with clear messages
+4. Update relevant memory files if you discover something new
+5. If you find a gotcha not in `working_approach.md`, add it
 
 **After work:**
-1. All changes committed (no uncommitted work)
-2. `npm run build` succeeds
-3. Manual testing done (where applicable)
-4. Update MEMORY.md to reflect new status
-5. Post to user with PR link or completion summary
+1. `npm run build` succeeds
+2. Manual testing done (where applicable)
+3. Update relevant docs/memory if the project changed
+4. Mark done with `npm run agent:done <agent-id> "..."`
+5. Post to user with completion summary
 
 ## Git Workflow (for parallel work)
 
@@ -83,9 +126,11 @@ git push origin feature/codex-dashboard-redesign
 ```
 
 **Conflict Prevention:**
-- **Frontend changes:** Codex gets src/components, src/routes (except login/register)
-- **Backend changes:** Claude gets api-server.mjs, database schema, security
-- **Shared:** .env (update MEMORY.md before changing), Nginx config (clear in memory), package.json (discuss first)
+- Check `/agents` before touching files.
+- If another agent lists the same file in `currentFiles`, wait or coordinate first.
+- **Frontend changes:** Codex usually owns `src/components`, `src/features`, `src/routes`.
+- **Backend changes:** Claude usually owns `api-server.mjs`, database schema, security.
+- **Shared:** `.env`, Nginx config, `package.json`, docs and memory files require explicit status/event notes.
 
 ## Updating Memory Files
 
@@ -118,16 +163,13 @@ When you discover something new:
 
 ## Avoiding Merge Conflicts
 
-**Rule 1:** Don't both edit the same memory file at the same time  
-**Rule 2:** If you need to edit a file another agent is working on, send a message first  
-**Rule 3:** Use MEMORY.md to signal what you're doing:
+**Rule 1:** Check `/agents` before editing files.
+**Rule 2:** Don't both edit the same memory file or code file at the same time.
+**Rule 3:** If you need to edit a file another agent is working on, send a status/event first and coordinate.
+**Rule 4:** Use `AGENT_FILES` to signal what you're touching:
 
-```
-Currently working on:
-- Feature: Dark mode toggle
-- Assigned to: Codex
-- ETA: 2 hours
-- Blocks: None
+```bash
+AGENT_FILES="src/features/Dashboard.tsx" npm run agent:start codex "Dashboard update"
 ```
 
 ## When to Ask for Help
@@ -139,40 +181,44 @@ Currently working on:
 
 ## Communication Channels
 
-1. **First:** Update MEMORY.md (source of truth)
+1. **First:** Update `/agents` via dashboard or CLI
 2. **Then:** Message user with updates/blockers
-3. **Git commits:** Detailed messages (they're part of documentation)
+3. **Memory/docs:** Update when project knowledge changes
+4. **Git commits:** Detailed messages (they're part of documentation)
 
 ## Example: Parallel Work Session
 
 **Scenario:** Claude fixing auth, Codex adding dashboard feature
 
 **T=0min:**
-- Claude: "Starting auth timeout fix. Updating working_approach.md with new SMTP gotcha I found."
-- Codex: "Starting dashboard refactor on feature/dashboard-cards branch."
+- Claude: `AGENT_FILES="api-server.mjs" npm run agent:start claude-code "Fix auth timeout"`
+- Codex: `AGENT_FILES="src/features/Dashboard.tsx" npm run agent:start codex "Dashboard refactor"`
 
 **T=30min:**
-- Claude: Commits fix, updates project_status.md "Auth: ✅ Timeout fixed"
-- Codex: Commits WIP, still working
+- Claude: `npm run agent:done claude-code "Auth timeout fixed"`
+- Codex: `npm run agent:event codex "Dashboard cards implemented, testing mobile"`
 
 **T=60min:**
-- Codex: Commits final version, pushes, creates PR
+- Codex: `npm run agent:done codex "Dashboard refactor complete"`
 
 **T=70min:**
 - User merges PR, both agents pull, update MEMORY.md together
 
 ## Status Tracking
 
-Current active work (update this when starting/finishing):
+Do not maintain active assignments manually in this file. Use `/agents`.
 
-```
-ACTIVE ASSIGNMENTS (as of 2026-05-01)
-- Auth System: ✅ Complete
-- Frontend Logo: ✅ Complete
-- Termine Route: ✅ Complete
-- Document Upload/OCR: ✅ Complete (Codex; commits `52122b4`, `7714c1d`, `809b059`; current approach is free local OCR, not OpenAI)
-- Performance: ⏳ Blocked (waiting for metrics)
-```
+Current agents:
+- `claude-code`
+- `codex`
+- `kevin`
+- `maik`
+
+## Current Work Agreement
+
+- The login/session path is documented in `auth_system.md` and `working_approach.md`.
+- The dashboard should show Claude Code activity only when `claude-code` logs events or status changes.
+- If Claude Code has no visible activity in `/agents`, it usually means no `agent:*` command was logged yet, not that the docs are missing.
 
 ## Rules for Merge Conflicts
 

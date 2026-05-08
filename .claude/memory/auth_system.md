@@ -25,7 +25,7 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 10. Return: `{ message: "OTP sent" }`
 
 **Security:**
-- Rate limit: 10 req/15min on /api/auth/*
+- Rate limit: 25 req/15min on `POST /api/auth/login`, keyed by IP + email, with successful logins skipped from counting
 - OTP not returned to frontend
 - Password never logged
 
@@ -78,6 +78,7 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 - SameSite=Strict: CSRF protection
 - 15-day expiry: balance between security and UX
 - Timing-safe comparison (bcryptjs.compare is timing-safe)
+- Frontend waits for `GET /api/auth/me` to confirm the cookie before navigating away from `/login`
 
 ### Step 4: Check Session (`GET /api/auth/me`)
 **Input:** Cookie header (auto-sent by browser)
@@ -109,7 +110,7 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 | POST | /api/auth/register | No | 10/15min | `{message: "OTP sent"}` |
 | POST | /api/auth/verify-otp | No | 10/15min | `{message: "Verified"}` |
 | POST | /api/auth/resend-otp | No | 10/15min | `{message: "Code sent"}` |
-| POST | /api/auth/login | No | 10/15min | `{email: "..."}` + cookie |
+| POST | /api/auth/login | No | 25/15min per IP+email | `{email: "..."}` + cookie |
 | POST | /api/auth/logout | Cookie | 10/15min | `{message: "Logged out"}` |
 | GET | /api/auth/me | Cookie | 10/15min | `{email: "..."}` |
 | POST | /api/analyze-document | Cookie | No | Free local PDF text extraction / Tesseract image OCR metadata for uploads; filename fallback |
@@ -170,7 +171,7 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 ✅ OTP: 6-digit, SHA-256 hashed, 10-min expiry, 5-attempt limit  
 ✅ Session: JWT in httpOnly SameSite=Strict cookie, 15-day expiry  
 ✅ Transport: HTTPS only (enforced by Nginx)  
-✅ Rate Limiting: 10 req/15min on all auth endpoints  
+✅ Rate Limiting: `/api/auth/login` uses 25 req/15min per IP+email, successful logins do not count
 ✅ CSRF: SameSite=Strict cookie  
 ✅ Timing Attacks: Mitigated on password & hash comparisons  
 ✅ Headers: Helmet security headers  

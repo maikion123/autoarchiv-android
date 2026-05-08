@@ -85,6 +85,7 @@ curl -I https://nextkm.de
 2. Enter registered email + password
 3. Should see app dashboard
 4. Refresh page — should stay logged in (no redirect to /login)
+5. If `Zu viele Anfragen` appears during testing, restart `autoarchiv-api` after a rate-limit change and retry once more with the same email
 
 **Logout Flow**
 1. Click logout button (top right)
@@ -212,6 +213,17 @@ ps aux | grep "api-server"
 pm2 kill  # WARNING: kills all PM2 processes
 pm2 start "node /srv/projects/autoarchiv/api-server.mjs" --name autoarchiv-api --cwd /srv/projects/autoarchiv
 pm2 start "npm run dev" --name autoarchiv-frontend --cwd /srv/projects/autoarchiv
+```
+
+### Login Rate Limit Trips During Testing
+```bash
+# Check current limiter in api-server.mjs
+rg -n "authLimiter|skipSuccessfulRequests|max: 25" /srv/projects/autoarchiv/api-server.mjs
+
+# Restart API to clear the in-memory limiter state
+pm2 restart autoarchiv-api
+
+# Then retry login once with the same email/IP
 ```
 
 ## Performance Baseline (for comparison)

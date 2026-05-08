@@ -115,9 +115,9 @@ npm run build
 
 ### Ollama Analysis Fallback
 **Current design:** After PDF text extraction or image OCR, `api-server.mjs` calls Ollama only when `USE_OLLAMA_ANALYSIS=true` and extracted text is meaningful. Text sent to Ollama is capped at 6000 chars.
-**Configured env:** `OLLAMA_URL=http://127.0.0.1:11434/api/generate`, `OLLAMA_MODEL=gemma4:26b`, `OLLAMA_TIMEOUT_MS=90000`, `USE_OLLAMA_ANALYSIS=true`.
+**Configured env:** `OLLAMA_URL=http://127.0.0.1:11434/api/generate`, `OLLAMA_MODEL=llama3:8b`, `OLLAMA_TIMEOUT_MS=90000`, `USE_OLLAMA_ANALYSIS=true`.
 **Fallback behavior:** Any Ollama failure (model missing, timeout, invalid JSON, service down) returns regex output instead of an API error. Response includes `analysisMode`: `llm`, `regex`, or `fallback`.
-**Important:** Local Ollama was reachable on 2026-05-02, but `gemma4:26b` was not installed; available models were `llama3:8b` and `llama3.2:latest`. Install/pull the configured model before expecting `analysisMode: "llm"`.
+**Important:** `llama3:8b` is the current practical default for this VPS. Larger models such as `gemma4:26b` need much more RAM; if the model is unavailable or times out, the API falls back to regex output instead of failing the upload.
 **Debug checks:**
 ```bash
 curl http://127.0.0.1:11434/api/tags
@@ -150,6 +150,72 @@ res.cookie('auth_token', token, { domain: COOKIE_DOMAIN, ... });
 res.clearCookie('auth_token', { domain: COOKIE_DOMAIN, ... });
 ```
 **Key params to match:** `domain`, `path` (if set), `secure`, `httpOnly` (not needed in clear, but good practice)
+
+### Session Management Race Conditions & Fixes
+**Problem:** After login, users saw "Something went wrong" error or were immediately logged out on page reload.
+**Root Causes:**
+1. **Nginx not proxying cookies**: Set-Cookie headers weren't being properly handled through reverse proxy
+2. **Login navigation timing**: Navigation to "/" happened before cookie was set, causing auth checks to fail
+3. **AppShell redundant checks**: Loading user info on every path change caused repeated auth requests and race conditions
+4. **Database permissions**: WAL file corruption and directory write permissions prevented API from functioning
+5. **No cache directive**: Auth status wasn't being freshly checked (used cached responses)
+
+**Why:**
+- Nginx by default doesn't rewrite cookie domains; must be configured explicitly
+- Browser's Set-Cookie processing is async; navigation before cookie is available causes auth failure
+- Repeated auth checks on every navigation create timing issues and state inconsistencies
+- Database readonly errors prevent the entire API from starting
+
+**Fixes Applied (2026-05-07):**
+1. **Nginx cookie proxying** (`/etc/nginx/sites-enabled/nextkm.de`):
+   ```nginx
+   proxy_cookie_path / /;
+   proxy_cookie_domain ~^(.*)$ "$host";
+   proxy_cookie_flags ~ secure httponly samesite=strict;
+   ```
+
+2. **Login timing** (`src/components/LoginForm.tsx`):
+   ```typescript
+   // After successful login response, poll /api/auth/me until the cookie is confirmed
+   const sessionReady = await waitForSession();
+   if (!sessionReady) throw new Error("session not confirmed");
+   onLogin(data.email);
+   ```
+
+3. **AppShell state management** (`src/components/AppShell.tsx`):
+   ```typescript
+   // Central auth state: checking -> authenticated/unauthenticated
+   // Protected routes render only after auth is confirmed.
+   ```
+
+4. **Database permissions**:
+   ```bash
+   sudo chmod 775 /srv/projects/autoarchiv/data  # Directory writable by group
+   sudo chmod 664 /srv/projects/autoarchiv/data/autoarchiv.db  # File writable by group
+   rm /srv/projects/autoarchiv/data/autoarchiv.db-{shm,wal}  # Clean stale WAL
+   ```
+
+5. **Auth cache directive** (`src/lib/auth.ts`):
+   ```typescript
+   const res = await fetch("/api/auth/me", {
+     credentials: "include",
+     cache: "no-store",  // ← Always fresh check
+   });
+   ```
+
+6. **Route error handling:** Protected routes should not duplicate auth redirects when `AppShell` already owns session state. If a guard is needed, keep it server-safe and avoid throwing client-side redirect errors during hydration.
+
+### Login Rate Limit Too Aggressive
+**Problem:** User sees `Zu viele Anfragen. Bitte in 15 Minuten erneut versuchen.` during normal team work or after repeated tests.
+**Why:** The auth rate limiter is per-IP, and team members often share a VPS / proxy / browser path while testing the same login flow.
+**Fix:** Keep the login limit on `/api/auth/login`, but make it less aggressive, key it by IP + email, and skip successful requests. Restart the API to clear the in-memory limiter state after changing it.
+
+**How to detect these issues in future:**
+- "Something went wrong" error after login → Check Nginx cookie proxying, PM2 logs, browser Network tab
+- Session lost on F5 → Check `.env` COOKIE_DOMAIN matches nextkm.de, check `pm2 logs autoarchiv-api` for readonly errors
+- Repeated auth network requests → Check if AppShell is being re-mounted unnecessarily, look for `checkAuthStatus()` in multiple places
+- Login rate limit hit too early → Check `authLimiter` settings in `api-server.mjs`, and make sure `skipSuccessfulRequests` is enabled
+- API not starting → Check `pm2 logs autoarchiv-api` for "attempt to write a readonly database", verify directory permissions
 
 ## Code Patterns That Work
 

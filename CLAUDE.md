@@ -21,10 +21,45 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
 
 3. **Know the rules** (see memory files):
    - Debug systematically (logs first, not code)
+   - Use the live agent dashboard workflow before and during work
    - Commit with clear messages
    - Don't commit `.env` with real secrets
    - Don't commit SQLite WAL files
    - Test builds before deploying
+
+4. **Announce work in `/agents`**
+   - Read `docs/AGENT_WORKFLOW.md`
+   - Dashboard is team-based: `Kevin + Codex` and `Maik + Claude Code`
+   - Claude Code starts with:
+     `AGENT_FILES="..." AGENT_NEXT="..." npm run agent:start claude-code "Maik works with Claude Code on ..."`
+   - Codex starts with:
+     `AGENT_FILES="..." AGENT_NEXT="..." npm run agent:start codex "Kevin works with Codex on ..."`
+   - Log progress with `npm run agent:event ...`
+   - Log blockers with `npm run agent:block ...`
+   - Finish with `npm run agent:done ...`
+
+5. **Read the team docs first when something is unclear**
+   - `docs/AGENT_WORKFLOW.md`
+   - `.claude/memory/team_collaboration.md`
+   - `.claude/memory/project_status.md`
+   - `.claude/memory/auth_system.md`
+   - `.claude/memory/changelog.md`
+
+## Current Working Agreement
+
+- `Kevin + Codex` focuses on UI, browser flows, and fast frontend iteration.
+- `Maik + Claude Code` focuses on backend, auth, deployment, and system fixes.
+- If a fix affects both sides, write it into the memory files and log it in `/agents`.
+- Current login/session behavior:
+  - central auth guard lives in `src/components/AppShell.tsx`
+  - protected routes no longer use `beforeLoad` auth redirects
+  - login waits until `/api/auth/me` confirms the cookie
+  - backend login rate limit is more tolerant and successful logins do not count against the limit
+- Current OCR/analysis behavior:
+  - image uploads are auto-rotated and preprocessed with `sharp` before Tesseract runs
+  - multiple OCR passes are compared, with the best invoice/date-aware text winning
+  - amount extraction prefers `Rechnungsbetrag` / `Gesamtbetrag` lines over VAT lines
+  - the noisy `Hirner & Latzko` phone photo was corrected to `241,69 EUR` and added as a benchmark case
 
 ## Quick Reference
 
@@ -50,6 +85,12 @@ node check-db.mjs                   # Inspect database state
 # Network
 curl http://localhost:3001/api/health   # Test API
 curl -I https://nextkm.de/api/health    # Test through Nginx
+
+# Live agent dashboard
+npm run agent:start claude-code "Maik works with Claude Code on backend task"
+npm run agent:event claude-code "Checked API logs"
+npm run agent:block claude-code "Waiting for decision"
+npm run agent:done claude-code "Task completed"
 ```
 
 ### Important Files
@@ -61,6 +102,8 @@ curl -I https://nextkm.de/api/health    # Test through Nginx
 | `src/components/LoginForm.tsx` | Login UI + API calls |
 | `src/components/RegisterForm.tsx` | Register UI + OTP flow |
 | `src/components/AppShell.tsx` | Auth guard + main layout |
+| `docs/AGENT_WORKFLOW.md` | Live dashboard workflow for Claude Code, Codex, Kevin, Maik |
+| `scripts/agent-log.mjs` | CLI logger used by `npm run agent:*` |
 | `/etc/nginx/sites-enabled/nextkm.de` | Reverse proxy config |
 
 ### Ports
@@ -75,6 +118,7 @@ curl -I https://nextkm.de/api/health    # Test through Nginx
 Read these based on what you're working on:
 
 - **What changed?** → `.claude/memory/changelog.md` (recent changes & docs process)
+- **Live agent workflow?** → `docs/AGENT_WORKFLOW.md`
 - **Working on auth?** → `.claude/memory/auth_system.md`
 - **Debugging something?** → `.claude/memory/working_approach.md`
 - **Deploying?** → `.claude/memory/deployment_checklist.md`
@@ -139,11 +183,20 @@ See `.claude/memory/team_collaboration.md` for:
 - How to avoid merge conflicts
 - How to divide work
 - Communication protocol
-- Status tracking
+- Live `/agents` status tracking
+
+Before editing code, update the live dashboard:
+
+```bash
+AGENT_FILES="api-server.mjs,src/features/..." npm run agent:start claude-code "Short task"
+```
+
+Use `codex` instead of `claude-code` when working as Codex.
 
 ## Questions?
 
 - Architecture question? → `.claude/memory/project_status.md`
+- Live agent status? → `docs/AGENT_WORKFLOW.md`
 - How to debug? → `.claude/memory/working_approach.md`
 - Deployment issues? → `.claude/memory/deployment_checklist.md`
 - Auth details? → `.claude/memory/auth_system.md`
