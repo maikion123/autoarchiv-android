@@ -17,6 +17,10 @@ export interface ArchivedDoc {
   ablaufdatum: string | null;
   wichtigkeit: Importance;
   tags: string[];
+  analysisMode?: "llm" | "regex" | "fallback";
+  confidence?: number | null;
+  wichtigkeitsgrund?: string | null;
+  status?: "uploaded" | "analyzed" | "archived" | "failed" | "deleted";
   // file blob stored separately
 }
 
@@ -79,49 +83,170 @@ export async function saveDocument(doc: ArchivedDoc, blob: Blob) {
   await tx.done;
 }
 export async function listDocuments(): Promise<ArchivedDoc[]> {
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/documents", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        return (data.documents || []) as ArchivedDoc[];
+      }
+    } catch {
+      // Fallback to legacy browser archive below.
+    }
+  }
   const db = await getDB();
   return (await db.getAll("documents")) as ArchivedDoc[];
 }
 export async function getDocumentBlob(id: string): Promise<Blob | undefined> {
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch(`/api/documents/${encodeURIComponent(id)}/file`, { credentials: "include" });
+      if (res.ok) return await res.blob();
+    } catch {
+      // Fallback to legacy browser archive below.
+    }
+  }
   const db = await getDB();
   return (await db.get("blobs", id)) as Blob | undefined;
 }
 export async function deleteDocument(id: string) {
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch(`/api/documents/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) return;
+    } catch {
+      // Fallback to legacy browser archive below.
+    }
+  }
   const db = await getDB();
   const tx = db.transaction(["documents", "blobs"], "readwrite");
   await tx.objectStore("documents").delete(id);
   await tx.objectStore("blobs").delete(id);
   await tx.done;
 }
-export async function updateDocument(doc: ArchivedDoc) {
+export async function patchDocument(id: string, patch: Partial<ArchivedDoc>) {
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch(`/api/documents/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) return (data.document || null) as ArchivedDoc | null;
+      throw new Error(data?.error || "Dokument konnte nicht gespeichert werden");
+    } catch {
+      // Fallback to legacy browser archive below.
+    }
+  }
   const db = await getDB();
-  await db.put("documents", doc);
+  const current = (await db.get("documents", id)) as ArchivedDoc | undefined;
+  const next = { ...(current ?? ({ id } as ArchivedDoc)), ...patch, id } as ArchivedDoc;
+  await db.put("documents", next);
+  return next;
+}
+export async function updateDocument(doc: ArchivedDoc) {
+  return patchDocument(doc.id, doc);
 }
 
 // Payments
 export async function listPayments(): Promise<PaymentEntry[]> {
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/payments", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        return (data.payments || []) as PaymentEntry[];
+      }
+    } catch {
+      // Fallback to legacy browser payments below.
+    }
+  }
   const db = await getDB();
   return (await db.getAll("payments")) as PaymentEntry[];
 }
 export async function savePayment(p: PaymentEntry) {
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/payments", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(p),
+      });
+      if (res.ok) return;
+    } catch {
+      // Fallback to legacy browser payments below.
+    }
+  }
   const db = await getDB();
   await db.put("payments", p);
 }
 export async function deletePayment(id: string) {
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch(`/api/payments/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) return;
+    } catch {
+      // Fallback to legacy browser payments below.
+    }
+  }
   const db = await getDB();
   await db.delete("payments", id);
 }
 
 // Appointments
 export async function listAppointments(): Promise<Appointment[]> {
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/appointments", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        return (data.appointments || []) as Appointment[];
+      }
+    } catch {
+      // Fallback to legacy browser appointments below.
+    }
+  }
   const db = await getDB();
   return (await db.getAll("appointments")) as Appointment[];
 }
 export async function saveAppointment(a: Appointment) {
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/appointments", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(a),
+      });
+      if (res.ok) return;
+    } catch {
+      // Fallback to legacy browser appointments below.
+    }
+  }
   const db = await getDB();
   await db.put("appointments", a);
 }
 export async function deleteAppointment(id: string) {
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch(`/api/appointments/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) return;
+    } catch {
+      // Fallback to legacy browser appointments below.
+    }
+  }
   const db = await getDB();
   await db.delete("appointments", id);
 }

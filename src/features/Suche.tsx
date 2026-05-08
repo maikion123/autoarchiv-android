@@ -14,7 +14,7 @@ function highlight(text: string, q: string) {
 }
 
 export default function SuchePage() {
-  const { documents } = useArchive();
+  const { documents, refresh } = useArchive();
   const [q, setQ] = useState("");
   const [type, setType] = useState<string>("alle");
   const [year, setYear] = useState<string>("alle");
@@ -95,7 +95,14 @@ export default function SuchePage() {
         )}
       </AnimatePresence>
 
-      <DocumentPreviewModal doc={preview} onClose={() => setPreview(null)} />
+      <DocumentPreviewModal
+        doc={preview}
+        onClose={() => setPreview(null)}
+        onSaved={async (updated) => {
+          setPreview(updated);
+          await refresh();
+        }}
+      />
     </div>
   );
 }

@@ -1,17 +1,37 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { motion, AnimatePresence } from "framer-motion";
 import { Upload, Camera, FileCheck2, Sparkles, Loader2, Check, X, Tag } from "lucide-react";
 import { useArchive } from "../lib/store";
-import { saveDocument, savePayment, uid, type ArchivedDoc, type Importance } from "../lib/db";
-import { listAllFolderPaths, FOLDER_TREE } from "../lib/folders";
+import { savePayment, uid, type Importance } from "../lib/db";
+import { DEFAULT_FOLDER_TREE, flattenFolderTree, loadFolderTree, type FolderNode } from "../lib/folders";
 import { fmtBytes, fmtEUR, fmtDate } from "../lib/format";
 import { toast } from "sonner";
 
 type Stage = "queued" | "analyzing" | "ready" | "archived" | "error";
 
+interface BenchmarkCheck {
+  field: string;
+  passed: boolean;
+  expected: any;
+  actual: any;
+  severity?: "info" | "error";
+  missing?: string[];
+}
+
+interface BenchmarkReport {
+  benchmarkId: string;
+  label: string;
+  priority?: number;
+  passed: number;
+  total: number;
+  ok: boolean;
+  checks: BenchmarkCheck[];
+}
+
 interface QueueItem {
   id: string;
+  documentId?: string;
   file: File;
   stage: Stage;
   error?: string;
@@ -26,54 +46,102 @@ interface QueueItem {
     wichtigkeit: Importance;
     tags: string[];
     addPayment: boolean;
+    analysisMode: "llm" | "regex" | "fallback";
+    confidence: number | null;
+    wichtigkeitsgrund: string | null;
+    benchmark?: BenchmarkReport | null;
   };
 }
 
-const fileToBase64 = (file: File) => new Promise<string>((resolve, reject) => {
-  const r = new FileReader();
-  r.onload = () => {
-    const s = String(r.result || "");
-    resolve(s.includes(",") ? s.split(",")[1] : s);
-  };
-  r.onerror = reject;
-  r.readAsDataURL(file);
-});
+const DROPZONE_ACCEPT = {
+  "application/pdf": [".pdf"],
+  "image/jpeg": [".jpg", ".jpeg"],
+  "image/png": [".png"],
+  "image/webp": [".webp"],
+  "image/heic": [".heic"],
+  "image/heif": [".heif"],
+};
+
+function mimeTypeFor(file: File) {
+  if (file.type) return file.type;
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".pdf")) return "application/pdf";
+  if (name.endsWith(".png")) return "image/png";
+  if (name.endsWith(".webp")) return "image/webp";
+  if (name.endsWith(".heic")) return "image/heic";
+  if (name.endsWith(".heif")) return "image/heif";
+  if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
+  return "application/octet-stream";
+}
 
 export default function EingangPage() {
   const { refresh } = useArchive();
   const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [folders, setFolders] = useState<FolderNode[]>(DEFAULT_FOLDER_TREE);
+  const [folderPaths, setFolderPaths] = useState<string[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadFolders = async () => {
+      const tree = await loadFolderTree();
+      if (!mounted) return;
+      setFolders(tree);
+      setFolderPaths(flattenFolderTree(tree).map((node) => node.id));
+    };
+    loadFolders().catch(() => {
+      if (!mounted) return;
+      setFolders(DEFAULT_FOLDER_TREE);
+      setFolderPaths(flattenFolderTree(DEFAULT_FOLDER_TREE).map((node) => node.id));
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const analyze = useCallback(async (item: QueueItem) => {
     setQueue((q) => q.map((x) => x.id === item.id ? { ...x, stage: "analyzing" } : x));
     try {
-      const b64 = await fileToBase64(item.file);
-      const res = await fetch("/api/analyze-document", {
+      const mimeType = mimeTypeFor(item.file);
+      let body: ArrayBuffer;
+      try {
+        body = await item.file.arrayBuffer();
+      } catch {
+        throw new Error("Foto konnte nach der Aufnahme nicht gelesen werden");
+      }
+      const params = new URLSearchParams({
+        filename: item.file.name || "foto.jpg",
+        mimeType,
+      });
+      const uploadRes = await fetch(`/api/documents/upload?${params.toString()}`, {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          imageBase64: b64,
-          mimeType: item.file.type || "application/octet-stream",
-          filename: item.file.name,
-          size: item.file.size,
-        }),
+        headers: { "Content-Type": "application/octet-stream" },
+        body,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "KI-Analyse fehlgeschlagen");
+      const data = await uploadRes.json().catch(() => {
+        throw new Error("Serverantwort konnte nicht gelesen werden");
+      });
+      if (!uploadRes.ok) throw new Error(data?.error || "KI-Analyse fehlgeschlagen");
       if ((data as any)?.error) throw new Error((data as any).error);
-      const r = data as any;
-      const folderPath = r.vorgeschlagenerUnterordner
-        ? `${r.vorgeschlagenerOrdner}/${r.vorgeschlagenerUnterordner}`
-        : r.vorgeschlagenerOrdner;
-      const valid = listAllFolderPaths();
+      const r = (data as any).document || data;
+      const folderPath = r.folderPath || (
+        r.vorgeschlagenerUnterordner
+          ? `${r.vorgeschlagenerOrdner}/${r.vorgeschlagenerUnterordner}`
+          : r.vorgeschlagenerOrdner
+      );
+      const valid = folderPaths.length > 0 ? folderPaths : flattenFolderTree(folders).map((node) => node.id);
       const safePath = valid.includes(folderPath) ? folderPath : (valid.includes(r.vorgeschlagenerOrdner) ? r.vorgeschlagenerOrdner : "07_Sonstiges");
       setQueue((q) => q.map((x) => x.id === item.id ? {
-        ...x, stage: "ready",
-        result: {
-          absender: r.absender, dokumenttyp: r.dokumenttyp, zusammenfassung: r.zusammenfassung,
+        ...x, documentId: r.id, stage: "ready",
+          result: {
+          absender: r.absender || "Unbekannt", dokumenttyp: r.dokumenttyp || "Sonstiges", zusammenfassung: r.zusammenfassung || "",
           zahlungsbetrag: r.zahlungsbetrag, faelligkeitsdatum: r.faelligkeitsdatum, ablaufdatum: r.ablaufdatum,
-          folderPath: safePath, wichtigkeit: r.wichtigkeit, tags: r.tags || [],
+          folderPath: safePath, wichtigkeit: r.wichtigkeit || "mittel", tags: r.tags || [],
           addPayment: !!r.zahlungsbetrag,
+          analysisMode: r.analysisMode || "fallback",
+          confidence: typeof r.confidence === "number" ? r.confidence : null,
+          wichtigkeitsgrund: r.wichtigkeitsgrund || null,
+          benchmark: data.benchmark || null,
         },
       } : x));
     } catch (e: any) {
@@ -81,7 +149,7 @@ export default function EingangPage() {
       setQueue((q) => q.map((x) => x.id === item.id ? { ...x, stage: "error", error: msg } : x));
       toast.error(msg);
     }
-  }, []);
+  }, [folderPaths, folders]);
 
   const onDrop = useCallback((accepted: File[]) => {
     const items: QueueItem[] = accepted.map((f) => ({ id: uid(), file: f, stage: "queued" }));
@@ -89,25 +157,52 @@ export default function EingangPage() {
     items.forEach((it) => analyze(it));
   }, [analyze]);
 
+  const handleCameraChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    try {
+      const files = Array.from(event.target.files || []).filter((file) => mimeTypeFor(file).startsWith("image/"));
+      if (files.length) onDrop(files);
+    } catch {
+      toast.error("Foto konnte nicht übernommen werden. Bitte versuche Datei hochladen.");
+    } finally {
+      event.target.value = "";
+    }
+  }, [onDrop]);
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop, accept: { "image/*": [], "application/pdf": [] }, multiple: true,
+    onDrop,
+    accept: DROPZONE_ACCEPT,
+    multiple: true,
+    useFsAccessApi: false,
   });
 
   const archive = async (item: QueueItem) => {
-    if (!item.result) return;
+    if (!item.result || !item.documentId) return;
     const r = item.result;
-    const id = uid();
-    const doc: ArchivedDoc = {
-      id, filename: item.file.name, mimeType: item.file.type || "application/octet-stream",
-      size: item.file.size, folderPath: r.folderPath, uploadedAt: new Date().toISOString(),
-      absender: r.absender, dokumenttyp: r.dokumenttyp, zusammenfassung: r.zusammenfassung,
-      zahlungsbetrag: r.zahlungsbetrag, faelligkeitsdatum: r.faelligkeitsdatum, ablaufdatum: r.ablaufdatum,
-      wichtigkeit: r.wichtigkeit, tags: r.tags,
-    };
-    await saveDocument(doc, item.file);
+    const archiveRes = await fetch(`/api/documents/${encodeURIComponent(item.documentId)}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filename: item.file.name,
+        folderPath: r.folderPath,
+        absender: r.absender,
+        dokumenttyp: r.dokumenttyp,
+        zusammenfassung: r.zusammenfassung,
+        zahlungsbetrag: r.zahlungsbetrag,
+        faelligkeitsdatum: r.faelligkeitsdatum,
+        ablaufdatum: r.ablaufdatum,
+        wichtigkeit: r.wichtigkeit,
+        tags: r.tags,
+        confidence: r.confidence,
+        wichtigkeitsgrund: r.wichtigkeitsgrund,
+        status: "archived",
+      }),
+    });
+    const archiveData = await archiveRes.json().catch(() => ({}));
+    if (!archiveRes.ok) throw new Error(archiveData?.error || "Dokument konnte nicht archiviert werden");
     if (r.addPayment && r.zahlungsbetrag) {
       await savePayment({
-        id: uid(), documentId: id, absender: r.absender, beschreibung: r.dokumenttyp,
+        id: uid(), documentId: item.documentId, absender: r.absender, beschreibung: r.dokumenttyp,
         betrag: r.zahlungsbetrag, faelligkeit: r.faelligkeitsdatum || new Date().toISOString(),
         status: "offen", paid: [], createdAt: new Date().toISOString(), kategorie: r.folderPath.split("/")[0],
       });
@@ -117,7 +212,19 @@ export default function EingangPage() {
     toast.success(`Archiviert in ${r.folderPath}`);
   };
 
-  const discard = (id: string) => setQueue((q) => q.filter((x) => x.id !== id));
+  const discard = async (id: string) => {
+    const item = queue.find((x) => x.id === id);
+    setQueue((q) => q.filter((x) => x.id !== id));
+    if (!item?.documentId) return;
+    try {
+      await fetch(`/api/documents/${encodeURIComponent(item.documentId)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+    } catch {
+      toast.error("Server-Entwurf konnte nicht gelöscht werden");
+    }
+  };
 
   const updateResult = (id: string, patch: Partial<QueueItem["result"]>) =>
     setQueue((q) => q.map((x) => x.id === id && x.result ? { ...x, result: { ...x.result, ...patch } as any } : x));
@@ -140,8 +247,12 @@ export default function EingangPage() {
         </div>
 
         <label className="glass border-glow relative cursor-pointer overflow-hidden rounded-2xl p-8 text-center transition hover:shadow-[0_0_30px_oklch(0.72_0.16_220/0.4)]">
-          <input type="file" accept="image/*" capture="environment" className="hidden"
-            onChange={(e) => { const f = Array.from(e.target.files || []); if (f.length) onDrop(f); e.currentTarget.value = ""; }} />
+          <input
+            type="file"
+            className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+            aria-label="Foto aufnehmen"
+            onChange={handleCameraChange}
+          />
           <Camera className="mx-auto h-10 w-10 text-secondary" />
           <div className="mt-3 text-base font-semibold">Foto aufnehmen</div>
           <div className="mt-1 text-xs text-muted-foreground hidden md:block">Am besten auf dem Smartphone</div>
@@ -179,6 +290,8 @@ export default function EingangPage() {
             {item.stage === "ready" && item.result && (
               <ResultCard
                 item={item}
+                folders={folders}
+                folderPaths={folderPaths}
                 onChange={(p) => updateResult(item.id, p)}
                 onArchive={() => archive(item)}
                 onDiscard={() => discard(item.id)}
@@ -209,15 +322,50 @@ function PipeStep({ done, active, label, Icon, spin }: any) {
   );
 }
 
-function ResultCard({ item, onChange, onArchive, onDiscard }: {
-  item: QueueItem; onChange: (p: any) => void; onArchive: () => void; onDiscard: () => void;
+function ResultCard({ item, folders, folderPaths, onChange, onArchive, onDiscard }: {
+  item: QueueItem; folders: FolderNode[]; folderPaths: string[]; onChange: (p: any) => void; onArchive: () => void; onDiscard: () => void;
 }) {
   const r = item.result!;
-  const allPaths = ["", ...listAllFolderPaths()];
+  const allPaths = ["", ...folderPaths];
   const [tagInput, setTagInput] = useState("");
   return (
     <div className="grid gap-4 md:grid-cols-[1fr_280px]">
       <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className={`inline-flex items-center rounded-full px-2.5 py-1 ${
+            r.analysisMode === "llm" ? "bg-emerald-500/15 text-emerald-300" :
+            r.analysisMode === "regex" ? "bg-amber-500/15 text-amber-300" :
+            "bg-destructive/10 text-destructive"
+          }`}>
+            Analyse: {r.analysisMode}
+          </span>
+          {r.confidence != null && (
+            <span className="text-muted-foreground">Confidence {Math.round(r.confidence * 100)}%</span>
+          )}
+          {r.wichtigkeitsgrund && (
+            <span className="text-muted-foreground">{r.wichtigkeitsgrund}</span>
+          )}
+        </div>
+        {r.benchmark && (
+          <div className={`rounded-xl border p-3 text-xs ${
+            r.benchmark.ok ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200" : "border-rose-500/30 bg-rose-500/10 text-rose-200"
+          }`}>
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium">{r.benchmark.label}</span>
+              <span>{r.benchmark.passed}/{r.benchmark.total} bestanden</span>
+            </div>
+            {r.benchmark.checks.filter((check) => !check.passed).length > 0 && (
+              <div className="mt-2 space-y-1 text-[11px]">
+                {r.benchmark.checks.filter((check) => !check.passed).slice(0, 4).map((check) => (
+                  <div key={check.field} className="flex items-start justify-between gap-2">
+                    <span className="font-mono">{check.field}</span>
+                    <span className="text-right">{formatCheckValue(check.expected)} → {formatCheckValue(check.actual)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Absender">
             <input value={r.absender} onChange={(e)=>onChange({ absender: e.target.value })} className={inputCls}/>
@@ -231,7 +379,7 @@ function ResultCard({ item, onChange, onArchive, onDiscard }: {
         </Field>
         <Field label="Ablagevorschlag">
           <select value={r.folderPath} onChange={(e)=>onChange({ folderPath: e.target.value })} className={inputCls}>
-            {FOLDER_TREE.map((f) => (
+            {folders.map((f) => (
               <optgroup key={f.id} label={f.name}>
                 <option value={f.id}>{f.name}</option>
                 {f.children?.map((c) => <option key={c.id} value={c.id}>↳ {c.name}</option>)}
@@ -308,3 +456,10 @@ function Field({ label, children }: any) {
   return <label className="block"><span className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</span><div className="mt-1">{children}</div></label>;
 }
 const inputCls = "w-full rounded-lg bg-input/50 border border-border px-3 py-2 text-sm outline-none focus:border-primary";
+
+function formatCheckValue(value: any) {
+  if (Array.isArray(value)) return value.join(", ");
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(".", ",");
+  return String(value);
+}

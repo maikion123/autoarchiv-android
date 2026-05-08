@@ -8,6 +8,19 @@ export const fmtDate = (d: string | Date | null | undefined) => {
   return new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" }).format(dt);
 };
 
+export const fmtDateTime = (d: string | Date | null | undefined) => {
+  if (!d) return "—";
+  const dt = typeof d === "string" ? new Date(d) : d;
+  if (Number.isNaN(dt.getTime())) return "—";
+  return new Intl.DateTimeFormat("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(dt);
+};
+
 export const fmtBytes = (b: number) => {
   if (!b) return "0 B";
   const u = ["B", "KB", "MB", "GB"];

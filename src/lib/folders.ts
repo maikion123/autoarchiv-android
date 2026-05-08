@@ -1,10 +1,14 @@
 export interface FolderNode {
   id: string;
   name: string;
+  color?: string;
+  icon?: string;
+  parentId?: string | null;
+  sortOrder?: number;
   children?: FolderNode[];
 }
 
-export const FOLDER_TREE: FolderNode[] = [
+export const DEFAULT_FOLDER_TREE: FolderNode[] = [
   { id: "01_Fahrzeug", name: "01_Fahrzeug", children: [
     { id: "01_Fahrzeug/Zulassung & Abmeldung", name: "Zulassung & Abmeldung" },
     { id: "01_Fahrzeug/KFZ-Versicherung", name: "KFZ-Versicherung" },
@@ -42,6 +46,8 @@ export const FOLDER_TREE: FolderNode[] = [
   { id: "07_Sonstiges", name: "07_Sonstiges", children: [] },
 ];
 
+export const FOLDER_TREE = DEFAULT_FOLDER_TREE;
+
 export const FOLDER_META: Record<string, { icon: string; gradient: string }> = {
   "01_Fahrzeug": { icon: "Car", gradient: "from-violet-500 to-fuchsia-500" },
   "02_Finanzen": { icon: "Wallet", gradient: "from-emerald-400 to-cyan-500" },
@@ -52,15 +58,84 @@ export const FOLDER_META: Record<string, { icon: string; gradient: string }> = {
   "07_Sonstiges": { icon: "Folder", gradient: "from-slate-400 to-zinc-500" },
 };
 
-export function listAllFolderPaths(): string[] {
-  const out: string[] = [];
-  for (const f of FOLDER_TREE) {
-    out.push(f.id);
-    f.children?.forEach((c) => out.push(c.id));
-  }
+export function flattenFolderTree(tree: FolderNode[]): FolderNode[] {
+  const out: FolderNode[] = [];
+  const walk = (nodes: FolderNode[], parentId: string | null = null) => {
+    for (const node of nodes) {
+      out.push({ ...node, parentId, children: node.children || [] });
+      if (node.children?.length) walk(node.children, node.id);
+    }
+  };
+  walk(tree);
   return out;
+}
+
+export async function loadFolderTree(): Promise<FolderNode[]> {
+  if (typeof window === "undefined") return DEFAULT_FOLDER_TREE;
+  try {
+    const res = await fetch("/api/folders", { credentials: "include", cache: "no-store" });
+    if (!res.ok) return DEFAULT_FOLDER_TREE;
+    const data = await res.json();
+    return Array.isArray(data.folders) ? data.folders : DEFAULT_FOLDER_TREE;
+  } catch {
+    return DEFAULT_FOLDER_TREE;
+  }
+}
+
+export async function listAllFolderPaths(): Promise<string[]> {
+  const tree = await loadFolderTree();
+  return flattenFolderTree(tree).map((node) => node.id);
 }
 
 export function getTopFolder(path: string): string {
   return path.split("/")[0];
+}
+
+export async function createFolder(
+  parentId: string | null,
+  name: string,
+  color?: string,
+  icon?: string
+): Promise<FolderNode> {
+  const res = await fetch("/api/folders", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ parentId, name, color, icon }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.error || "Ordner konnte nicht angelegt werden");
+  }
+  return data.folder as FolderNode;
+}
+
+export async function renameFolder(
+  folderId: string,
+  name?: string,
+  color?: string,
+  icon?: string
+): Promise<FolderNode> {
+  const res = await fetch(`/api/folders/${encodeURIComponent(folderId)}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, color, icon }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.error || "Ordner konnte nicht aktualisiert werden");
+  }
+  return data.folder as FolderNode;
+}
+
+export async function deleteFolder(folderId: string): Promise<void> {
+  const res = await fetch(`/api/folders/${encodeURIComponent(folderId)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.error || "Ordner konnte nicht gelöscht werden");
+  }
 }

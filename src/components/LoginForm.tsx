@@ -3,6 +3,23 @@ import { motion } from "framer-motion";
 import { Mail, Lock, ArrowRight } from "lucide-react";
 import logoImg from "../assets/logo.png";
 
+async function waitForSession() {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const res = await fetch("/api/auth/me", {
+      credentials: "include",
+      cache: "no-store",
+    });
+
+    if (res.ok) {
+      return true;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  return false;
+}
+
 export function LoginForm({ onLogin }: { onLogin: (email: string) => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -31,13 +48,21 @@ export function LoginForm({ onLogin }: { onLogin: (email: string) => void }) {
 
       if (!res.ok) {
         setError(data.error || "Anmeldung fehlgeschlagen");
+        setIsLoading(false);
+        return;
+      }
+
+      const sessionReady = await waitForSession();
+      if (!sessionReady) {
+        setError("Anmeldung erfolgreich, aber die Sitzung konnte nicht bestätigt werden. Bitte erneut versuchen.");
+        setIsLoading(false);
         return;
       }
 
       onLogin(data.email);
-    } catch {
+    } catch (err) {
+      console.error("[LoginForm] Submit error:", err);
       setError("Verbindungsfehler. Bitte erneut versuchen.");
-    } finally {
       setIsLoading(false);
     }
   };

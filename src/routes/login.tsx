@@ -8,9 +8,8 @@ export const Route = createFileRoute("/login")({
 function LoginPage() {
   const navigate = useNavigate();
 
-  const handleLogin = (email: string) => {
-    // Navigate to home after successful login
-    navigate({ to: "/" });
+  const handleLogin = () => {
+    navigate({ to: "/", replace: true });
   };
 
   return <LoginForm onLogin={handleLogin} />;

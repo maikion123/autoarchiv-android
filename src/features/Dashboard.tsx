@@ -1,16 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FileText, AlertTriangle, CalendarClock, Wallet, Folder,
-  Car, ShieldCheck, FileSignature, Landmark, HeartPulse, ChevronRight, X, Eye, Trash2, Download,
+  Car, ShieldCheck, FileSignature, Landmark, HeartPulse, ChevronRight, X, Eye, Trash2, Download, Edit2,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useArchive } from "../lib/store";
-import { FOLDER_TREE, FOLDER_META, getTopFolder } from "../lib/folders";
+import { DEFAULT_FOLDER_TREE, FOLDER_META, createFolder, deleteFolder, flattenFolderTree, getTopFolder, loadFolderTree, renameFolder, type FolderNode } from "../lib/folders";
 import { fmtEUR, fmtDate, daysUntil, fmtBytes } from "../lib/format";
+import { getIconComponent } from "../lib/iconHelper";
 import { deleteDocument, getDocumentBlob, type ArchivedDoc } from "../lib/db";
 import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { FolderCreateDialog } from "../components/FolderCreateDialog";
+import { FolderEditDialog } from "../components/FolderEditDialog";
 import { toast } from "sonner";
 
 const ICONS: Record<string, any> = {
@@ -38,10 +41,49 @@ function CountUp({ value, suffix = "" }: { value: number; suffix?: string }) {
 
 export default function Dashboard() {
   const { documents, payments, refresh } = useArchive();
+  const [folders, setFolders] = useState<FolderNode[]>(DEFAULT_FOLDER_TREE);
+  const [foldersLoading, setFoldersLoading] = useState(true);
   const [openFolder, setOpenFolder] = useState<string | null>(null);
   const [openSubfolder, setOpenSubfolder] = useState<string | null>(null);
   const [previewDoc, setPreviewDoc] = useState<ArchivedDoc | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ArchivedDoc | null>(null);
+  const [pendingMoveDoc, setPendingMoveDoc] = useState<ArchivedDoc | null>(null);
+  const [moveTargetPath, setMoveTargetPath] = useState("");
+  const [newFolderParent, setNewFolderParent] = useState("");
+  const [newFolderName, setNewFolderName] = useState("");
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [pendingFolderDelete, setPendingFolderDelete] = useState<FolderNode | null>(null);
+  const [showCreateFolderDialog, setShowCreateFolderDialog] = useState(false);
+  const [showEditFolderDialog, setShowEditFolderDialog] = useState(false);
+  const [editingFolder, setEditingFolder] = useState<FolderNode | null>(null);
+
+  // Hide bottom nav when modals are open
+  useEffect(() => {
+    const isModalOpen = showCreateFolderDialog || showEditFolderDialog;
+    if (isModalOpen) {
+      document.documentElement.classList.add("modal-open");
+    } else {
+      document.documentElement.classList.remove("modal-open");
+    }
+  }, [showCreateFolderDialog, showEditFolderDialog]);
+
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      try {
+        const tree = await loadFolderTree();
+        if (mounted) setFolders(tree);
+      } catch {
+        if (mounted) setFolders(DEFAULT_FOLDER_TREE);
+      } finally {
+        if (mounted) setFoldersLoading(false);
+      }
+    };
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const stats = useMemo(() => {
     const open = payments.filter((p) => p.status !== "bezahlt");
@@ -60,9 +102,11 @@ export default function Dashboard() {
 
   const folderCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    documents.forEach((d) => counts.set(getTopFolder(d.folderPath), (counts.get(getTopFolder(d.folderPath)) || 0) + 1));
+    flattenFolderTree(folders).forEach((folder) => {
+      counts.set(folder.id, documents.filter((d) => d.folderPath === folder.id || d.folderPath.startsWith(folder.id + "/")).length);
+    });
     return counts;
-  }, [documents]);
+  }, [documents, folders]);
 
   const categorySpend = useMemo(() => {
     const map = new Map<string, number>();
@@ -131,37 +175,102 @@ export default function Dashboard() {
       {/* Folder grid */}
       <section>
         <h2 className="mb-3 text-lg font-semibold">Kategorien</h2>
+        <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_280px]">
+          <div className="glass rounded-2xl border-glow p-4">
+            <div className="text-sm font-semibold">Neuen Ordner anlegen</div>
+            <div className="mt-1 text-xs text-muted-foreground">Hauptordner oder Unterordner werden im System gespeichert und erscheinen danach in Übersicht und Eingang.</div>
+            <div className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+              <select
+                value={newFolderParent}
+                onChange={(e) => setNewFolderParent(e.target.value)}
+                className="w-full rounded-xl border border-border bg-input/50 px-3 py-2 text-sm"
+              >
+                <option value="">Neuer Hauptordner</option>
+                {renderFolderOptions(folders)}
+              </select>
+              <input
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                className="w-full rounded-xl border border-border bg-input/50 px-3 py-2 text-sm"
+                placeholder="Ordnername"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCreateFolderDialog(true);
+                }}
+                className="rounded-xl bg-gradient-to-r from-violet-500 to-cyan-400 px-4 py-2.5 text-sm font-semibold text-white hover:shadow-lg transition-shadow"
+              >
+                Erweitert anlegen
+              </button>
+            </div>
+          </div>
+          <div className="glass rounded-2xl border-glow p-4 text-xs text-muted-foreground">
+            <div className="font-medium text-foreground">Aktuelle Struktur</div>
+            <div className="mt-1">{foldersLoading ? "Lade Ordner..." : `${flattenFolderTree(folders).length} Ordner geladen`}</div>
+          </div>
+        </div>
+
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-          {FOLDER_TREE.map((f, i) => {
-            const meta = FOLDER_META[f.id];
-            const Icon = ICONS[meta?.icon || "Folder"];
+          {folders.map((f, i) => {
+            const displayColor = f.color || "#3b82f6";
+            const displayIcon = f.icon || "Folder";
             const count = folderCounts.get(f.id) || 0;
             const subCount = f.children?.length || 0;
             const fillPct = Math.min(100, (count / Math.max(1, stats.total)) * 100);
             return (
-              <motion.button
+              <motion.div
                 key={f.id}
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.04 }}
-                whileHover={{ y: -4 }}
-                onClick={() => { setOpenFolder(f.id); setOpenSubfolder(null); }}
                 className="group glass relative overflow-hidden rounded-2xl border-glow p-4 text-left transition hover:shadow-[0_0_30px_oklch(0.62_0.24_290/0.25)]"
               >
-                <div className="flex items-start justify-between">
-                  <div className={`grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br ${meta.gradient} shadow-lg`}>
-                    <Icon className="h-5 w-5 text-white" />
+                <button
+                  onClick={() => { setOpenFolder(f.id); setOpenSubfolder(null); }}
+                  className="w-full h-full absolute inset-0 opacity-0"
+                />
+                <div className="relative z-10 flex items-start justify-between">
+                  <div
+                    className="h-10 w-10 rounded-xl shadow-lg grid place-items-center flex-shrink-0"
+                    style={{
+                      backgroundColor: displayColor
+                    }}
+                  >
+                    {(() => {
+                      const IconComponent = getIconComponent(displayIcon);
+                      return <IconComponent className="h-5 w-5 text-white" />;
+                    })()}
                   </div>
-                  <span className="rounded-full glass px-2 py-0.5 text-xs">{count}</span>
+                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingFolder(f);
+                        setShowEditFolderDialog(true);
+                      }}
+                      className="p-1 rounded-lg hover:bg-white/20 transition-colors"
+                      title="Bearbeiten"
+                    >
+                      <Edit2 className="h-4 w-4 text-white" />
+                    </button>
+                    <span className="rounded-full glass px-2 py-0.5 text-xs">{count}</span>
+                  </div>
                 </div>
-                <div className="mt-3 text-sm font-semibold">{f.name}</div>
-                <div className="mt-0.5 text-[11px] text-muted-foreground opacity-0 transition group-hover:opacity-100">
+                <div className="relative z-10 mt-3 text-sm font-semibold">{f.name}</div>
+                <div className="relative z-10 mt-0.5 text-[11px] text-muted-foreground opacity-0 transition group-hover:opacity-100">
                   {subCount} Unterordner
                 </div>
-                <div className="mt-3 h-1 overflow-hidden rounded-full bg-muted/40">
-                  <div className={`h-full rounded-full bg-gradient-to-r ${meta.gradient}`} style={{ width: `${fillPct}%` }} />
+                <div className="relative z-10 mt-3 h-1 overflow-hidden rounded-full bg-muted/40">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${fillPct}%`,
+                      backgroundColor: displayColor
+                    }}
+                  />
                 </div>
-              </motion.button>
+              </motion.div>
             );
           })}
         </div>
@@ -177,7 +286,7 @@ export default function Dashboard() {
           <div className="mt-4 space-y-2.5">
             {categorySpend.length === 0 && <div className="text-sm text-muted-foreground">Noch keine Ausgaben erfasst.</div>}
             {categorySpend.map((c) => {
-              const meta = FOLDER_META[c.key];
+              const meta = FOLDER_META[c.key] || { gradient: "from-violet-500 to-cyan-400" };
               const w = (c.value / Math.max(1, categorySpend[0].value)) * 100;
               return (
                 <div key={c.key} className="flex items-center gap-3">
@@ -241,6 +350,18 @@ export default function Dashboard() {
             folderId={openFolder}
             subfolderId={openSubfolder}
             onSelectSubfolder={setOpenSubfolder}
+            folders={folders}
+            onRequestDelete={setPendingFolderDelete}
+            onNavigateToFolder={(path) => {
+              const [root, ...rest] = path.split("/");
+              setOpenFolder(root || null);
+              setOpenSubfolder(rest.length ? path : null);
+            }}
+            onReload={async () => {
+              const tree = await loadFolderTree();
+              setFolders(tree);
+              await refresh();
+            }}
             documents={documents}
             onClose={() => setOpenFolder(null)}
             onPreview={setPreviewDoc}
@@ -253,6 +374,47 @@ export default function Dashboard() {
         doc={previewDoc}
         onClose={() => setPreviewDoc(null)}
         onDelete={(d) => { setPreviewDoc(null); setPendingDelete(d); }}
+        onMove={(d) => { setPreviewDoc(null); setPendingMoveDoc(d); setMoveTargetPath(d.folderPath); }}
+        onSaved={async (updated) => {
+          setPreviewDoc(updated);
+          await refresh();
+        }}
+      />
+
+      <MoveDocumentDialog
+        doc={pendingMoveDoc}
+        folders={folders}
+        targetPath={moveTargetPath}
+        onTargetPathChange={setMoveTargetPath}
+        onCancel={() => {
+          setPendingMoveDoc(null);
+          setMoveTargetPath("");
+        }}
+        onConfirm={async () => {
+          if (!pendingMoveDoc) return;
+          if (!moveTargetPath || moveTargetPath === pendingMoveDoc.folderPath) {
+            toast.error("Bitte einen anderen Zielordner wählen");
+            return;
+          }
+          try {
+            const res = await fetch(`/api/documents/${encodeURIComponent(pendingMoveDoc.id)}`, {
+              method: "PATCH",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ folderPath: moveTargetPath }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data?.error || "Dokument konnte nicht verschoben werden");
+            await refresh();
+            const tree = await loadFolderTree();
+            setFolders(tree);
+            setPendingMoveDoc(null);
+            setMoveTargetPath("");
+            toast.success("Dokument verschoben");
+          } catch (err: any) {
+            toast.error(err?.message || "Dokument konnte nicht verschoben werden");
+          }
+        }}
       />
 
       <ConfirmDialog
@@ -268,6 +430,96 @@ export default function Dashboard() {
           await refresh();
           toast.success("Dokument gelöscht");
           setPendingDelete(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={!!pendingFolderDelete}
+        title="Ordner wirklich löschen?"
+        description={pendingFolderDelete?.name}
+        destructive
+        confirmLabel="Löschen"
+        onCancel={() => setPendingFolderDelete(null)}
+        onConfirm={async () => {
+          if (!pendingFolderDelete) return;
+          try {
+            await deleteFolder(pendingFolderDelete.id);
+            const tree = await loadFolderTree();
+            setFolders(tree);
+            await refresh();
+            toast.success("Ordner gelöscht");
+            setPendingFolderDelete(null);
+            setOpenFolder(null);
+            setOpenSubfolder(null);
+          } catch (err: any) {
+            toast.error(err?.message || "Ordner konnte nicht gelöscht werden");
+          }
+        }}
+      />
+
+      {/* Folder Create Dialog */}
+      <FolderCreateDialog
+        isOpen={showCreateFolderDialog}
+        onClose={() => setShowCreateFolderDialog(false)}
+        onCreate={async (data) => {
+          try {
+            await createFolder(
+              data.parentId,
+              data.name,
+              data.color,
+              data.icon
+            );
+            const tree = await loadFolderTree();
+            setFolders(tree);
+            setNewFolderName("");
+            setNewFolderParent("");
+            toast.success("Ordner angelegt");
+          } catch (err: any) {
+            throw err;
+          }
+        }}
+        parentId={newFolderParent ? newFolderParent : null}
+        folders={folders}
+      />
+
+      {/* Folder Edit Dialog */}
+      <FolderEditDialog
+        isOpen={showEditFolderDialog}
+        folder={editingFolder}
+        onClose={() => {
+          setShowEditFolderDialog(false);
+          setEditingFolder(null);
+        }}
+        onSave={async (data) => {
+          if (!editingFolder) return;
+          try {
+            await renameFolder(
+              editingFolder.id,
+              data.name,
+              data.color,
+              data.icon
+            );
+            const tree = await loadFolderTree();
+            setFolders(tree);
+            await refresh();
+            toast.success("Ordner aktualisiert");
+          } catch (err: any) {
+            throw err;
+          }
+        }}
+        onDelete={async () => {
+          if (!editingFolder) return;
+          try {
+            await deleteFolder(editingFolder.id);
+            const tree = await loadFolderTree();
+            setFolders(tree);
+            await refresh();
+            toast.success("Ordner gelöscht");
+            setOpenFolder(null);
+            setOpenSubfolder(null);
+          } catch (err: any) {
+            throw err;
+          }
         }}
       />
     </div>
@@ -288,13 +540,22 @@ function Kpi({ icon: Icon, label, value, accent, glow }: any) {
   );
 }
 
-function FolderPanel({ folderId, subfolderId, onSelectSubfolder, documents, onClose, onPreview, onDelete }: {
+function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequestDelete, onNavigateToFolder, onReload, documents, onClose, onPreview, onDelete }: {
   folderId: string; subfolderId: string | null; onSelectSubfolder: (s: string | null) => void;
-  documents: ArchivedDoc[]; onClose: () => void; onPreview: (d: ArchivedDoc) => void; onDelete: (d: ArchivedDoc) => void;
+  folders: FolderNode[]; onRequestDelete: (folder: FolderNode) => void; onNavigateToFolder: (path: string) => void; onReload: () => Promise<void>; documents: ArchivedDoc[]; onClose: () => void; onPreview: (d: ArchivedDoc) => void; onDelete: (d: ArchivedDoc) => void;
 }) {
-  const folder = FOLDER_TREE.find((f) => f.id === folderId);
+  const folderTree = flattenFolderTree(folders);
+  const folder = folderTree.find((f) => f.id === folderId);
+  const currentId = subfolderId || folderId;
+  const currentFolder = folderTree.find((f) => f.id === currentId);
+  const [renameName, setRenameName] = useState(currentFolder?.name || "");
+
+  useEffect(() => {
+    setRenameName(currentFolder?.name || "");
+  }, [currentFolder?.id]);
+
   const docsInScope = documents.filter((d) => subfolderId
-    ? d.folderPath === subfolderId
+    ? d.folderPath === subfolderId || d.folderPath.startsWith(subfolderId + "/")
     : d.folderPath === folderId || d.folderPath.startsWith(folderId + "/"));
 
   return (
@@ -326,10 +587,48 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, documents, onCl
 
         <h2 className="mt-3 text-2xl font-bold">{folder?.name}</h2>
 
+        <div className="mt-4 grid gap-2 md:grid-cols-[1fr_auto_auto]">
+          <input
+            value={renameName}
+            onChange={(e) => setRenameName(e.target.value)}
+            className="rounded-xl border border-border bg-input/50 px-3 py-2 text-sm"
+            placeholder="Neuer Name"
+          />
+          <button
+            type="button"
+            onClick={async () => {
+              const nextName = renameName.trim();
+              if (!currentFolder || !nextName) {
+                toast.error("Bitte einen neuen Namen eingeben");
+                return;
+              }
+              try {
+                const renamed = await renameFolder(currentFolder.id, nextName);
+                await onReload();
+                onNavigateToFolder(renamed.id);
+                setRenameName(renamed.name);
+                toast.success("Ordner umbenannt");
+              } catch (err: any) {
+                toast.error(err?.message || "Ordner konnte nicht umbenannt werden");
+              }
+            }}
+            className="rounded-xl bg-gradient-to-r from-violet-500 to-cyan-400 px-4 py-2.5 text-sm font-semibold text-white"
+          >
+            Umbenennen
+          </button>
+          <button
+            type="button"
+            onClick={() => currentFolder && onRequestDelete(currentFolder)}
+            className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm font-semibold text-destructive hover:bg-destructive/20"
+          >
+            Löschen
+          </button>
+        </div>
+
         {!subfolderId && folder?.children && folder.children.length > 0 && (
           <div className="mt-5 grid grid-cols-2 gap-2">
             {folder.children.map((c) => {
-              const n = documents.filter((d) => d.folderPath === c.id).length;
+              const n = documents.filter((d) => d.folderPath === c.id || d.folderPath.startsWith(c.id + "/")).length;
               return (
                 <button key={c.id} onClick={() => onSelectSubfolder(c.id)}
                   className="glass flex items-center justify-between rounded-xl p-3 text-left transition hover:bg-muted">
@@ -354,6 +653,71 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, documents, onCl
         </div>
       </motion.div>
     </motion.div>
+  );
+}
+
+function MoveDocumentDialog({
+  doc,
+  folders,
+  targetPath,
+  onTargetPathChange,
+  onCancel,
+  onConfirm,
+}: {
+  doc: ArchivedDoc | null;
+  folders: FolderNode[];
+  targetPath: string;
+  onTargetPathChange: (value: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void | Promise<void>;
+}) {
+  return (
+    <AnimatePresence>
+      {doc && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[90] grid place-items-center bg-black/60 backdrop-blur-md p-4"
+          onClick={onCancel}
+        >
+          <motion.div
+            initial={{ scale: 0.95, y: 10, opacity: 0 }} animate={{ scale: 1, y: 0, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+            transition={{ type: "spring", damping: 22 }}
+            className="glass-strong w-full max-w-lg rounded-2xl border-glow p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-semibold">Dokument verschieben</h3>
+            <p className="mt-1 text-sm text-muted-foreground">{doc.filename}</p>
+
+            <div className="mt-4">
+              <label className="block">
+                <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Zielordner</span>
+                <select
+                  value={targetPath}
+                  onChange={(e) => onTargetPathChange(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-border bg-input/50 px-3 py-2 text-sm"
+                >
+                  <option value="">Bitte wählen</option>
+                  {renderFolderOptions(folders)}
+                </select>
+              </label>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Aktuell: <span className="font-mono text-foreground">{doc.folderPath}</span>
+              </p>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button onClick={onCancel} className="rounded-lg glass px-4 py-2 text-sm hover:bg-muted">Abbrechen</button>
+              <button
+                onClick={onConfirm}
+                className="rounded-lg bg-gradient-to-r from-violet-500 to-cyan-400 px-4 py-2 text-sm font-medium text-white transition hover:brightness-110"
+              >
+                Verschieben
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -402,4 +766,13 @@ function DocRow({ doc, onPreview, onDelete }: { doc: ArchivedDoc; onPreview: () 
       </div>
     </motion.div>
   );
+}
+
+function renderFolderOptions(tree: FolderNode[], depth = 0): JSX.Element[] {
+  return tree.flatMap((node) => [
+    <option key={node.id} value={node.id}>
+      {`${"— ".repeat(depth)}${node.name}`}
+    </option>,
+    ...(node.children?.length ? renderFolderOptions(node.children, depth + 1) : []),
+  ]);
 }

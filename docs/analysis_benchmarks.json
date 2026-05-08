@@ -1,0 +1,116 @@
+[
+  {
+    "id": "rv-kfz-rechnung-2026-04-09",
+    "label": "R+V Kfz-Rechnung 09.04.2026",
+    "priority": 100,
+    "amountTolerance": 0.1,
+    "match": {
+      "filenameIncludes": ["ruv", "kfz", "rechnung"],
+      "textIncludes": ["jahresbeitrag"]
+    },
+    "ocr": {
+      "contains": ["R+V", "Jahresbeitrag", "505,68", "AA KR1995"]
+    },
+    "expected": {
+      "folderPath": "01_Fahrzeug/KFZ-Versicherung",
+      "absender": "R+V Versicherung",
+      "dokumenttyp": "Rechnung",
+      "zahlungsbetrag": 505.68,
+      "wichtigkeit": "hoch",
+      "tags": ["fahrzeug", "versicherung", "r+v"]
+    }
+  },
+  {
+    "id": "rv-kfz-versicherungsunterlagen",
+    "label": "R+V Kfz-Versicherungsunterlagen",
+    "priority": 95,
+    "amountTolerance": 0.1,
+    "match": {
+      "filenameAnyOf": ["versicherungsschein", "nachtrag", "kfz"],
+      "textAnyOf": ["versicherungsunterlagen", "kfz-versicherung", "kfz versicherung"]
+    },
+    "ocr": {
+      "contains": ["R+V", "Versicherungs", "Kfz", "AA KR1995"]
+    },
+    "expected": {
+      "folderPath": "01_Fahrzeug/KFZ-Versicherung",
+      "absender": "R+V Versicherung",
+      "dokumenttyp": "Versicherung",
+      "wichtigkeit": "hoch",
+      "tags": ["fahrzeug", "versicherung"]
+    }
+  },
+  {
+    "id": "gemeinde-bescheid",
+    "label": "Gemeinde-Bescheid",
+    "priority": 80,
+    "match": {
+      "filenameAnyOf": ["gemeinde", "amt", "bescheid"],
+      "textAnyOf": ["gemeinde", "amt", "bescheid", "gebühr"]
+    },
+    "ocr": {
+      "contains": ["Gemeinde", "Bescheid"]
+    },
+    "expected": {
+      "folderPath": "05_Behörden",
+      "dokumenttyp": "Bescheid",
+      "wichtigkeit": "hoch",
+      "tags": ["behoerde"]
+    }
+  },
+  {
+    "id": "abwasserrechnung",
+    "label": "Abwasserrechnung",
+    "priority": 75,
+    "match": {
+      "filenameAnyOf": ["abwasser", "wasser"],
+      "textAnyOf": ["abwasser", "abwasserrechnung", "gebühr", "gebuehr"]
+    },
+    "ocr": {
+      "contains": ["Abwasser", "Gebühr"]
+    },
+    "expected": {
+      "folderPath": "05_Behörden",
+      "dokumenttyp": "Rechnung",
+      "wichtigkeit": "hoch",
+      "tags": ["behoerde", "zahlung"]
+    }
+  },
+  {
+    "id": "info-brief",
+    "label": "Info-Brief",
+    "priority": 60,
+    "match": {
+      "filenameAnyOf": ["info", "mitteilung", "hinweis"],
+      "textAnyOf": ["info", "mitteilung", "hinweis"]
+    },
+    "ocr": {
+      "contains": ["Hinweis"]
+    },
+    "expected": {
+      "folderPath": "07_Sonstiges",
+      "dokumenttyp": "Info",
+      "wichtigkeit": "mittel"
+    }
+  },
+  {
+    "id": "hirner-latzko-heizungsrechnung",
+    "label": "Hirner & Latzko Heizungsrechnung",
+    "priority": 90,
+    "amountTolerance": 0.1,
+    "match": {
+      "filenameAnyOf": ["hirner", "heizungs"],
+      "textAnyOf": ["hirner", "latzko", "heizungsarbeiten", "rechnungsbetrag"]
+    },
+    "ocr": {
+      "contains": ["Hirner", "Latzko", "Heizungsarbeiten", "241,69", "23.04.2026"]
+    },
+    "expected": {
+      "folderPath": "02_Finanzen",
+      "absender": "Hirner & Latzko",
+      "dokumenttyp": "Rechnung",
+      "zahlungsbetrag": 241.69,
+      "tags": ["zahlung"]
+    }
+  }
+]
