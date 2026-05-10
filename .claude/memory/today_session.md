@@ -59,15 +59,23 @@ type: project
 - Checkboxes for subcategories
 - "Alle auswählen", "X löschen", "Abbrechen" buttons
 
+### 9. Performance: Disable Ollama, Instant Regex Analysis
+**Commit:** `fc2a3cc`
+- Disabled Ollama completely (USE_OLLAMA_ANALYSIS = false)
+- Document analysis now ~100ms (vs 90s+ with Ollama)
+- Changed all "fallback" mode to "regex" for clarity
+- User feedback: "Es dauert immernoch zu lange" → RESOLVED
+- Zero dependencies, completely free
+
 ## Statistics
-- **Total Commits:** 8 major features/fixes
-- **Files Changed:** 5 main files + 1 new component
+- **Total Commits:** 9 major features/fixes
+- **Files Changed:** api-server.mjs (backend optimization)
 - **Build Status:** ✅ All successful
 - **Test Coverage:** Manual testing on all flows
 
 ## Deployment Status
 - ✅ Code complete
-- ✅ Build verified
+- ✅ Build verified (npm run build)
 - ✅ Ready for VPS deployment
 - ⏳ Waiting for user to run deployment commands
 
@@ -80,5 +88,6 @@ type: project
 - Better UX for folder management (icon vs pencil distinction)
 - Safety: Document warnings before deletion
 - Flexibility: Move documents instead of losing them
-- Security: Shorter JWT expiration window
+- Security: Shorter JWT expiration window (15 days → 4 hours)
 - Internationalization: German search in icon picker
+- Performance: Instant document upload (Ollama disabled, regex analysis ~100ms)
