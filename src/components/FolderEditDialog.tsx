@@ -76,7 +76,7 @@ export function FolderEditDialog({
   };
 
   return (
-    <AnimatePresence>
+    <AnimatePresence mode="wait">
       {isOpen && folder && (
         <>
           {/* Backdrop */}
@@ -90,6 +90,7 @@ export function FolderEditDialog({
 
           {/* Modal - Mobile: Bottom Sheet, Desktop: Centered */}
           <motion.div
+            key={folder.id}
             initial={{ y: "100%" }}
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
