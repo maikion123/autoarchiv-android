@@ -41,8 +41,9 @@ const API_PORT     = parseInt(process.env.API_PORT || '3001', 10);
 const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || undefined;
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434/api/generate';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3:8b';
-const OLLAMA_TIMEOUT_MS = parseInt(process.env.OLLAMA_TIMEOUT_MS || '90000', 10);
-const USE_OLLAMA_ANALYSIS = process.env.USE_OLLAMA_ANALYSIS === 'true';
+const OLLAMA_TIMEOUT_MS = parseInt(process.env.OLLAMA_TIMEOUT_MS || '10000', 10); // Reduced from 90s to 10s
+let USE_OLLAMA_ANALYSIS = process.env.USE_OLLAMA_ANALYSIS === 'true';
+let OLLAMA_AVAILABLE = false;
 const MAX_OLLAMA_TEXT_LENGTH = 6000;
 const OLLAMA_OPTIONS = {
   temperature: 0,
@@ -264,6 +265,42 @@ function seedFolders() {
 }
 
 seedFolders();
+
+// Health check for Ollama
+async function checkOllamaHealth() {
+  if (!USE_OLLAMA_ANALYSIS) {
+    OLLAMA_AVAILABLE = false;
+    console.log('[Ollama] Disabled via USE_OLLAMA_ANALYSIS env var');
+    return;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000); // 3s health check timeout
+    const response = await fetch(OLLAMA_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: OLLAMA_MODEL,
+        prompt: 'test',
+        stream: false,
+      }),
+    });
+    clearTimeout(timeout);
+    OLLAMA_AVAILABLE = response.ok || response.status === 400; // 400 = bad prompt but ollama is alive
+    console.log(`[Ollama] Health check: ${OLLAMA_AVAILABLE ? '✅ Available' : '❌ Unavailable'}`);
+  } catch (err) {
+    OLLAMA_AVAILABLE = false;
+    console.log(`[Ollama] Health check failed: ${err.message}`);
+  }
+}
+
+// Check Ollama availability on startup
+checkOllamaHealth().catch(err => {
+  console.warn('[Ollama] Health check error:', err.message);
+  OLLAMA_AVAILABLE = false;
+});
 
 // ── HILFSFUNKTIONEN ──────────────────────────────────────────────────────────
 function uid() {
@@ -1719,7 +1756,8 @@ async function summarizeWithOllama(text, filename, mimeType, analysis) {
 async function addUserFriendlySummary({ analysis, filename, mimeType, text }) {
   const localSummary = buildLocalUserSummary(analysis, text, filename);
 
-  if (!hasMeaningfulText(text) || !USE_OLLAMA_ANALYSIS || analysis.analysisMode !== 'llm') {
+  // Skip Ollama summary if not available, disabled, or analysis wasn't LLM-based
+  if (!hasMeaningfulText(text) || !USE_OLLAMA_ANALYSIS || !OLLAMA_AVAILABLE || analysis.analysisMode !== 'llm') {
     return {
       ...analysis,
       zusammenfassung: localSummary,
@@ -1750,7 +1788,8 @@ async function analyzeTextWithFallback({ filename, mimeType, text }) {
     return addUserFriendlySummary({ analysis: merged, filename, mimeType, text });
   }
 
-  if (!USE_OLLAMA_ANALYSIS) {
+  // Skip Ollama if not available or disabled
+  if (!USE_OLLAMA_ANALYSIS || !OLLAMA_AVAILABLE) {
     merged = mergeAnalyses(regexResult, null, 'regex');
     return addUserFriendlySummary({ analysis: merged, filename, mimeType, text });
   }
