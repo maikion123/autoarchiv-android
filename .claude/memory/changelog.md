@@ -8,6 +8,36 @@ type: project
 
 ## Changelog
 
+### [2026-05-10] Feature: Document Preview on Upload + Error Handling
+**Description:**
+- **Upload Preview**: Instant live preview of uploaded document (image/PDF) in right panel
+- **No API Call**: Uses `URL.createObjectURL(item.file)` — preview available immediately
+- **140px Thumbnail**: Shows in ResultCard above Wichtigkeit field
+- **Preview Types**: Images (JPG/PNG/WebP/HEIC), PDFs (in iframe), unsupported graceful fallback
+- **Existing Doc Preview Fix**: Better error handling when document preview fails to load
+- **User Feedback**: "Beim hochladen vom dokument soll auch eine Vorschauanzeige angezeigt werden" → SOLVED
+
+**Results:**
+- ✅ Users see instant preview of uploaded document before archiving
+- ✅ Can verify correct document was scanned/uploaded before committing
+- ✅ Existing document preview shows actionable error message (instead of eternal skeleton)
+- ✅ Fallback "Direkt öffnen ↗" link if preview fails
+- ✅ Better UX when API returns 401/404/network error
+
+**Files Modified:**
+- `src/features/Eingang.tsx`: Upload preview with useEffect + Object URL cleanup
+- `src/components/DocumentPreviewModal.tsx`: loadError state + error UI + direct link fallback
+
+**Build Status:** ✅ Erfolgreich
+
+**Verification:**
+- Build succeeds with no TS errors
+- Upload preview displays image/PDF instantly after file selection
+- Existing document preview shows error message with fallback link on failure
+- Preview properly cleaned up when queue item removed (no memory leaks)
+
+---
+
 ### [2026-05-10] Performance: Disable Ollama, Use Fast Regex Analysis
 **Description:**
 - **Ollama Disabled**: `USE_OLLAMA_ANALYSIS = false` (was causing 90s+ waits)

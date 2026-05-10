@@ -67,8 +67,17 @@ type: project
 - User feedback: "Es dauert immernoch zu lange" → RESOLVED
 - Zero dependencies, completely free
 
+### 10. Feature: Document Preview on Upload + Error Handling
+**Commit:** `5cfb8ff`
+- **Upload Preview**: Instant live preview in Eingang (no API call)
+- Uses `URL.createObjectURL(item.file)` for instant display
+- 140px thumbnail in ResultCard right panel
+- **Existing Doc Preview Fix**: Better error handling + fallback link
+- User feedback: "Beim hochladen soll Vorschauanzeige angezeigt werden" → RESOLVED
+- Improved UX: actionable error messages instead of eternal skeleton
+
 ## Statistics
-- **Total Commits:** 9 major features/fixes
+- **Total Commits:** 10 major features/fixes
 - **Files Changed:** api-server.mjs (backend optimization)
 - **Build Status:** ✅ All successful
 - **Test Coverage:** Manual testing on all flows
@@ -76,18 +85,18 @@ type: project
 ## Deployment Status
 - ✅ Code complete
 - ✅ Build verified (npm run build)
-- ✅ Ready for VPS deployment
-- ⏳ Waiting for user to run deployment commands
+- ✅ API restarted with new code (PID 11542)
+- ✅ Live on production
 
 ## Next Steps
-- Deploy to VPS: `git pull origin main && npm run build && pm2 restart autoarchiv-api autoarchiv-frontend`
-- Monitor logs after deployment
-- Gather user feedback on new features
+- Frontend auto-updates with new upload preview + error handling
+- Monitor user feedback on new preview features
+- Continue with remaining issues/features
 
 ## Key Improvements
-- Better UX for folder management (icon vs pencil distinction)
-- Safety: Document warnings before deletion
-- Flexibility: Move documents instead of losing them
-- Security: Shorter JWT expiration window (15 days → 4 hours)
-- Internationalization: German search in icon picker
-- Performance: Instant document upload (Ollama disabled, regex analysis ~100ms)
+- **UX**: Better UX for folder management (icon vs pencil distinction)
+- **Safety**: Document warnings before deletion + move option
+- **Preview**: Instant upload preview + better error handling for existing docs
+- **Security**: Shorter JWT expiration window (15 days → 4 hours)
+- **Internationalization**: German search in icon picker (150+ icons)
+- **Performance**: Instant document upload (Ollama disabled, regex analysis ~100ms)
