@@ -2687,14 +2687,14 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   const token = jwt.sign(
     { userId: user.id, email: user.email },
     JWT_SECRET,
-    { expiresIn: '15d' }
+    { expiresIn: '4h' }
   );
 
   res.cookie('auth_token', token, {
     httpOnly: true,
     secure: true,
     sameSite: 'strict',
-    maxAge: 15 * 24 * 60 * 60 * 1000,
+    maxAge: 4 * 60 * 60 * 1000,
     domain: COOKIE_DOMAIN,
   });
 
