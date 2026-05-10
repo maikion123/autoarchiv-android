@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FileText, AlertTriangle, CalendarClock, Wallet, Folder,
-  Car, ShieldCheck, FileSignature, Landmark, HeartPulse, ChevronRight, X, Eye, Trash2, Download, Edit2,
+  Car, ShieldCheck, FileSignature, Landmark, HeartPulse, ChevronRight, X, Eye, Trash2, Download, Edit2, Check,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useArchive } from "../lib/store";
@@ -56,6 +56,7 @@ export default function Dashboard() {
   const [showCreateFolderDialog, setShowCreateFolderDialog] = useState(false);
   const [showEditFolderDialog, setShowEditFolderDialog] = useState(false);
   const [editingFolder, setEditingFolder] = useState<FolderNode | null>(null);
+  const [openFolderInSelectionMode, setOpenFolderInSelectionMode] = useState(false);
 
   // Hide bottom nav when modals are open
   useEffect(() => {
@@ -243,11 +244,12 @@ export default function Dashboard() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setEditingFolder(f);
-                        setShowEditFolderDialog(true);
+                        setOpenFolder(f.id);
+                        setOpenSubfolder(null);
+                        setOpenFolderInSelectionMode(true);
                       }}
                       className="p-1 rounded-lg hover:bg-white/20 transition-colors"
-                      title="Bearbeiten"
+                      title="Unterordner auswählen und löschen"
                     >
                       <Edit2 className="h-4 w-4 text-white" />
                     </button>
@@ -360,13 +362,17 @@ export default function Dashboard() {
               await refresh();
             }}
             documents={documents}
-            onClose={() => setOpenFolder(null)}
+            onClose={() => {
+              setOpenFolder(null);
+              setOpenFolderInSelectionMode(false);
+            }}
             onPreview={setPreviewDoc}
             onDelete={setPendingDelete}
             onEdit={(folder) => {
               setEditingFolder(folder);
               setShowEditFolderDialog(true);
             }}
+            startInSelectionMode={openFolderInSelectionMode}
           />
         )}
       </AnimatePresence>
@@ -541,9 +547,9 @@ function Kpi({ icon: Icon, label, value, accent, glow }: any) {
   );
 }
 
-function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequestDelete, onNavigateToFolder, onReload, documents, onClose, onPreview, onDelete, onEdit }: {
+function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequestDelete, onNavigateToFolder, onReload, documents, onClose, onPreview, onDelete, onEdit, startInSelectionMode }: {
   folderId: string; subfolderId: string | null; onSelectSubfolder: (s: string | null) => void;
-  folders: FolderNode[]; onRequestDelete: (folder: FolderNode) => void; onNavigateToFolder: (path: string) => void; onReload: () => Promise<void>; documents: ArchivedDoc[]; onClose: () => void; onPreview: (d: ArchivedDoc) => void; onDelete: (d: ArchivedDoc) => void; onEdit: (folder: FolderNode) => void;
+  folders: FolderNode[]; onRequestDelete: (folder: FolderNode) => void; onNavigateToFolder: (path: string) => void; onReload: () => Promise<void>; documents: ArchivedDoc[]; onClose: () => void; onPreview: (d: ArchivedDoc) => void; onDelete: (d: ArchivedDoc) => void; onEdit: (folder: FolderNode) => void; startInSelectionMode?: boolean;
 }) {
   const folderTree = flattenFolderTree(folders);
   const folder = folderTree.find((f) => f.id === folderId);
@@ -551,10 +557,17 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequ
   const currentFolder = folderTree.find((f) => f.id === currentId);
   const [inlineEditFolder, setInlineEditFolder] = useState<FolderNode | null>(null);
   const [inlineEditName, setInlineEditName] = useState("");
+  const [selectionMode, setSelectionMode] = useState(startInSelectionMode ?? false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setInlineEditFolder(null);
   }, [subfolderId, folderId]);
+
+  useEffect(() => {
+    setSelectionMode(startInSelectionMode ?? false);
+    setSelectedIds(new Set());
+  }, [folderId, startInSelectionMode]);
 
   const docsInScope = documents.filter((d) => subfolderId
     ? d.folderPath === subfolderId || d.folderPath.startsWith(subfolderId + "/")
@@ -570,6 +583,27 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequ
       toast.success("Unterordner umbenannt");
     } catch (err: any) {
       toast.error(err?.message || "Unterordner konnte nicht umbenannt werden");
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`Wirklich ${selectedIds.size} Unterordner löschen?`)) return;
+
+    try {
+      for (const id of selectedIds) {
+        try {
+          await deleteFolder(id);
+        } catch (err: any) {
+          toast.error(`Fehler beim Löschen: ${id}`);
+        }
+      }
+      await onReload();
+      setSelectedIds(new Set());
+      setSelectionMode(false);
+      toast.success(`${selectedIds.size} Unterordner gelöscht`);
+    } catch (err: any) {
+      toast.error("Fehler beim Löschen von Unterordnern");
     }
   };
 
@@ -622,6 +656,49 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequ
 
         <h2 className="mt-3 text-2xl font-bold">{folder?.name}</h2>
 
+        {selectionMode && !subfolderId && folder?.children && (
+          <div className="mt-4 glass rounded-xl border border-border/40 p-3 space-y-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-sm font-medium text-foreground">
+                {selectedIds.size} ausgewählt
+              </span>
+              <button
+                onClick={() => {
+                  const all = new Set(folder.children!.map((c) => c.id));
+                  setSelectedIds(all);
+                }}
+                className="text-xs px-2.5 py-1.5 rounded-lg hover:bg-muted/60 text-muted-foreground hover:text-foreground transition"
+              >
+                Alle auswählen
+              </button>
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="text-xs px-2.5 py-1.5 rounded-lg hover:bg-muted/60 text-muted-foreground hover:text-foreground transition"
+              >
+                Auswahl aufheben
+              </button>
+              {selectedIds.size > 0 && (
+                <button
+                  onClick={handleBulkDelete}
+                  className="ml-auto text-xs px-3 py-1.5 rounded-lg bg-destructive/10 border border-destructive/40
+                             text-destructive font-medium hover:bg-destructive/20 transition"
+                >
+                  {selectedIds.size} löschen
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  setSelectionMode(false);
+                  setSelectedIds(new Set());
+                }}
+                className="text-xs px-2.5 py-1.5 rounded-lg hover:bg-muted/60 text-muted-foreground hover:text-foreground transition"
+              >
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        )}
+
         {!subfolderId && folder?.children && folder.children.length > 0 && (
           <div className="mt-5 grid grid-cols-2 gap-2">
             {folder.children.map((c) => {
@@ -629,6 +706,41 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequ
               const childColor = c.color || "#3b82f6";
               const ChildIcon = getIconComponent(childIcon);
               const n = documents.filter((d) => d.folderPath === c.id || d.folderPath.startsWith(c.id + "/")).length;
+              const isSelected = selectedIds.has(c.id);
+
+              if (selectionMode) {
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => {
+                      const next = new Set(selectedIds);
+                      next.has(c.id) ? next.delete(c.id) : next.add(c.id);
+                      setSelectedIds(next);
+                    }}
+                    className={`glass flex items-center gap-3 rounded-xl p-3 text-left transition w-full
+                      ${isSelected ? "ring-2 ring-violet-500 bg-violet-500/10" : "hover:bg-muted"}`}
+                  >
+                    <div
+                      className="h-5 w-5 rounded border-2 grid place-items-center flex-shrink-0"
+                      style={{
+                        borderColor: isSelected ? "#a78bfa" : "#6b7280",
+                        backgroundColor: isSelected ? "#a78bfa" : "transparent"
+                      }}
+                    >
+                      {isSelected && <Check className="h-3 w-3 text-white" />}
+                    </div>
+                    <div
+                      className="h-8 w-8 rounded-lg grid place-items-center flex-shrink-0"
+                      style={{ backgroundColor: childColor }}
+                    >
+                      <ChildIcon className="h-4 w-4 text-white" />
+                    </div>
+                    <span className="truncate text-sm flex-1">{c.name}</span>
+                    <span className="rounded-full glass px-2 py-0.5 text-[11px]">{n}</span>
+                  </button>
+                );
+              }
+
               return (
                 <div key={c.id} className="relative group/sub">
                   <button
