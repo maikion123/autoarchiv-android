@@ -19,6 +19,7 @@ export function AppShell() {
   const navigate = useNavigate();
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [authState, setAuthState] = useState<"checking" | "authenticated" | "unauthenticated">("checking");
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const isPublicPage = path === "/login" || path === "/register";
 
   useEffect(() => {
@@ -115,6 +116,18 @@ export function AppShell() {
       clearInterval(interval);
     };
   }, [isPublicPage, authState]);
+
+  // Monitor .modal-open class for proper nav hiding
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsModalOpen(document.documentElement.classList.contains('modal-open'));
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+    return () => observer.disconnect();
+  }, []);
 
   if (isPublicPage) {
     return <Outlet />;
@@ -219,8 +232,8 @@ export function AppShell() {
 
       {/* Bottom tab bar (mobile) */}
       <nav className="fixed bottom-3 left-3 right-3 z-50 md:hidden transition-all duration-300" style={{
-        transform: document.documentElement.classList.contains('modal-open') ? 'translateY(150%)' : 'translateY(0)',
-        pointerEvents: document.documentElement.classList.contains('modal-open') ? 'none' : 'auto'
+        transform: isModalOpen ? 'translateY(150%)' : 'translateY(0)',
+        pointerEvents: isModalOpen ? 'none' : 'auto'
       }}>
         <div className="glass-strong rounded-2xl border-glow px-2 py-2">
           <ul className="flex items-center justify-between">

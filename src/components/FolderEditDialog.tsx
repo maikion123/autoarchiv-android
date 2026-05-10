@@ -85,15 +85,19 @@ export function FolderEditDialog({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40"
+            className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[60]"
           />
 
-          {/* Modal */}
+          {/* Modal - Mobile: Bottom Sheet, Desktop: Centered */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-50 max-h-[90vh] w-auto max-w-md mx-auto sm:inset-x-auto"
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100%" }}
+            transition={{ type: "spring", damping: 30, stiffness: 300 }}
+            className="fixed inset-x-0 bottom-0 z-[61] rounded-t-2xl
+                       sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2
+                       sm:top-1/2 sm:bottom-auto sm:-translate-y-1/2
+                       sm:w-full sm:max-w-md sm:rounded-2xl"
           >
             <div className="glass border-glow rounded-2xl overflow-hidden">
               {/* Header */}
@@ -111,7 +115,7 @@ export function FolderEditDialog({
               </div>
 
               {/* Content */}
-              <div className="p-6 space-y-5 max-h-[calc(90vh-120px)] overflow-y-auto">
+              <div className="p-6 space-y-5 max-h-[80dvh] sm:max-h-[calc(90vh-120px)] overflow-y-auto">
                 {/* Name Input */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-foreground">

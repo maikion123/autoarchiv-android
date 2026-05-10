@@ -602,17 +602,33 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequ
               const ChildIcon = getIconComponent(childIcon);
               const n = documents.filter((d) => d.folderPath === c.id || d.folderPath.startsWith(c.id + "/")).length;
               return (
-                <button key={c.id} onClick={() => onSelectSubfolder(c.id)}
-                  className="glass flex items-center gap-3 rounded-xl p-3 text-left transition hover:bg-muted">
-                  <div
-                    className="h-8 w-8 rounded-lg grid place-items-center flex-shrink-0"
-                    style={{ backgroundColor: childColor }}
+                <div key={c.id} className="relative group/sub">
+                  <button
+                    onClick={() => onSelectSubfolder(c.id)}
+                    className="glass flex items-center gap-3 rounded-xl p-3 text-left transition hover:bg-muted w-full"
                   >
-                    <ChildIcon className="h-4 w-4 text-white" />
-                  </div>
-                  <span className="truncate text-sm flex-1">{c.name}</span>
-                  <span className="rounded-full glass px-2 py-0.5 text-[11px]">{n}</span>
-                </button>
+                    <div
+                      className="h-8 w-8 rounded-lg grid place-items-center flex-shrink-0"
+                      style={{ backgroundColor: childColor }}
+                    >
+                      <ChildIcon className="h-4 w-4 text-white" />
+                    </div>
+                    <span className="truncate text-sm flex-1">{c.name}</span>
+                    <span className="rounded-full glass px-2 py-0.5 text-[11px]">{n}</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEdit(c);
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg
+                               opacity-0 group-hover/sub:opacity-100 transition-opacity
+                               hover:bg-white/10 z-10"
+                    title="Unterordner bearbeiten"
+                  >
+                    <Edit2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               );
             })}
           </div>
