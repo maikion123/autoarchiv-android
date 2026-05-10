@@ -41,8 +41,9 @@ const API_PORT     = parseInt(process.env.API_PORT || '3001', 10);
 const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || undefined;
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434/api/generate';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3:8b';
-const OLLAMA_TIMEOUT_MS = parseInt(process.env.OLLAMA_TIMEOUT_MS || '10000', 10); // Reduced from 90s to 10s
-let USE_OLLAMA_ANALYSIS = process.env.USE_OLLAMA_ANALYSIS === 'true';
+const OLLAMA_TIMEOUT_MS = parseInt(process.env.OLLAMA_TIMEOUT_MS || '10000', 10);
+// USE_OLLAMA disabled - using fast local regex analysis instead (free, no tokens, instant)
+let USE_OLLAMA_ANALYSIS = false;
 let OLLAMA_AVAILABLE = false;
 const MAX_OLLAMA_TEXT_LENGTH = 6000;
 const OLLAMA_OPTIONS = {
@@ -104,7 +105,7 @@ db.exec(`
     ablaufdatum         TEXT,
     wichtigkeit         TEXT NOT NULL DEFAULT 'mittel',
     tags_json           TEXT NOT NULL DEFAULT '[]',
-    analysis_mode       TEXT NOT NULL DEFAULT 'fallback',
+    analysis_mode       TEXT NOT NULL DEFAULT 'regex',
     confidence          REAL,
     wichtigkeitsgrund   TEXT,
     status              TEXT NOT NULL DEFAULT 'uploaded',
@@ -1544,7 +1545,7 @@ function mergeAnalyses(regexResult, llmResult, analysisMode) {
       merged[key] = value;
     }
   }
-  merged.analysisMode = analysisMode;
+  merged.analysisMode = analysisMode === 'fallback' ? 'regex' : analysisMode;
   return merged;
 }
 
@@ -1784,25 +1785,13 @@ async function analyzeTextWithFallback({ filename, mimeType, text }) {
   let merged;
 
   if (!hasMeaningfulText(text)) {
-    merged = mergeAnalyses(regexResult, null, text ? 'regex' : 'fallback');
+    merged = mergeAnalyses(regexResult, null, text ? 'regex' : 'regex');
     return addUserFriendlySummary({ analysis: merged, filename, mimeType, text });
   }
 
-  // Skip Ollama if not available or disabled
-  if (!USE_OLLAMA_ANALYSIS || !OLLAMA_AVAILABLE) {
-    merged = mergeAnalyses(regexResult, null, 'regex');
-    return addUserFriendlySummary({ analysis: merged, filename, mimeType, text });
-  }
-
-  const llmResult = await analyzeWithOllama(
-    text.substring(0, MAX_OLLAMA_TEXT_LENGTH),
-    filename,
-    mimeType,
-  );
-
-  merged = llmResult
-    ? mergeAnalyses(regexResult, llmResult, 'llm')
-    : mergeAnalyses(regexResult, null, 'fallback');
+  // Use fast regex analysis (free, no tokens, instant)
+  // Ollama disabled - regex provides good results and is instant
+  merged = mergeAnalyses(regexResult, null, 'regex');
   return addUserFriendlySummary({ analysis: merged, filename, mimeType, text });
 }
 
@@ -2047,7 +2036,7 @@ app.post('/api/analyze-document-file', requireAuth, express.raw({
     return res.status(200).json(result);
   } catch (err) {
     console.error('analyze-document-file local OCR fallback', errorSummary(err));
-    return res.status(200).json({ ...inferDocument(filename, mimeType), analysisMode: 'fallback' });
+    return res.status(200).json({ ...inferDocument(filename, mimeType), analysisMode: 'regex' });
   }
 });
 
@@ -2069,11 +2058,11 @@ app.post('/api/analyze-document', requireAuth, async (req, res) => {
   try {
     const result = imageBase64
       ? await analyzeLocally({ filename, mimeType, imageBase64 })
-      : { ...inferDocument(filename, mimeType), analysisMode: 'fallback' };
+      : { ...inferDocument(filename, mimeType), analysisMode: 'regex' };
     return res.status(200).json(result);
   } catch (err) {
     console.error('analyze-document local OCR fallback', errorSummary(err));
-    return res.status(200).json({ ...inferDocument(filename, mimeType), analysisMode: 'fallback' });
+    return res.status(200).json({ ...inferDocument(filename, mimeType), analysisMode: 'regex' });
   }
 });
 
@@ -2126,7 +2115,7 @@ app.post('/api/documents/upload', requireAuth, express.raw({
       analysis = await analyzeTextWithFallback({ filename: originalFilename, mimeType, text });
     } catch (err) {
       console.error('documents/upload analysis fallback', errorSummary(err));
-      analysis = { ...inferDocument(originalFilename, mimeType), analysisMode: 'fallback' };
+      analysis = { ...inferDocument(originalFilename, mimeType), analysisMode: 'regex' };
     }
     const benchmark = evaluateBenchmark(analysis, originalFilename, text);
 
@@ -2160,7 +2149,7 @@ app.post('/api/documents/upload', requireAuth, express.raw({
       analysis.ablaufdatum ?? null,
       analysis.wichtigkeit || 'mittel',
       tagsJson,
-      analysis.analysisMode || 'fallback',
+      analysis.analysisMode || 'regex',
       analysis.confidence ?? null,
       analysis.wichtigkeitsgrund ?? null,
       'analyzed',
