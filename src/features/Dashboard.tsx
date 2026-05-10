@@ -14,6 +14,7 @@ import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { FolderCreateDialog } from "../components/FolderCreateDialog";
 import { FolderEditDialog } from "../components/FolderEditDialog";
+import { FolderDeleteDialog } from "../components/FolderDeleteDialog";
 import { toast } from "sonner";
 
 const ICONS: Record<string, any> = {
@@ -57,6 +58,7 @@ export default function Dashboard() {
   const [showEditFolderDialog, setShowEditFolderDialog] = useState(false);
   const [editingFolder, setEditingFolder] = useState<FolderNode | null>(null);
   const [openFolderInSelectionMode, setOpenFolderInSelectionMode] = useState(false);
+  const [folderToDelete, setFolderToDelete] = useState<FolderNode | null>(null);
 
   // Hide bottom nav when modals are open
   useEffect(() => {
@@ -350,7 +352,7 @@ export default function Dashboard() {
             subfolderId={openSubfolder}
             onSelectSubfolder={setOpenSubfolder}
             folders={folders}
-            onRequestDelete={setPendingFolderDelete}
+            onRequestDelete={setFolderToDelete}
             onNavigateToFolder={(path) => {
               const [root, ...rest] = path.split("/");
               setOpenFolder(root || null);
@@ -440,26 +442,53 @@ export default function Dashboard() {
         }}
       />
 
-      <ConfirmDialog
-        open={!!pendingFolderDelete}
-        title="Ordner wirklich löschen?"
-        description={pendingFolderDelete?.name}
-        destructive
-        confirmLabel="Löschen"
-        onCancel={() => setPendingFolderDelete(null)}
-        onConfirm={async () => {
-          if (!pendingFolderDelete) return;
+      <FolderDeleteDialog
+        isOpen={!!folderToDelete}
+        folder={folderToDelete}
+        documents={documents}
+        folders={folders}
+        onClose={() => setFolderToDelete(null)}
+        onConfirmDelete={async () => {
+          if (!folderToDelete) return;
           try {
-            await deleteFolder(pendingFolderDelete.id);
+            await deleteFolder(folderToDelete.id);
             const tree = await loadFolderTree();
             setFolders(tree);
             await refresh();
-            toast.success("Ordner gelöscht");
-            setPendingFolderDelete(null);
+            toast.success("Ordner und Inhalt gelöscht");
+            setFolderToDelete(null);
             setOpenFolder(null);
             setOpenSubfolder(null);
           } catch (err: any) {
             toast.error(err?.message || "Ordner konnte nicht gelöscht werden");
+          }
+        }}
+        onConfirmMove={async (targetFolderId) => {
+          if (!folderToDelete) return;
+          try {
+            const docsToMove = documents.filter(
+              (d) => d.folderPath === folderToDelete.id || d.folderPath.startsWith(folderToDelete.id + "/")
+            );
+
+            for (const doc of docsToMove) {
+              await fetch(`/api/documents/${encodeURIComponent(doc.id)}`, {
+                method: "PATCH",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ folderPath: targetFolderId }),
+              });
+            }
+
+            await deleteFolder(folderToDelete.id);
+            const tree = await loadFolderTree();
+            setFolders(tree);
+            await refresh();
+            toast.success(`${docsToMove.length} Dokumente verschoben, Ordner gelöscht`);
+            setFolderToDelete(null);
+            setOpenFolder(null);
+            setOpenSubfolder(null);
+          } catch (err: any) {
+            toast.error(err?.message || "Dokumente konnten nicht verschoben werden");
           }
         }}
       />
