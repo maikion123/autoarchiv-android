@@ -76,17 +76,25 @@ type: project
 - User feedback: "Beim hochladen soll Vorschauanzeige angezeigt werden" → RESOLVED
 - Improved UX: actionable error messages instead of eternal skeleton
 
+### 11. Fixes: Document Preview Caching + File Cleanup on Discard
+**Commit:** `32e25a5`
+- **Upload Preview Bug Fix**: Old document shown for new uploads → fixed with unique component keys
+- **File Cleanup**: Discard now deletes file from filesystem + DB
+- User feedback: "Das alte dokument angezeigt wird" + "Datei soll gelöscht werden" → RESOLVED
+- Each upload shows correct preview, no component reuse caching
+- Discard properly cleans up orphaned files
+
 ## Statistics
-- **Total Commits:** 10 major features/fixes
+- **Total Commits:** 11 major features/fixes
 - **Files Changed:** api-server.mjs (backend optimization)
 - **Build Status:** ✅ All successful
 - **Test Coverage:** Manual testing on all flows
 
 ## Deployment Status
-- ✅ Code complete
+- ✅ Code complete (11 features/fixes)
 - ✅ Build verified (npm run build)
-- ✅ API restarted with new code (PID 11542)
-- ✅ Live on production
+- ✅ API restarted with all changes (latest PID)
+- ✅ Live on production (all fixes deployed)
 
 ## Next Steps
 - Frontend auto-updates with new upload preview + error handling

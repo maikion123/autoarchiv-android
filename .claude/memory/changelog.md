@@ -8,6 +8,34 @@ type: project
 
 ## Changelog
 
+### [2026-05-10] Fixes: Document Preview Caching + File Cleanup
+**Description:**
+- **Upload Preview Bug**: Old document was shown for new uploads (React component reuse)
+- **Solution**: Added unique key (`item.id + filename`) to force component remounting
+- **File Cleanup**: DELETE endpoint now properly deletes file from filesystem (was only deleting DB)
+- **User Feedback Applied**: "Das alte dokument angezeigt wird" + "File cleanup on discard" → SOLVED
+
+**Results:**
+- ✅ Each new upload shows its own document preview (not cached/stale)
+- ✅ Component remounts properly when new file uploaded
+- ✅ Discard action deletes both DB record AND filesystem file
+- ✅ No more orphaned files taking up storage space
+- ✅ Better resource cleanup
+
+**Files Modified:**
+- `src/features/Eingang.tsx`: Unique keys for motion.div + ResultCard (line 271, 290)
+- `api-server.mjs`: DELETE /api/documents/:id now unlinks storage_path (line 2274-2278)
+
+**Build Status:** ✅ Erfolgreich
+
+**Verification:**
+- Build succeeds (npm run build)
+- API restarted and healthy
+- Upload multiple documents: each shows correct preview
+- Discard: file deleted from storage directory
+
+---
+
 ### [2026-05-10] Feature: Document Preview on Upload + Error Handling
 **Description:**
 - **Upload Preview**: Instant live preview of uploaded document (image/PDF) in right panel
