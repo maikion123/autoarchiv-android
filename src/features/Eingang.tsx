@@ -328,6 +328,15 @@ function ResultCard({ item, folders, folderPaths, onChange, onArchive, onDiscard
   const r = item.result!;
   const allPaths = ["", ...folderPaths];
   const [tagInput, setTagInput] = useState("");
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const mimeType = mimeTypeFor(item.file);
+
+  useEffect(() => {
+    const url = URL.createObjectURL(item.file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [item.file]);
+
   return (
     <div className="grid gap-4 md:grid-cols-[1fr_280px]">
       <div className="space-y-3">
@@ -416,6 +425,18 @@ function ResultCard({ item, folders, folderPaths, onChange, onArchive, onDiscard
       </div>
 
       <div className="space-y-3">
+        <div className="rounded-xl border border-border/40 overflow-hidden bg-black/20" style={{ height: 140 }}>
+          {previewUrl && (
+            mimeType.startsWith("image/") ? (
+              <img src={previewUrl} alt="Dokumentvorschau" className="h-full w-full object-contain" />
+            ) : mimeType === "application/pdf" ? (
+              <iframe src={previewUrl} title="Dokumentvorschau" className="h-full w-full pointer-events-none bg-white" />
+            ) : (
+              <div className="h-full w-full flex items-center justify-center text-xs text-muted-foreground">Vorschau nicht verfügbar</div>
+            )
+          )}
+        </div>
+
         <Field label="Wichtigkeit">
           <div className="grid grid-cols-3 gap-1 rounded-lg glass p-1 text-xs">
             {(["niedrig","mittel","hoch"] as Importance[]).map((w) => (

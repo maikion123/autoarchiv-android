@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Download, Trash2, FolderInput, PencilLine, Save, XCircle, Loader2 } from "lucide-react";
+import { X, Download, Trash2, FolderInput, PencilLine, Save, XCircle, Loader2, FileText } from "lucide-react";
 import type { ArchivedDoc } from "../lib/db";
 import { getDocumentBlob, patchDocument } from "../lib/db";
 import { fmtDate, fmtBytes, fmtEUR } from "../lib/format";
@@ -41,6 +41,7 @@ function makeEditForm(doc: ArchivedDoc): EditForm {
 
 export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }: Props) {
   const [url, setUrl] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [currentDoc, setCurrentDoc] = useState<ArchivedDoc | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -52,14 +53,19 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
 
   useEffect(() => {
     let revoke: string | null = null;
+    setLoadError(false);
     if (activeDoc) {
-      getDocumentBlob(activeDoc.id).then((blob) => {
-        if (blob) {
-          const u = URL.createObjectURL(blob);
-          revoke = u;
-          setUrl(u);
-        }
-      });
+      getDocumentBlob(activeDoc.id)
+        .then((blob) => {
+          if (blob) {
+            const u = URL.createObjectURL(blob);
+            revoke = u;
+            setUrl(u);
+          } else {
+            setLoadError(true);
+          }
+        })
+        .catch(() => setLoadError(true));
     } else {
       setUrl(null);
     }
@@ -146,7 +152,20 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
             </button>
 
             <div className="overflow-auto bg-black/30 p-4 grid place-items-center">
-              {url ? (
+              {loadError ? (
+                <div className="text-center space-y-3 text-sm text-muted-foreground">
+                  <FileText className="mx-auto h-10 w-10 opacity-30" />
+                  <p>Vorschau nicht verfügbar</p>
+                  <a
+                    href={`/api/documents/${activeDoc.id}/file`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs underline text-primary hover:text-primary/80 inline-block"
+                  >
+                    Direkt öffnen ↗
+                  </a>
+                </div>
+              ) : url ? (
                 activeDoc.mimeType.startsWith("image/") ? (
                   <img src={url} alt={activeDoc.filename} className="max-h-full max-w-full rounded-lg shadow-2xl" />
                 ) : activeDoc.mimeType === "application/pdf" ? (
