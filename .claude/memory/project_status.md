@@ -115,7 +115,16 @@ id | agent_id | event_type | message | files | created_at
 - **Agent Workflow Docs:** `/srv/projects/autoarchiv/docs/AGENT_WORKFLOW.md`
 
 ## Recent Changes
-1. 2026-05-07 — Analysis Benchmark Checklist:
+1. 2026-05-10 — Dashboard Category Navigation & Edit Redesign:
+   - Pencil (edit) icon next to each category is now always visible, not hidden on hover.
+   - Entire category card is clickable → opens FolderPanel with subcategories and document contents.
+   - Removed old inline rename form from FolderPanel (the input + Rename/Delete button combo).
+   - New Edit button (pencil) in FolderPanel header → opens FolderEditDialog with color/icon pickers (Maik's modern design).
+   - Subcategory cards in FolderPanel now display icon and color, matching the main category design.
+   - FolderPanel receives `onEdit` callback for seamless dialog triggering.
+   - Verified: `npm run build`, category card usability, FolderPanel header workflow.
+
+2. 2026-05-07 — Analysis Benchmark Checklist:
    - Added `docs/analysis_benchmarks.json` as a live benchmark list for OCR and classification.
    - `api-server.mjs` now evaluates each upload against the first matching benchmark and returns a pass/fail report in the upload response.
    - `src/features/Eingang.tsx` now shows the benchmark summary directly in the upload card so OCR/KI failures are visible immediately.

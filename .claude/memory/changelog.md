@@ -8,6 +8,35 @@ type: project
 
 ## Changelog
 
+### [2026-05-10] Improvement: Dashboard Category Navigation & Edit Redesign
+**Description:**
+- Redesigned the Dashboard category cards to improve navigation and editing workflow.
+- The pencil (edit) icon is now always visible next to each category (previously hidden on hover).
+- Entire category card is now clickable → opens FolderPanel to view subcategories and documents.
+- Removed the old inline rename form from FolderPanel (with input field + Rename/Delete buttons).
+- Added a new Edit button (pencil icon) in FolderPanel header → opens FolderEditDialog with color & icon pickers.
+- Improved subcategory cards in FolderPanel to display icon and color (matching main category design).
+- FolderPanel now receives `onEdit` callback to trigger FolderEditDialog from Dashboard.
+- Cursor changes to pointer on hoverable category cards.
+
+**Files Modified:**
+- `src/features/Dashboard.tsx` (category cards, FolderPanel component, header redesign)
+
+**Build Status:** ✅ Erfolgreich (`npm run build`)
+
+**Testing:**
+- `npm run build` — no TypeScript errors
+- Category card: pencil icon always visible (not hover-only)
+- Click on category card → FolderPanel opens with subcategories + documents
+- Click pencil → FolderEditDialog opens (Maik's modern mask with colors/icons)
+- FolderPanel: no inline rename form anymore
+- Subcategory cards show icon + color
+
+**Security Implications:**
+- None. This change only affects UI/UX, no authentication or data handling changes.
+
+---
+
 ### [2026-05-08] Improvement: User-Friendly Document Summaries
 **Description:**
 - Split document analysis into field extraction plus a separate user-facing summary step.

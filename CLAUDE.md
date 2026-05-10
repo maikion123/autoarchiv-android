@@ -204,6 +204,6 @@ Use `codex` instead of `claude-code` when working as Codex.
 
 ---
 
-**Last Updated:** 2026-05-07  
+**Last Updated:** 2026-05-10  
 **Memory System:** `.claude/memory/` (6 Dateien, Changelog eingeführt)  
 **Production Status:** ✅ Live and stable
