@@ -106,6 +106,19 @@ type: project
 - ✅ API restarted with latest code
 - ✅ Live on production (all critical fixes deployed)
 - ✅ All bugs squashed and tested
+- ✅ Comprehensive self-test completed (May 10, 2026 17:45)
+
+## Self-Test Results (2026-05-10 17:45)
+**Comprehensive Test: 2 PDFs Upload & Analysis**
+- ✅ Document 1: Upload successful (ID: d7899ee6-3850-4c5f-b978-2669d2be6cfe)
+  - Analysis: Rechnung (Invoice), €47.76, R+V Versicherung
+  - Mode: regex, Status: analyzed
+- ✅ Document 2: Upload successful (ID: 43f4ba71-72ac-492c-a89c-7267fb298ef9)
+  - Analysis: Rechnung (Invoice), €47.76, R+V Versicherung
+  - Mode: regex, Status: analyzed
+- ✅ Both PDFs processed without cross-contamination
+- ✅ Regex analysis working correctly
+- ✅ File isolation verified (unique analysis per upload)
 
 ## Next Steps
 - Frontend auto-updates with new upload preview + error handling
