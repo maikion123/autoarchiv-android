@@ -634,8 +634,9 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequ
               <button
                 onClick={() => {
                   if (!subfolderId) {
-                    // Hauptkategorie → FolderEditDialog (Icons/Farben)
-                    onEdit(currentFolder);
+                    // Hauptkategorie → Markierungsmodus für Unterkategorien
+                    setSelectionMode(true);
+                    setSelectedIds(new Set());
                   } else {
                     // Unterordner → Inline-Edit
                     setInlineEditFolder(currentFolder);
@@ -643,7 +644,7 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequ
                   }
                 }}
                 className="p-1.5 rounded-lg hover:bg-muted transition-colors"
-                title="Ordner bearbeiten"
+                title={!subfolderId ? "Unterkategorien auswählen" : "Ordner bearbeiten"}
               >
                 <Edit2 className="h-4 w-4" />
               </button>
