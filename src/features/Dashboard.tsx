@@ -231,17 +231,23 @@ export default function Dashboard() {
                 className="group glass relative overflow-hidden rounded-2xl border-glow p-4 text-left transition cursor-pointer hover:shadow-[0_0_30px_oklch(0.62_0.24_290/0.25)]"
               >
                 <div className="relative z-10 flex items-start justify-between">
-                  <div
-                    className="h-10 w-10 rounded-xl shadow-lg grid place-items-center flex-shrink-0"
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingFolder(f);
+                      setShowEditFolderDialog(true);
+                    }}
+                    className="h-10 w-10 rounded-xl shadow-lg grid place-items-center flex-shrink-0 hover:shadow-xl transition-shadow cursor-pointer group/icon"
                     style={{
                       backgroundColor: displayColor
                     }}
+                    title="Kategorie bearbeiten"
                   >
                     {(() => {
                       const IconComponent = getIconComponent(displayIcon);
-                      return <IconComponent className="h-5 w-5 text-white" />;
+                      return <IconComponent className="h-5 w-5 text-white group-hover/icon:scale-110 transition-transform" />;
                     })()}
-                  </div>
+                  </button>
                   <div className="flex items-center gap-2 z-20">
                     <button
                       onClick={(e) => {
@@ -545,17 +551,8 @@ export default function Dashboard() {
         }}
         onDelete={async () => {
           if (!editingFolder) return;
-          try {
-            await deleteFolder(editingFolder.id);
-            const tree = await loadFolderTree();
-            setFolders(tree);
-            await refresh();
-            toast.success("Ordner gelöscht");
-            setOpenFolder(null);
-            setOpenSubfolder(null);
-          } catch (err: any) {
-            throw err;
-          }
+          setFolderToDelete(editingFolder);
+          setShowEditFolderDialog(false);
         }}
       />
     </div>
