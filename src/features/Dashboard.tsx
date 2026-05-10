@@ -224,12 +224,9 @@ export default function Dashboard() {
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.04 }}
-                className="group glass relative overflow-hidden rounded-2xl border-glow p-4 text-left transition hover:shadow-[0_0_30px_oklch(0.62_0.24_290/0.25)]"
+                onClick={() => { setOpenFolder(f.id); setOpenSubfolder(null); }}
+                className="group glass relative overflow-hidden rounded-2xl border-glow p-4 text-left transition cursor-pointer hover:shadow-[0_0_30px_oklch(0.62_0.24_290/0.25)]"
               >
-                <button
-                  onClick={() => { setOpenFolder(f.id); setOpenSubfolder(null); }}
-                  className="w-full h-full absolute inset-0 opacity-0"
-                />
                 <div className="relative z-10 flex items-start justify-between">
                   <div
                     className="h-10 w-10 rounded-xl shadow-lg grid place-items-center flex-shrink-0"
@@ -242,7 +239,7 @@ export default function Dashboard() {
                       return <IconComponent className="h-5 w-5 text-white" />;
                     })()}
                   </div>
-                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                  <div className="flex items-center gap-2 z-20">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -366,6 +363,10 @@ export default function Dashboard() {
             onClose={() => setOpenFolder(null)}
             onPreview={setPreviewDoc}
             onDelete={setPendingDelete}
+            onEdit={(folder) => {
+              setEditingFolder(folder);
+              setShowEditFolderDialog(true);
+            }}
           />
         )}
       </AnimatePresence>
@@ -540,19 +541,14 @@ function Kpi({ icon: Icon, label, value, accent, glow }: any) {
   );
 }
 
-function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequestDelete, onNavigateToFolder, onReload, documents, onClose, onPreview, onDelete }: {
+function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequestDelete, onNavigateToFolder, onReload, documents, onClose, onPreview, onDelete, onEdit }: {
   folderId: string; subfolderId: string | null; onSelectSubfolder: (s: string | null) => void;
-  folders: FolderNode[]; onRequestDelete: (folder: FolderNode) => void; onNavigateToFolder: (path: string) => void; onReload: () => Promise<void>; documents: ArchivedDoc[]; onClose: () => void; onPreview: (d: ArchivedDoc) => void; onDelete: (d: ArchivedDoc) => void;
+  folders: FolderNode[]; onRequestDelete: (folder: FolderNode) => void; onNavigateToFolder: (path: string) => void; onReload: () => Promise<void>; documents: ArchivedDoc[]; onClose: () => void; onPreview: (d: ArchivedDoc) => void; onDelete: (d: ArchivedDoc) => void; onEdit: (folder: FolderNode) => void;
 }) {
   const folderTree = flattenFolderTree(folders);
   const folder = folderTree.find((f) => f.id === folderId);
   const currentId = subfolderId || folderId;
   const currentFolder = folderTree.find((f) => f.id === currentId);
-  const [renameName, setRenameName] = useState(currentFolder?.name || "");
-
-  useEffect(() => {
-    setRenameName(currentFolder?.name || "");
-  }, [currentFolder?.id]);
 
   const docsInScope = documents.filter((d) => subfolderId
     ? d.folderPath === subfolderId || d.folderPath.startsWith(subfolderId + "/")
@@ -580,59 +576,41 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequ
               <span className="text-foreground">{subfolderId.split("/").slice(1).join("/")}</span>
             </>)}
           </div>
-          <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-full glass hover:bg-muted">
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            {currentFolder && (
+              <button
+                onClick={() => onEdit(currentFolder)}
+                className="p-1.5 rounded-lg hover:bg-muted transition-colors"
+                title="Ordner bearbeiten"
+              >
+                <Edit2 className="h-4 w-4" />
+              </button>
+            )}
+            <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-full glass hover:bg-muted">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         <h2 className="mt-3 text-2xl font-bold">{folder?.name}</h2>
 
-        <div className="mt-4 grid gap-2 md:grid-cols-[1fr_auto_auto]">
-          <input
-            value={renameName}
-            onChange={(e) => setRenameName(e.target.value)}
-            className="rounded-xl border border-border bg-input/50 px-3 py-2 text-sm"
-            placeholder="Neuer Name"
-          />
-          <button
-            type="button"
-            onClick={async () => {
-              const nextName = renameName.trim();
-              if (!currentFolder || !nextName) {
-                toast.error("Bitte einen neuen Namen eingeben");
-                return;
-              }
-              try {
-                const renamed = await renameFolder(currentFolder.id, nextName);
-                await onReload();
-                onNavigateToFolder(renamed.id);
-                setRenameName(renamed.name);
-                toast.success("Ordner umbenannt");
-              } catch (err: any) {
-                toast.error(err?.message || "Ordner konnte nicht umbenannt werden");
-              }
-            }}
-            className="rounded-xl bg-gradient-to-r from-violet-500 to-cyan-400 px-4 py-2.5 text-sm font-semibold text-white"
-          >
-            Umbenennen
-          </button>
-          <button
-            type="button"
-            onClick={() => currentFolder && onRequestDelete(currentFolder)}
-            className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm font-semibold text-destructive hover:bg-destructive/20"
-          >
-            Löschen
-          </button>
-        </div>
-
         {!subfolderId && folder?.children && folder.children.length > 0 && (
           <div className="mt-5 grid grid-cols-2 gap-2">
             {folder.children.map((c) => {
+              const childIcon = c.icon || "Folder";
+              const childColor = c.color || "#3b82f6";
+              const ChildIcon = getIconComponent(childIcon);
               const n = documents.filter((d) => d.folderPath === c.id || d.folderPath.startsWith(c.id + "/")).length;
               return (
                 <button key={c.id} onClick={() => onSelectSubfolder(c.id)}
-                  className="glass flex items-center justify-between rounded-xl p-3 text-left transition hover:bg-muted">
-                  <span className="truncate text-sm">{c.name}</span>
+                  className="glass flex items-center gap-3 rounded-xl p-3 text-left transition hover:bg-muted">
+                  <div
+                    className="h-8 w-8 rounded-lg grid place-items-center flex-shrink-0"
+                    style={{ backgroundColor: childColor }}
+                  >
+                    <ChildIcon className="h-4 w-4 text-white" />
+                  </div>
+                  <span className="truncate text-sm flex-1">{c.name}</span>
                   <span className="rounded-full glass px-2 py-0.5 text-[11px]">{n}</span>
                 </button>
               );
