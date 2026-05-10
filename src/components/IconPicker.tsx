@@ -23,7 +23,6 @@ export const AVAILABLE_ICONS = [
   "Train",
   "Bike",
   "Truck",
-  "Map",
   "MapPin",
   "Globe",
   "Heart",
@@ -40,7 +39,7 @@ export const AVAILABLE_ICONS = [
   "Wallet",
   "Banknote",
   "DollarSign",
-  "EuroIcon",
+  "Euro",
   "Receipt",
   "ReceiptText",
   "PiggyBank",
@@ -60,7 +59,7 @@ export const AVAILABLE_ICONS = [
   "Camera",
   "CameraOff",
   "Film",
-  "MovieIcon",
+  "Movie",
   "Gamepad2",
   "Joystick",
   "Monitor",
@@ -112,7 +111,6 @@ export const AVAILABLE_ICONS = [
   "Package",
   "Package2",
   "Wrench",
-  "WrenchIcon",
   "Hammer",
   "Hammer2",
   "Paintbrush",
@@ -151,7 +149,6 @@ export const AVAILABLE_ICONS = [
   "HourglassEnd",
   "Sparkles",
   "Sparkle",
-  "Star",
   "FileSignature",
   "Landmark",
   "HeartPulse",
@@ -174,11 +171,10 @@ export const AVAILABLE_ICONS = [
   "ChevronRight",
   "Menu",
   "Settings",
-  "SettingsIcon",
+  "Settings2",
   "Sliders",
   "Filter",
   "Search",
-  "Map",
   "Navigation",
   "Compass",
   "AtSign",
@@ -207,7 +203,6 @@ export const ICON_GERMAN_LABELS: Record<string, string[]> = {
   "Train": ["zug", "bahn", "eisenbahn"],
   "Bike": ["fahrrad", "rad", "motorrad"],
   "Truck": ["lastwagen", "lieferwagen", "transport"],
-  "Map": ["karte", "landkarte", "gebiet"],
   "MapPin": ["kartenpin", "standort", "ort"],
   "Globe": ["erdball", "welt", "global", "international"],
   "Heart": ["herz", "liebe", "favorit"],
@@ -224,7 +219,7 @@ export const ICON_GERMAN_LABELS: Record<string, string[]> = {
   "Wallet": ["geldbörse", "portemonnaie", "geldkasten"],
   "Banknote": ["geldschein", "geld", "währung"],
   "DollarSign": ["dollar", "währung", "geld"],
-  "EuroIcon": ["euro", "währung", "geld"],
+  "Euro": ["euro", "währung", "geld"],
   "Receipt": ["quittung", "beleg", "rechnung"],
   "ReceiptText": ["beleg text", "rechnungstext"],
   "PiggyBank": ["spardose", "sparbüchse", "ersparnis"],
@@ -244,7 +239,7 @@ export const ICON_GERMAN_LABELS: Record<string, string[]> = {
   "Camera": ["kamera", "foto", "fotografie", "bild"],
   "CameraOff": ["kamera aus", "fotografie deaktiviert"],
   "Film": ["film", "video", "kinofilm"],
-  "MovieIcon": ["film", "kino", "video"],
+  "Movie": ["film", "kino", "video"],
   "Gamepad2": ["spielpaddle", "controller", "spiel"],
   "Joystick": ["joystick", "spielcontroller"],
   "Monitor": ["monitor", "bildschirm", "anzeige"],
@@ -268,7 +263,7 @@ export const ICON_GERMAN_LABELS: Record<string, string[]> = {
   "Bell": ["glocke", "benachrichtigung", "warnton"],
   "BellOff": ["glocke aus", "benachrichtigung deaktiviert"],
   "Users": ["benutzer", "personen", "team", "gruppe"],
-  "User": ["benutzer", "person", "profil", "benutzer"],
+  "User": ["benutzer", "person", "profil"],
   "UserPlus": ["benutzer hinzufügen", "neuer benutzer"],
   "Contact": ["kontakt", "person", "adresse"],
   "Contacts": ["kontakte", "adressbuch"],
@@ -289,12 +284,13 @@ export const ICON_GERMAN_LABELS: Record<string, string[]> = {
   "Sprout": ["keim", "wachstum", "pflanze"],
   "Gift": ["geschenk", "präsent", "box"],
   "GiftOpen": ["geschenk offen", "geöffnet"],
+  "Bookmark": ["lesezeichen", "markierung"],
+  "BookmarkCheck": ["lesezeichen haken", "markiert"],
   "Archive": ["archiv", "lager", "speicherung"],
   "ArchiveX": ["archiv löschen", "archiv entfernen"],
   "Package": ["paket", "paket", "versand"],
   "Package2": ["paket alt", "lieferung"],
   "Wrench": ["schraubenschlüssel", "reparatur", "werkzeug"],
-  "WrenchIcon": ["schraubenschlüssel", "reparatur"],
   "Hammer": ["hammer", "handwerk", "bauen"],
   "Hammer2": ["hammer alt", "werkzeug"],
   "Paintbrush": ["pinsel", "malerei", "zeichnen"],
@@ -355,7 +351,7 @@ export const ICON_GERMAN_LABELS: Record<string, string[]> = {
   "ChevronRight": ["chevron rechts", "weiter"],
   "Menu": ["menü", "hamburger", "optionen"],
   "Settings": ["einstellungen", "optionen", "konfiguration"],
-  "SettingsIcon": ["einstellungen", "konfiguration"],
+  "Settings2": ["einstellungen alt", "konfiguration"],
   "Sliders": ["regler", "einstellungen", "slider"],
   "Filter": ["filter", "filterung", "auswahl"],
   "Search": ["suche", "lupe", "suchen"],
@@ -391,7 +387,7 @@ export function IconPicker({ value, onChange }: IconPickerProps) {
   const CurrentIcon = (Icons as Record<string, any>)[value] || Icons.Folder;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 relative">
       <label className="text-sm font-medium text-foreground">
         Symbol
       </label>
@@ -406,14 +402,14 @@ export function IconPicker({ value, onChange }: IconPickerProps) {
         <span className="truncate">{value}</span>
       </motion.button>
 
-      {/* Dropdown */}
+      {/* Dropdown - positioned relative to parent */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
-            className="absolute left-0 right-0 z-50 mx-auto w-full max-w-md mt-2 rounded-xl border border-border bg-input/80 backdrop-blur-sm shadow-lg p-4 space-y-3"
+            className="absolute top-full left-0 right-0 z-[100] w-full max-w-md mt-2 rounded-xl border border-border bg-background/95 backdrop-blur-sm shadow-lg p-4 space-y-3"
           >
             {/* Search */}
             <div className="relative">
@@ -432,6 +428,7 @@ export function IconPicker({ value, onChange }: IconPickerProps) {
             <div className="grid grid-cols-5 sm:grid-cols-6 gap-2 max-h-64 sm:max-h-80 overflow-y-auto">
               {filtered.map((icon) => {
                 const IconComponent = (Icons as Record<string, any>)[icon];
+                if (!IconComponent) return null;
                 const germanLabels = ICON_GERMAN_LABELS[icon] || [];
                 const tooltipText = `${icon}\n${germanLabels.join(", ")}`;
                 return (
