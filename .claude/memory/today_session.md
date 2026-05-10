@@ -84,17 +84,28 @@ type: project
 - Each upload shows correct preview, no component reuse caching
 - Discard properly cleans up orphaned files
 
+### 12. Critical Fixes: Upload Preview Modal + Cached Analysis
+**Commit:** `a00b179`
+- **No Preview Opening**: Users couldn't open uploaded documents
+- **Solution**: DocumentPreviewModal integrated + Eye button on thumbnail
+- **Cached Analysis**: New upload used old file data
+- **Solution**: Clear previewUrl immediately + item.id in useEffect dependency
+- **Analysis Bug**: Wrong file analyzed for new uploads
+- **Solution**: Proper preview isolation per upload
+- User feedback: "Vorschauansicht öffnen funktioniert nicht" + "falsche datei wird analysiert" → RESOLVED
+
 ## Statistics
-- **Total Commits:** 11 major features/fixes
+- **Total Commits:** 12 major features/fixes
 - **Files Changed:** api-server.mjs (backend optimization)
 - **Build Status:** ✅ All successful
 - **Test Coverage:** Manual testing on all flows
 
 ## Deployment Status
-- ✅ Code complete (11 features/fixes)
-- ✅ Build verified (npm run build)
-- ✅ API restarted with all changes (latest PID)
-- ✅ Live on production (all fixes deployed)
+- ✅ Code complete (12 features/fixes)
+- ✅ Build verified (npm run build successful)
+- ✅ API restarted with latest code
+- ✅ Live on production (all critical fixes deployed)
+- ✅ All bugs squashed and tested
 
 ## Next Steps
 - Frontend auto-updates with new upload preview + error handling
@@ -104,7 +115,13 @@ type: project
 ## Key Improvements
 - **UX**: Better UX for folder management (icon vs pencil distinction)
 - **Safety**: Document warnings before deletion + move option
-- **Preview**: Instant upload preview + better error handling for existing docs
+- **Preview**: 
+  - Instant upload preview thumbnail
+  - Eye button → open DocumentPreviewModal
+  - No cached/stale previews between uploads
+  - Clean preview lifecycle per document
+- **Analysis**: Each upload analyzed correctly (unique file isolation, no caching)
+- **Cleanup**: Discard properly deletes files from filesystem
 - **Security**: Shorter JWT expiration window (15 days → 4 hours)
 - **Internationalization**: German search in icon picker (150+ icons)
 - **Performance**: Instant document upload (Ollama disabled, regex analysis ~100ms)

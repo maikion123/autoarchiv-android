@@ -8,6 +8,39 @@ type: project
 
 ## Changelog
 
+### [2026-05-10] Critical Fixes: Upload Preview Modal + Cached Analysis
+**Description:**
+- **No Preview Modal**: Users couldn't open uploaded documents for full preview
+- **Solution**: Integrated DocumentPreviewModal into Eingang.tsx with Eye button on thumbnail
+- **Cached Preview**: Old preview URL shown for new uploads (component reuse)
+- **Solution**: Clear previewUrl immediately + add item.id to useEffect dependency
+- **Wrong File Analysis**: New upload analyzed with old file data
+- **Solution**: Proper preview isolation + each upload gets unique documentId on server
+- **User Feedback Applied**: "Vorschauansicht öffnen button funktioniert nicht" + "falsche datei wird analysiert" → SOLVED
+
+**Results:**
+- ✅ Eye button on preview thumbnail (hover reveal)
+- ✅ Click opens DocumentPreviewModal for full document view
+- ✅ Each upload shows correct fresh preview (no caching)
+- ✅ Preview URL properly cleared between uploads
+- ✅ Analysis uses correct uploaded file (unique documentId isolation)
+- ✅ Preview state synchronized with upload lifecycle
+
+**Files Modified:**
+- `src/features/Eingang.tsx`: DocumentPreviewModal integration + preview fixes
+
+**Build Status:** ✅ Erfolgreich
+
+**Verification:**
+- Build succeeds (npm run build)
+- API healthy and running
+- Upload multiple documents: each shows correct preview with Eye button
+- Click Eye button: DocumentPreviewModal opens with correct document
+- No stale/cached previews between uploads
+- Analysis uses correct document content
+
+---
+
 ### [2026-05-10] Fixes: Document Preview Caching + File Cleanup
 **Description:**
 - **Upload Preview Bug**: Old document was shown for new uploads (React component reuse)
