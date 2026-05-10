@@ -2259,16 +2259,24 @@ app.patch('/api/documents/:id', requireAuth, (req, res) => {
   return res.status(200).json({ document: documentResponse(row) });
 });
 
-app.delete('/api/documents/:id', requireAuth, (req, res) => {
+app.delete('/api/documents/:id', requireAuth, async (req, res) => {
   const userId = currentUserId(req);
-  const existing = db.prepare(`
-    SELECT id FROM documents
+  const doc = db.prepare(`
+    SELECT id, storage_path FROM documents
     WHERE id = ? AND user_id = ? AND status != 'deleted'
   `).get(req.params.id, userId);
-  if (!existing) return res.status(404).json({ error: 'Dokument nicht gefunden' });
+  if (!doc) return res.status(404).json({ error: 'Dokument nicht gefunden' });
 
   db.prepare("UPDATE documents SET status = 'deleted', updated_at = ? WHERE id = ? AND user_id = ?")
     .run(new Date().toISOString(), req.params.id, userId);
+
+  // Delete file from filesystem
+  try {
+    await unlink(doc.storage_path);
+  } catch (err) {
+    console.error(`Failed to delete file ${doc.storage_path}:`, err?.message || err);
+  }
+
   return res.status(200).json({ message: 'Dokument gelöscht' });
 });
 

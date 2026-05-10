@@ -269,7 +269,7 @@ export default function EingangPage() {
           </motion.div>
         )}
         {queue.map((item) => (
-          <motion.div key={item.id} layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+          <motion.div key={`${item.id}-${item.file.name}`} layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
             className="glass border-glow rounded-2xl p-5 space-y-4">
             {/* Pipeline */}
             <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -289,6 +289,7 @@ export default function EingangPage() {
 
             {item.stage === "ready" && item.result && (
               <ResultCard
+                key={`result-${item.id}-${item.file.name}`}
                 item={item}
                 folders={folders}
                 folderPaths={folderPaths}
