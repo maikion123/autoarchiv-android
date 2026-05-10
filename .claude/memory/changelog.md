@@ -8,6 +8,88 @@ type: project
 
 ## Changelog
 
+### [2026-05-10] Feature: Smart Folder Deletion with Document Handling
+**Description:**
+- New `FolderDeleteDialog` component with intelligent document handling
+- When deleting folders/subcategories with documents:
+  1. **Verschieben**: Move all documents to another folder (batch operation)
+  2. **Löschen**: Delete folder + ALL documents with clear "UNWIEDERBRINGLICH GELÖSCHT" warning
+  3. **Abbrechen**: Cancel operation
+- Shows document count + list of all affected items
+- Works for both main categories AND subcategories
+- Proper async handling and error messages
+
+**Icon Click on Main Categories → Edit Dialog:**
+- Click on category icon/symbol (grid) opens FolderEditDialog
+- Features: Rename, change color, change icon, DELETE
+- Delete button → Opens FolderDeleteDialog with document warnings
+- Visual feedback: Icon scales on hover, shadow enhancement
+
+**Pencil Button Workflow:**
+- Grid: Pencil → Selection mode (bulk delete subcategories)
+- Panel header (main): Pencil → Selection mode
+- Panel header (sub): Pencil → Inline edit
+
+**Files:**
+- New: `src/components/FolderDeleteDialog.tsx`
+- Modified: `src/features/Dashboard.tsx`
+
+**Build Status:** ✅ Erfolgreich
+
+---
+
+### [2026-05-10] Fixes: Icon Picker + Dialog Switching + JWT Security
+**Beschreibung:**
+
+**Icon Picker Fixes:**
+- Removed invalid lucide-react icons: EuroIcon → Euro, MovieIcon → Movie, SettingsIcon → Settings2
+- Removed duplicate "Star" icon
+- Fixed dropdown positioning: z-index now z-[100], positioned above dialog
+- Changed background from bg-input/80 to bg-background/95 for visibility
+- Added null check to prevent render errors
+- "something went wrong" error now resolved ✅
+
+**Dialog Smooth Switching:**
+- Added `mode="wait"` to AnimatePresence (waits for exit animation)
+- Added `key={folder.id}` to modal for clean remounting
+- When editing folder A and clicking folder B's pencil, dialog smoothly transitions ✅
+
+**Panel Header Pencil Logic:**
+- Main category → Activates selection mode (instead of edit dialog)
+- Subcategory → Inline edit (rename/delete)
+
+**JWT Security:**
+- Reduced expiration from 15 days → 4 hours
+- Cookie maxAge also 4 hours
+- Aligns with 30-minute frontend inactivity timeout
+- After 4 hours even with activity, must re-authenticate
+
+**Files Modified:**
+- `src/components/IconPicker.tsx`
+- `src/components/FolderEditDialog.tsx`
+- `api-server.mjs`
+- `src/features/Dashboard.tsx`
+
+**Build Status:** ✅ Erfolgreich
+
+---
+
+### [2026-05-10] Feature: Icon Picker Expansion + German Search
+**Description:**
+- Expanded from 94 to 150+ lucide-react icons
+- Added ICON_GERMAN_LABELS mapping with German synonyms for all icons
+- Search now works in English AND German
+- Example: search "fahrzeug" finds Car, search "arbeit" finds Briefcase
+- Tooltips show English name + German synonyms
+- Search placeholder: "Suche Symbol... (Deutsch oder English)"
+
+**Files Modified:**
+- `src/components/IconPicker.tsx`
+
+**Build Status:** ✅ Erfolgreich
+
+---
+
 ### [2026-05-10] Feature: Selection Mode for Bulk Subcategory Deletion
 **Description:**
 - Pencil button on main category cards (in dashboard grid) now opens FolderPanel in selection mode

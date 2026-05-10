@@ -1,3 +1,4 @@
+- [Auto Documentation](auto_documentation.md) — Automatic changelog + agent dashboard updates after every commit
 - [Project Status & Architecture](project_status.md) — Current production setup, stack, deployment
 - [Changelog & Documentation Process](changelog.md) — All changes, when to update docs, templates
 - [Live Agent Workflow](../../docs/AGENT_WORKFLOW.md) — How Claude Code, Codex, Kevin, and Maik update `/agents`
