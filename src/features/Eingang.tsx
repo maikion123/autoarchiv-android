@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, Camera, FileCheck2, Sparkles, Loader2, Check, X, Tag } from "lucide-react";
+import { Upload, Camera, FileCheck2, Sparkles, Loader2, Check, X, Tag, Eye } from "lucide-react";
 import { useArchive } from "../lib/store";
-import { savePayment, uid, type Importance } from "../lib/db";
+import { savePayment, uid, type Importance, type ArchivedDoc } from "../lib/db";
 import { DEFAULT_FOLDER_TREE, flattenFolderTree, loadFolderTree, type FolderNode } from "../lib/folders";
 import { fmtBytes, fmtEUR, fmtDate } from "../lib/format";
 import { toast } from "sonner";
+import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
 
 type Stage = "queued" | "analyzing" | "ready" | "archived" | "error";
 
@@ -79,6 +80,7 @@ export default function EingangPage() {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [folders, setFolders] = useState<FolderNode[]>(DEFAULT_FOLDER_TREE);
   const [folderPaths, setFolderPaths] = useState<string[]>([]);
+  const [previewingDoc, setPreviewingDoc] = useState<ArchivedDoc | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -296,6 +298,22 @@ export default function EingangPage() {
                 onChange={(p) => updateResult(item.id, p)}
                 onArchive={() => archive(item)}
                 onDiscard={() => discard(item.id)}
+                onPreview={() => item.documentId && setPreviewingDoc({
+                  id: item.documentId,
+                  filename: item.file.name,
+                  mimeType: item.result.analysisMode ? 'application/pdf' : 'image/jpeg',
+                  size: item.file.size,
+                  folderPath: item.result.folderPath,
+                  absender: item.result.absender,
+                  dokumenttyp: item.result.dokumenttyp,
+                  zusammenfassung: item.result.zusammenfassung,
+                  zahlungsbetrag: item.result.zahlungsbetrag,
+                  faelligkeitsdatum: item.result.faelligkeitsdatum,
+                  ablaufdatum: item.result.ablaufdatum,
+                  wichtigkeit: item.result.wichtigkeit,
+                  tags: item.result.tags || [],
+                  uploadedAt: new Date().toISOString(),
+                } as ArchivedDoc)}
               />
             )}
 
@@ -308,6 +326,11 @@ export default function EingangPage() {
           </motion.div>
         ))}
       </AnimatePresence>
+
+      <DocumentPreviewModal
+        doc={previewingDoc}
+        onClose={() => setPreviewingDoc(null)}
+      />
     </div>
   );
 }
@@ -323,8 +346,8 @@ function PipeStep({ done, active, label, Icon, spin }: any) {
   );
 }
 
-function ResultCard({ item, folders, folderPaths, onChange, onArchive, onDiscard }: {
-  item: QueueItem; folders: FolderNode[]; folderPaths: string[]; onChange: (p: any) => void; onArchive: () => void; onDiscard: () => void;
+function ResultCard({ item, folders, folderPaths, onChange, onArchive, onDiscard, onPreview }: {
+  item: QueueItem; folders: FolderNode[]; folderPaths: string[]; onChange: (p: any) => void; onArchive: () => void; onDiscard: () => void; onPreview: () => void;
 }) {
   const r = item.result!;
   const allPaths = ["", ...folderPaths];
@@ -332,11 +355,16 @@ function ResultCard({ item, folders, folderPaths, onChange, onArchive, onDiscard
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const mimeType = mimeTypeFor(item.file);
 
+  // Create unique URL for this specific item
   useEffect(() => {
+    setPreviewUrl(null); // Clear old preview immediately
     const url = URL.createObjectURL(item.file);
     setPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [item.file]);
+    return () => {
+      URL.revokeObjectURL(url);
+      setPreviewUrl(null);
+    };
+  }, [item.id, item.file]);
 
   return (
     <div className="grid gap-4 md:grid-cols-[1fr_280px]">
@@ -426,7 +454,7 @@ function ResultCard({ item, folders, folderPaths, onChange, onArchive, onDiscard
       </div>
 
       <div className="space-y-3">
-        <div className="rounded-xl border border-border/40 overflow-hidden bg-black/20" style={{ height: 140 }}>
+        <div className="rounded-xl border border-border/40 overflow-hidden bg-black/20 relative group" style={{ height: 140 }}>
           {previewUrl && (
             mimeType.startsWith("image/") ? (
               <img src={previewUrl} alt="Dokumentvorschau" className="h-full w-full object-contain" />
@@ -436,6 +464,13 @@ function ResultCard({ item, folders, folderPaths, onChange, onArchive, onDiscard
               <div className="h-full w-full flex items-center justify-center text-xs text-muted-foreground">Vorschau nicht verfügbar</div>
             )
           )}
+          <button
+            onClick={onPreview}
+            className="absolute top-2 right-2 p-2 rounded-lg bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity text-white hover:bg-black/70"
+            title="Vollbild öffnen"
+          >
+            <Eye className="h-4 w-4" />
+          </button>
         </div>
 
         <Field label="Wichtigkeit">
