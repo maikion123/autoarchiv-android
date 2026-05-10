@@ -8,6 +8,31 @@ type: project
 
 ## Changelog
 
+### [2026-05-10] Feature: Selection Mode for Bulk Subcategory Deletion
+**Description:**
+- Pencil button on main category cards (in dashboard grid) now opens FolderPanel in selection mode
+- Selection mode enables bulk selection and deletion of subcategories
+- Features:
+  - Selection mode header UI with control buttons: "Alle auswählen", "Auswahl aufheben", "X löschen", "Abbrechen"
+  - Subcategory cards show checkboxes instead of pencil buttons when in selection mode
+  - Checkbox styling with violet ring highlight when selected
+  - handleBulkDelete function for deleting multiple subcategories at once
+  - Proper state reset after bulk deletion with toast confirmation
+- Separates bulk operations from individual editing: pencil on main category → bulk actions, pencil in panel header → individual edit
+
+**Files Modified:**
+- `src/features/Dashboard.tsx` (Added Check icon import, handleBulkDelete function, selection mode header UI, conditional checkbox rendering)
+
+**Build Status:** ✅ Erfolgreich (`npm run build`)
+
+**Verification:**
+- `npm run build` — no TypeScript errors
+- All imports working correctly (Check icon from lucide-react)
+- Selection state properly initialized via startInSelectionMode prop
+- Checkbox toggling implemented with Set-based selection tracking
+
+---
+
 ### [2026-05-10] Feature: Two-Tier Edit UX — Hauptkategorie (Dialog) vs. Unterkategorie (Inline)
 **Description:**
 - Hauptkategorien (Root Categories):
