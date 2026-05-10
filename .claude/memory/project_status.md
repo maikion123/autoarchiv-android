@@ -115,7 +115,18 @@ id | agent_id | event_type | message | files | created_at
 - **Agent Workflow Docs:** `/srv/projects/autoarchiv/docs/AGENT_WORKFLOW.md`
 
 ## Recent Changes
-1. 2026-05-10 — Dashboard Category Navigation & Edit Redesign:
+1. 2026-05-10 — Subcategory Editing + Mobile Dialog Responsiveness:
+   - Subcategory cards now have edit buttons (pencil icon on hover).
+   - Fixed critical AppShell bug: `.modal-open` detection now uses MutationObserver instead of DOM reads.
+   - Bottom nav now correctly hides when dialogs are open.
+   - FolderEditDialog:
+     - Mobile: bottom-sheet style (slides up from bottom)
+     - Desktop: centered (unchanged)
+     - Higher z-index (z-[61]) to appear over nav (z-50)
+     - Save/delete buttons now fully accessible on mobile
+   - Verified: `npm run build`, responsive layouts, nav behavior.
+
+2. 2026-05-10 — Dashboard Category Navigation & Edit Redesign:
    - Pencil (edit) icon next to each category is now always visible, not hidden on hover.
    - Entire category card is clickable → opens FolderPanel with subcategories and document contents.
    - Removed old inline rename form from FolderPanel (the input + Rename/Delete button combo).

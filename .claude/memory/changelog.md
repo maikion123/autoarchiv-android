@@ -8,6 +8,39 @@ type: project
 
 ## Changelog
 
+### [2026-05-10] Feature: Subcategory Editing + Mobile Dialog Responsiveness
+**Description:**
+- Subcategory cards in FolderPanel now have edit buttons (pencil icon, visible on hover).
+- Click edit on subcategory → opens FolderEditDialog directly (without navigating into the subcategory).
+- Fixed critical bug: AppShell's `.modal-open` detection now uses MutationObserver + React state (was reading DOM directly, preventing nav from hiding).
+- FolderEditDialog mobile redesign:
+  - Changed from centered modal to bottom-sheet on mobile (slides up from bottom).
+  - Increased z-index: backdrop `z-[60]`, modal `z-[61]` (over nav's `z-50`).
+  - Desktop: still centered (via `sm:` responsive breakpoints).
+  - Max-height: `80dvh` on mobile, `calc(90vh-120px)` on desktop.
+  - Animation: spring-based slide-up on mobile, centered scale on desktop.
+
+**Files Modified:**
+- `src/components/AppShell.tsx` (MutationObserver, isModalOpen state, nav transform)
+- `src/components/FolderEditDialog.tsx` (z-index, responsive layout, animation)
+- `src/features/Dashboard.tsx` (edit buttons on subcategory cards)
+
+**Build Status:** ✅ Erfolgreich (`npm run build`)
+
+**Testing:**
+- `npm run build` — no TypeScript errors
+- Desktop: FolderEditDialog appears centered (unchanged UX)
+- Mobile: Dialog slides up from bottom (bottom-sheet style)
+- Mobile: Bottom nav slides down when dialog opens
+- Mobile: Save/delete buttons are fully accessible (not hidden by nav)
+- Subcategory: hover shows pencil icon, click opens dialog for that subcategory
+- Subcategory: navigation doesn't happen when clicking edit (stopPropagation works)
+
+**Security Implications:**
+- None. Responsive UI changes only.
+
+---
+
 ### [2026-05-10] Improvement: Dashboard Category Navigation & Edit Redesign
 **Description:**
 - Redesigned the Dashboard category cards to improve navigation and editing workflow.
