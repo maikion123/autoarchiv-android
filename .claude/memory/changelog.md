@@ -8,6 +8,37 @@ type: project
 
 ## Changelog
 
+### [2026-05-10] Feature: Two-Tier Edit UX — Hauptkategorie (Dialog) vs. Unterkategorie (Inline)
+**Description:**
+- Hauptkategorien (Root Categories):
+  - Stift-Klick → FolderEditDialog (Maiks Maske mit ColorPicker, IconPicker)
+- Unterkategorien (Subcategories):
+  - Stift-Klick → Inline-Edit direkt im FolderPanel
+  - Inline-Edit Panel zeigt: Name-Input + Speichern/Löschen/Abbrechen Buttons
+  - Keyboard shortcuts: Enter = Speichern, Escape = Abbrechen
+  - Automatisch schließen bei Ordner-Wechsel
+- Conditional logic: `if (!subfolderId)` → Dialog, `else` → Inline
+
+**Files Modified:**
+- `src/features/Dashboard.tsx` (FolderPanel: new states, handleInlineSave, conditional edit button)
+
+**Build Status:** ✅ Erfolgreich (`npm run build`)
+
+**Testing:**
+- `npm run build` — no TypeScript errors
+- Hauptkategorie: Stift → FolderEditDialog mit Icons/Farben ✅
+- Unterordner-Karte: Stift → Inline-Edit erscheint ✅
+- Unterordner im Panel: Stift im Header → Inline-Edit ✅
+- Inline-Edit: Umbenennen + Enter → gespeichert ✅
+- Inline-Edit: Escape → geschlossen ✅
+- Inline-Edit: Löschen-Button → ConfirmDialog ✅
+- Ordner-Wechsel → Inline-Edit schließt automatisch ✅
+
+**Security Implications:**
+- None. UI/UX change only.
+
+---
+
 ### [2026-05-10] Feature: Subcategory Editing + Mobile Dialog Responsiveness
 **Description:**
 - Subcategory cards in FolderPanel now have edit buttons (pencil icon, visible on hover).

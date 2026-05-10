@@ -115,7 +115,15 @@ id | agent_id | event_type | message | files | created_at
 - **Agent Workflow Docs:** `/srv/projects/autoarchiv/docs/AGENT_WORKFLOW.md`
 
 ## Recent Changes
-1. 2026-05-10 — Subcategory Editing + Mobile Dialog Responsiveness:
+1. 2026-05-10 — Two-Tier Edit UX (Hauptkategorie Dialog vs. Unterkategorie Inline):
+   - Clear separation: Hauptkategorien use FolderEditDialog (Icons/Farben), Unterkategorien use inline-edit
+   - Inline-Edit panel: appears directly in FolderPanel, no modal/dialog
+   - Inline-Edit shows: name input + save/delete/cancel buttons
+   - Keyboard support: Enter to save, Escape to cancel
+   - Auto-closes when navigating between categories/subcategories
+   - Verified: `npm run build`, both edit paths, keyboard shortcuts
+
+2. 2026-05-10 — Subcategory Editing + Mobile Dialog Responsiveness:
    - Subcategory cards now have edit buttons (pencil icon on hover).
    - Fixed critical AppShell bug: `.modal-open` detection now uses MutationObserver instead of DOM reads.
    - Bottom nav now correctly hides when dialogs are open.
