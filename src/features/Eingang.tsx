@@ -291,7 +291,7 @@ export default function EingangPage() {
 
             {item.stage === "ready" && item.result && (
               <ResultCard
-                key={`result-${item.id}-${item.file.name}`}
+                key={`result-${item.id}`}
                 item={item}
                 folders={folders}
                 folderPaths={folderPaths}
@@ -301,7 +301,7 @@ export default function EingangPage() {
                 onPreview={() => item.documentId && setPreviewingDoc({
                   id: item.documentId,
                   filename: item.file.name,
-                  mimeType: item.result.analysisMode ? 'application/pdf' : 'image/jpeg',
+                  mimeType: mimeTypeFor(item.file),
                   size: item.file.size,
                   folderPath: item.result.folderPath,
                   absender: item.result.absender,
