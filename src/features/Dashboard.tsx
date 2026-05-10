@@ -549,10 +549,29 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequ
   const folder = folderTree.find((f) => f.id === folderId);
   const currentId = subfolderId || folderId;
   const currentFolder = folderTree.find((f) => f.id === currentId);
+  const [inlineEditFolder, setInlineEditFolder] = useState<FolderNode | null>(null);
+  const [inlineEditName, setInlineEditName] = useState("");
+
+  useEffect(() => {
+    setInlineEditFolder(null);
+  }, [subfolderId, folderId]);
 
   const docsInScope = documents.filter((d) => subfolderId
     ? d.folderPath === subfolderId || d.folderPath.startsWith(subfolderId + "/")
     : d.folderPath === folderId || d.folderPath.startsWith(folderId + "/"));
+
+  const handleInlineSave = async () => {
+    if (!inlineEditFolder || !inlineEditName.trim()) return;
+    try {
+      const renamed = await renameFolder(inlineEditFolder.id, inlineEditName.trim());
+      await onReload();
+      onNavigateToFolder(renamed.id);
+      setInlineEditFolder(null);
+      toast.success("Unterordner umbenannt");
+    } catch (err: any) {
+      toast.error(err?.message || "Unterordner konnte nicht umbenannt werden");
+    }
+  };
 
   return (
     <motion.div
@@ -579,7 +598,16 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequ
           <div className="flex items-center gap-2">
             {currentFolder && (
               <button
-                onClick={() => onEdit(currentFolder)}
+                onClick={() => {
+                  if (!subfolderId) {
+                    // Hauptkategorie → FolderEditDialog (Icons/Farben)
+                    onEdit(currentFolder);
+                  } else {
+                    // Unterordner → Inline-Edit
+                    setInlineEditFolder(currentFolder);
+                    setInlineEditName(currentFolder.name);
+                  }
+                }}
                 className="p-1.5 rounded-lg hover:bg-muted transition-colors"
                 title="Ordner bearbeiten"
               >
@@ -619,7 +647,8 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequ
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      onEdit(c);
+                      setInlineEditFolder(c);
+                      setInlineEditName(c.name);
                     }}
                     className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg
                                opacity-0 group-hover/sub:opacity-100 transition-opacity
@@ -631,6 +660,41 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequ
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {inlineEditFolder && (
+          <div className="mt-3 glass rounded-xl border border-border/40 p-4">
+            <div className="text-xs font-medium text-muted-foreground mb-3">
+              "{inlineEditFolder.name}" bearbeiten
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:gap-2">
+              <input
+                value={inlineEditName}
+                onChange={(e) => setInlineEditName(e.target.value)}
+                className="flex-1 rounded-lg border border-border bg-input/50 px-3 py-2 text-sm"
+                placeholder="Neuer Name"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleInlineSave();
+                  if (e.key === "Escape") setInlineEditFolder(null);
+                }}
+              />
+              <div className="flex gap-2">
+                <button onClick={handleInlineSave}
+                  className="rounded-lg bg-gradient-to-r from-violet-500 to-cyan-400 px-4 py-2 text-sm font-semibold text-white hover:shadow-lg transition-shadow">
+                  Speichern
+                </button>
+                <button onClick={() => inlineEditFolder && onRequestDelete(inlineEditFolder)}
+                  className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm font-semibold text-destructive hover:bg-destructive/20">
+                  Löschen
+                </button>
+                <button onClick={() => setInlineEditFolder(null)}
+                  className="rounded-lg px-4 py-2 text-sm font-semibold text-muted-foreground hover:bg-muted transition-colors">
+                  Abbrechen
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
