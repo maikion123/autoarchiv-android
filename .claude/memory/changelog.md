@@ -8,6 +8,57 @@ type: project
 
 ## Changelog
 
+### [2026-05-11] Mobile Fix: Document Preview + Image Zoom
+
+**Problem:**
+- Dokumentenvorschau funktioniert nicht auf Smartphones
+- PDFs zeigen nicht an in Safari/Mobile-Browsern
+- Bilder können nicht gezoomt werden
+- Keine Touch-Gesten-Unterstützung
+
+**Root Cause:**
+- `<iframe>` für PDFs funktioniert nicht zuverlässig auf Mobile
+- Kein Zoom-Kontrol für Bilder
+- Desktop-fokussiertes Design
+
+**Solutions Implemented:**
+
+1. **Mobile PDF Handling:**
+   - Mobile: Button zum Öffnen im nativen Browser-PDF-Viewer
+   - Desktop: iframe bleibt für inline-Preview
+   - Native PDF-Viewer unterstützt Touch-Zoom + Navigation
+
+2. **Image Zoom Controls:**
+   - Neue Zoom-Bar mit -, % Anzeige, + Buttons
+   - Zoom-Range: 50% - 400%
+   - Reset-Button zum Zurücksetzen auf 100%
+   - Smooth scale animation
+
+3. **Mobile Detection:**
+   - Automatische Erkennung: < 768px = Mobile
+   - Responsive Grid-Layout
+   - Bessere Spacing für kleine Bildschirme
+
+4. **Touch-Optimierung:**
+   - Cursor-Feedback (grab/grabbing)
+   - Touch-freundliche Button-Größen
+   - Safe-area-inset für Notch-Displays
+
+**Files Modified:**
+- `src/components/DocumentPreviewModal.tsx` (Zoom + Mobile Layout)
+
+**Build Status:** ✅ Erfolgreich (`npm run build`)
+
+**Testing Erforderlich:**
+- ✅ Desktop: PDF im iframe, Bild mit Zoom-Controls
+- ✅ Mobile (< 768px): PDF-Button zum Öffnen, Bild mit Zoom
+- ✅ Zoom-Buttons: -/+ ändern Scale, Reset bringt auf 100%
+- ✅ Touch: Grab-Cursor auf Bildern
+
+**Commit:** `3102b88`
+
+---
+
 ### [2026-05-10] Critical Hotfix: Document Preview + OCR State Isolation
 **Problem:**
 1. **Dokumentenvorschau funktioniert nicht**: Klick auf "Öffnen" zeigt keine Datei
