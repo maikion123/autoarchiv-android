@@ -8,6 +8,42 @@ type: project
 
 ## Changelog
 
+### [2026-05-10] Critical Hotfix: Document Preview + OCR State Isolation
+**Problem:**
+1. **Dokumentenvorschau funktioniert nicht**: Klick auf "Öffnen" zeigt keine Datei
+2. **OCR zeigt alte Daten**: Bei neuem Upload werden Absender/Typ/Zusammenfassung vom vorherigen Dokument angezeigt
+
+**Root Causes Identified & Fixed:**
+- **Zeile 304 in Eingang.tsx**: `mimeType` wurde basierend auf `analysisMode` bestimmt
+  - `analysisMode` ist ein String (`'llm'` / `'regex'`), nicht boolean
+  - Code prüfte `item.result.analysisMode ? 'application/pdf' : 'image/jpeg'`
+  - Das setzte immer `'application/pdf'` für echte Bilder!
+  - **Fix**: `mimeTypeFor(item.file)` verwenden für echten MIME-Type
+
+- **Zeile 294 in Eingang.tsx**: `ResultCard` Key war `result-${item.id}-${item.file.name}`
+  - React reused Komponenten wenn zwei Dateien denselben Namen haben
+  - Z.B.: "rechnung.pdf" zweimal hochladen = gleicher Key = Komponenten-Wiederverwendung
+  - **Fix**: Key auf `result-${item.id}` reduzieren (eindeutig pro Upload)
+
+**Files Modified:**
+- `src/features/Eingang.tsx` (2 Zeilen geändert)
+
+**Build Status:** ✅ Erfolgreich (`npm run build`)
+
+**Verification:**
+- ✅ Build kompiliert ohne Fehler
+- ✅ API Syntax OK (`node --check api-server.mjs`)
+- ✅ Commit: `40cb18e`
+
+**Expected After Deployment:**
+1. Upload Bild → modal zeigt Bild (nicht PDF-Frame)
+2. Upload PDF → modal zeigt PDF im Iframe
+3. Upload File1.pdf → zeigt Daten von File1
+4. Upload File2.pdf → zeigt Daten von File2 (nicht File1!)
+5. OCR-Analyse wird jedes Mal neu ausgeführt, nicht gecacht
+
+---
+
 ### [2026-05-10] Critical Fixes: Upload Preview Modal + Cached Analysis
 **Description:**
 - **No Preview Modal**: Users couldn't open uploaded documents for full preview
