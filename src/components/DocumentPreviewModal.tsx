@@ -184,7 +184,7 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
           <motion.div
             initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }}
             transition={{ type: "spring", damping: 22 }}
-            className="glass-strong relative grid h-[100dvh] w-full max-w-6xl grid-rows-[minmax(0,46dvh)_minmax(0,1fr)] overflow-hidden rounded-none border-glow sm:h-[92vh] sm:rounded-2xl md:grid-cols-[minmax(0,1fr)_380px] md:grid-rows-1"
+            className="glass-strong relative grid h-[100dvh] w-full max-w-7xl grid-rows-[minmax(0,50dvh)_minmax(0,1fr)] overflow-hidden rounded-none border-glow sm:h-[92vh] sm:rounded-2xl sm:grid-rows-[minmax(0,55dvh)_minmax(0,1fr)] lg:h-[96vh] lg:max-w-[90vw] lg:grid-rows-[minmax(0,60dvh)_minmax(0,1fr)] md:grid-cols-[minmax(0,1fr)_400px] md:grid-rows-1 md:max-h-[calc(100vh-2rem)]"
             onClick={(e) => e.stopPropagation()}
           >
             <button onClick={onClose} className="absolute right-3 top-3 z-10 grid h-10 w-10 place-items-center rounded-full glass hover:bg-muted">
@@ -241,7 +241,7 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
                   )}
 
                   {/* Preview Content */}
-                  <div className="grid place-items-center overflow-auto p-3 sm:p-4">
+                  <div className="grid place-items-center overflow-auto p-2 sm:p-3 lg:p-4">
                     {loadError ? (
                       <div className="text-center space-y-3 text-sm text-muted-foreground">
                         <FileText className="mx-auto h-10 w-10 opacity-30" />
@@ -262,7 +262,7 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
                           src={url}
                           alt={activeDoc.filename}
                           style={{ transform: `scale(${zoom})` }}
-                          className="max-h-full max-w-full rounded-lg shadow-2xl transition-transform cursor-grab active:cursor-grabbing"
+                          className="h-full w-full object-contain rounded-lg shadow-2xl transition-transform cursor-grab active:cursor-grabbing"
                         />
                       ) : activeDoc.mimeType === "application/pdf" ? isMobile ? (
                         <div className="text-center space-y-4 py-8">
@@ -281,7 +281,7 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
                           </div>
                         </div>
                       ) : (
-                        <iframe src={url} title={activeDoc.filename} className="h-full min-h-64 w-full rounded-lg bg-white" />
+                        <iframe src={url} title={activeDoc.filename} className="h-full w-full rounded-lg bg-white" />
                       ) : (
                         <div className="text-muted-foreground">Vorschau nicht verfügbar</div>
                       )
@@ -320,7 +320,9 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
                   <div className="mt-4 space-y-3 text-sm">
                     <Row label="Absender" value={activeDoc.absender} />
                     <Row label="Dokumenttyp" value={activeDoc.dokumenttyp} />
+                    <Row label="Status" value={statusLabel(activeDoc.status)} />
                     <Row label="Ordner" value={activeDoc.folderPath} mono />
+                    {activeDoc.storageLocation && <Row label="Server-Ablage" value={activeDoc.storageLocation} mono />}
                     <Row label="Hochgeladen" value={fmtDate(activeDoc.uploadedAt)} />
                     {activeDoc.faelligkeitsdatum && <Row label="Fälligkeit" value={fmtDate(activeDoc.faelligkeitsdatum)} />}
                     {activeDoc.ablaufdatum && <Row label="Ablauf" value={fmtDate(activeDoc.ablaufdatum)} />}
@@ -488,8 +490,8 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
 function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className={`text-right text-sm ${mono ? "font-mono text-xs" : ""}`}>{value}</div>
+      <div className="shrink-0 text-[11px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className={`min-w-0 break-words text-right text-sm ${mono ? "font-mono text-xs" : ""}`}>{value}</div>
     </div>
   );
 }
@@ -562,6 +564,15 @@ function AnalysisHintsPanel({ hints }: { hints?: Record<string, AnalysisHint | n
 function formatHintValue(value: AnalysisHint["value"]) {
   if (value == null || value === "") return "—";
   return typeof value === "number" ? fmtEUR(value) : String(value);
+}
+
+function statusLabel(status: ArchivedDoc["status"]) {
+  if (status === "archived") return "Archiviert";
+  if (status === "analyzed") return "Geprüft, noch nicht archiviert";
+  if (status === "uploaded") return "Hochgeladen";
+  if (status === "failed") return "Fehler";
+  if (status === "deleted") return "Gelöscht";
+  return "Unbekannt";
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {

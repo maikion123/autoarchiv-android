@@ -213,10 +213,6 @@ try {
   // Column already exists.
 }
 
-function isLegacyStoragePath(pathValue = '') {
-  return /\/storage\/users\/[0-9a-f-]{16,}\/documents\/[0-9a-f-]{16,}\//i.test(String(pathValue));
-}
-
 async function cleanupEmptyParents(startDir, stopDir) {
   let dir = startDir;
   while (dir && dir.startsWith(stopDir) && dir !== stopDir) {
@@ -233,41 +229,24 @@ async function cleanupEmptyParents(startDir, stopDir) {
 
 async function migrateReadableStorage() {
   const rows = db.prepare(`
-    SELECT d.id, d.user_id, u.email, d.filename, d.absender, d.dokumenttyp, d.created_at, d.storage_path
+    SELECT d.id, d.user_id, u.email, d.filename, d.absender, d.dokumenttyp, d.created_at,
+           d.storage_path, d.status, d.folder_path, d.mime_type
     FROM documents d
     JOIN users u ON u.id = d.user_id
     WHERE d.storage_path LIKE ?
   `).all(`${STORAGE_PATH}/users/%`);
 
   for (const row of rows) {
-    if (!isLegacyStoragePath(row.storage_path)) continue;
     try {
       await access(row.storage_path);
     } catch {
       continue;
     }
 
-    const { documentDir, storagePath } = readableStoragePaths({
-      userEmail: row.email,
-      documentId: row.id,
-      filename: row.filename,
-      absender: row.absender,
-      dokumenttyp: row.dokumenttyp,
-      createdAt: row.created_at,
-      extension: extname(row.storage_path) || extname(row.filename) || '.pdf',
-    });
+    const storagePath = await moveDocumentFileToReadablePath(row);
     if (storagePath === row.storage_path) continue;
-
-    await mkdir(documentDir, { recursive: true });
-    try {
-      await rename(row.storage_path, storagePath);
-    } catch (err) {
-      console.warn('storage migration skipped', row.id, errorSummary(err));
-      continue;
-    }
     db.prepare('UPDATE documents SET storage_path = ?, updated_at = ? WHERE id = ?')
       .run(storagePath, new Date().toISOString(), row.id);
-    await cleanupEmptyParents(dirname(row.storage_path), join(STORAGE_PATH, 'users'));
   }
 }
 
@@ -453,21 +432,64 @@ function documentStorageSlug({ documentId, filename, absender, dokumenttyp, crea
   return `${base}_${String(documentId).slice(0, 8)}`;
 }
 
-function storagePathFor(userId, documentId, filename) {
-  return join(STORAGE_PATH, 'users', userId, 'documents', documentId, filename);
+function folderPathParts(folderPath = '') {
+  return String(folderPath || '07_Sonstiges')
+    .split('/')
+    .filter(Boolean)
+    .map((part) => slugifyPathPart(part, 80));
 }
 
-function readableStoragePaths({ userEmail, documentId, filename, absender, dokumenttyp, createdAt, extension }) {
+function storageStatusSegment(status = 'analyzed') {
+  if (status === 'archived') return 'archived';
+  if (status === 'deleted') return 'deleted';
+  return 'analyzed';
+}
+
+function readableStoragePaths({ userEmail, documentId, filename, absender, dokumenttyp, createdAt, extension, status = 'analyzed', folderPath = '' }) {
   const date = new Date(createdAt || Date.now());
   const month = Number.isNaN(date.getTime()) ? new Date().toISOString().slice(0, 7) : date.toISOString().slice(0, 7);
   const ext = extension || extname(filename || '') || '.pdf';
   const userSlug = userStorageSlug(userEmail);
   const docSlug = documentStorageSlug({ documentId, filename, absender, dokumenttyp, createdAt });
-  const documentDir = join(STORAGE_PATH, 'users', userSlug, 'documents', month, docSlug);
+  const statusSegment = storageStatusSegment(status);
+  const folderParts = statusSegment === 'archived' ? folderPathParts(folderPath) : [];
+  const documentDir = join(STORAGE_PATH, 'users', userSlug, 'documents', statusSegment, ...folderParts, month, docSlug);
   return {
     documentDir,
     storagePath: join(documentDir, `original${ext}`),
   };
+}
+
+async function moveDocumentFileToReadablePath(row, { status = row.status, folderPath = row.folder_path } = {}) {
+  if (!row?.storage_path) return row?.storage_path;
+  try {
+    await access(row.storage_path);
+  } catch {
+    return row.storage_path;
+  }
+
+  const target = readableStoragePaths({
+    userEmail: row.email || row.user_email || row.user_id,
+    documentId: row.id,
+    filename: row.filename,
+    absender: row.absender,
+    dokumenttyp: row.dokumenttyp,
+    createdAt: row.created_at,
+    extension: extname(row.storage_path) || extname(row.filename) || extForMime(row.mime_type),
+    status,
+    folderPath,
+  });
+  if (target.storagePath === row.storage_path) return row.storage_path;
+
+  await mkdir(target.documentDir, { recursive: true });
+  try {
+    await rename(row.storage_path, target.storagePath);
+    await cleanupEmptyParents(dirname(row.storage_path), join(STORAGE_PATH, 'users'));
+    return target.storagePath;
+  } catch (err) {
+    console.warn('document file move skipped', row.id, errorSummary(err));
+    return row.storage_path;
+  }
 }
 
 function parseJsonArray(value) {
@@ -490,6 +512,9 @@ function parseJsonObject(value) {
 
 function documentResponse(row) {
   if (!row) return null;
+  const storageLocation = row.storage_path?.startsWith(STORAGE_PATH)
+    ? row.storage_path.slice(STORAGE_PATH.length + 1)
+    : null;
   return {
     id: row.id,
     filename: row.filename,
@@ -513,6 +538,7 @@ function documentResponse(row) {
     confidence: row.confidence,
     wichtigkeitsgrund: row.wichtigkeitsgrund,
     status: row.status,
+    storageLocation,
   };
 }
 
@@ -945,7 +971,7 @@ app.post('/api/folders', requireAuth, (req, res) => {
   return res.status(201).json({ folder: folderResponse({ id, parent_id: parentId || null, name, color, icon, sort_order: sortOrder, created_at: now, updated_at: now }) });
 });
 
-app.patch('/api/folders/:id', requireAuth, (req, res) => {
+app.patch('/api/folders/:id', requireAuth, async (req, res) => {
   const userId = currentUserId(req);
   const folderId = String(req.params.id || '').trim();
   const name = req.body?.name ? String(req.body.name).trim() : null;
@@ -1046,18 +1072,39 @@ app.patch('/api/folders/:id', requireAuth, (req, res) => {
   });
 
   db.pragma('foreign_keys = OFF');
+  let targetId;
   try {
-    const targetId = tx();
-    const row = db.prepare(`
-      SELECT id, parent_id, name, color, icon, sort_order, created_at, updated_at
-      FROM document_folders
-      WHERE id = ?
-    `).get(targetId);
-    log('FOLDER_UPDATED', { userId, detail: `${folderId}` });
-    return res.status(200).json({ folder: folderResponse(row) });
+    targetId = tx();
   } finally {
     db.pragma('foreign_keys = ON');
   }
+
+  if (targetId !== folderId) {
+    const movedDocs = db.prepare(`
+      SELECT d.*, u.email
+      FROM documents d
+      JOIN users u ON u.id = d.user_id
+      WHERE d.user_id = ?
+        AND d.status != 'deleted'
+        AND (d.folder_path = ? OR d.folder_path LIKE ? || '/%')
+    `).all(userId, targetId, targetId);
+
+    for (const doc of movedDocs) {
+      const movedPath = await moveDocumentFileToReadablePath(doc);
+      if (movedPath && movedPath !== doc.storage_path) {
+        db.prepare('UPDATE documents SET storage_path = ?, updated_at = ? WHERE id = ? AND user_id = ?')
+          .run(movedPath, new Date().toISOString(), doc.id, userId);
+      }
+    }
+  }
+
+  const row = db.prepare(`
+    SELECT id, parent_id, name, color, icon, sort_order, created_at, updated_at
+    FROM document_folders
+    WHERE id = ?
+  `).get(targetId);
+  log('FOLDER_UPDATED', { userId, detail: `${folderId}` });
+  return res.status(200).json({ folder: folderResponse(row) });
 });
 
 app.delete('/api/folders/:id', requireAuth, (req, res) => {
@@ -1437,6 +1484,17 @@ function applyLearningRules(userId, analysis, { filename = '', text = '' } = {})
 
 function inferSender(text, filename) {
   const normalized = normalizeAnalysisText(text);
+  const knownSenders = [
+    [/\bvattenfall\b/, 'Vattenfall Europe Sales GmbH'],
+    [/\bmedikamente-per-klick\b|\bluitpold-apotheke\b|\bapotheke\b/, 'Luitpold-Apotheke Bad Steben'],
+    [/\bdzr\b|\bdeutsches zahnarztliches rechenzentrum\b/, 'DZR Deutsches Zahnärztliches Rechenzentrum GmbH'],
+    [/\bmarcus engler\b|\bzahnarzt\b/, 'Marcus Engler Zahnarzt'],
+    [/\bjusthome\b/, 'Justhome GmbH'],
+  ];
+  for (const [rx, sender] of knownSenders) {
+    if (rx.test(normalized)) return sender;
+  }
+
   const branded = [
     // R+V: must be explicit (+ or surrounded by word boundaries, or "r und v", "r plus v")
     [/\br\s*\+\s*v\b|\br\s*(?:und|plus)\s+v\b|\bruv\b/, 'R+V Versicherung'],
@@ -1611,7 +1669,7 @@ function scoreDocumentCategory(text, filename) {
   if (has('rechnung', 'rechnungsnummer', 'zahlbar', 'zu zahlen', 'mahnung', 'lastschrift', 'jahresbeitrag', 'jahresbetrag')) scores.finanzen += 4;
   if (has('beitrag', 'abbuch', 'einzug', 'betrag')) scores.finanzen += 1;
 
-  if (has('vertrag', 'vertragsnummer', 'laufzeit', 'kundigung', 'kündigung', 'widerruf')) scores.vertrag += 5;
+  if (has('vertrag', 'vertragsnummer', 'laufzeit', 'kundigung', 'kündigung', 'widerruf', 'stromliefervertrag', 'energielieferung', 'lieferstelle', 'zaehlernummer', 'zählernummer')) scores.vertrag += 5;
 
   if (has('versicherung', 'versicherungs', 'police', 'haftpflicht', 'kasko', 'kfz versicherung', 'schaden')) scores.versicherung += 6;
   if (has('kfz versicherung', 'kfz-versicherung')) scores.versicherung += 8;
@@ -1623,7 +1681,7 @@ function scoreDocumentCategory(text, filename) {
   if (has('bescheid', 'gemeinde', 'stadt', 'amt', 'behorde', 'behörde', 'finanzamt', 'wasser', 'abwasser', 'gebuehr', 'gebühr', 'steuer')) scores.behoerde += 5;
   if (has('abwasser', 'wasser', 'kanal', 'gebuehr', 'gebühr')) scores.behoerde += 2;
 
-  if (has('arzt', 'kranken', 'gesundheit', 'befund', 'rezept', 'klinik', 'patient')) scores.gesundheit += 5;
+  if (has('arzt', 'zahnarzt', 'apotheke', 'medikamente', 'rezept', 'e-rezept', 'kranken', 'gesundheit', 'befund', 'klinik', 'patient', 'behandelte person', 'professionelle zahnreinigung', 'dzr')) scores.gesundheit += 6;
 
   if ((scores.versicherung > 0 || scores.fahrzeug > 0) && (has('kfz versicherung', 'kfz-versicherung') || (has('fahrzeug', 'kfz') && has('versicherung')))) {
     scores.versicherung += 6;
@@ -1706,23 +1764,23 @@ function analyzeExtractedText({ filename, mimeType, text }) {
     tags.add('versicherung');
     tags.add('kfz');
   } else if (bestCategory?.[0] === 'versicherung' && scores.versicherung >= 6) {
-    result.vorgeschlagenerOrdner = '04_Versicherung';
+    result.vorgeschlagenerOrdner = FOLDERS.versicherung;
     tags.add('versicherung');
   } else if (bestCategory?.[0] === 'fahrzeug' && scores.fahrzeug >= 5) {
-    result.vorgeschlagenerOrdner = '01_Fahrzeug';
+    result.vorgeschlagenerOrdner = FOLDERS.fahrzeug;
     tags.add('fahrzeug');
   } else if (bestCategory?.[0] === 'behoerde' && scores.behoerde >= 5) {
-    result.vorgeschlagenerOrdner = '05_Behörde';
+    result.vorgeschlagenerOrdner = FOLDERS.behoerde;
     result.wichtigkeit = 'hoch';
     tags.add('behoerde');
   } else if (bestCategory?.[0] === 'vertrag' && scores.vertrag >= 5) {
-    result.vorgeschlagenerOrdner = '03_Verträge';
+    result.vorgeschlagenerOrdner = FOLDERS.vertrag;
     tags.add('vertrag');
   } else if (bestCategory?.[0] === 'gesundheit' && scores.gesundheit >= 5) {
-    result.vorgeschlagenerOrdner = '06_Gesundheit';
+    result.vorgeschlagenerOrdner = FOLDERS.gesundheit;
     tags.add('gesundheit');
   } else if (bestCategory?.[0] === 'finanzen' && scores.finanzen >= 4) {
-    result.vorgeschlagenerOrdner = '02_Finanzen';
+    result.vorgeschlagenerOrdner = FOLDERS.finanzen;
     tags.add('rechnung');
     tags.add('zahlung');
   }
@@ -2503,6 +2561,8 @@ app.post('/api/documents/upload', requireAuth, express.raw({
     dokumenttyp: '',
     createdAt: now,
     extension: extname(storageFilename) || extForMime(mimeType),
+    status: 'analyzed',
+    folderPath: '',
   });
   let ocrEngine = mimeType === 'application/pdf' ? 'pdfjs' : 'tesseract';
 
@@ -2613,6 +2673,8 @@ app.post('/api/documents/upload-pages', requireAuth, async (req, res) => {
     dokumenttyp: '',
     createdAt: now,
     extension: '.pdf',
+    status: 'analyzed',
+    folderPath: '',
   });
   const pageBuffers = [];
   const pdfPages = [];
@@ -2764,11 +2826,13 @@ app.get('/api/documents/:id/file', requireAuth, (req, res) => {
   return res.sendFile(row.storage_path);
 });
 
-app.patch('/api/documents/:id', requireAuth, (req, res) => {
+app.patch('/api/documents/:id', requireAuth, async (req, res) => {
   const userId = currentUserId(req);
   const existing = db.prepare(`
-    SELECT * FROM documents
-    WHERE id = ? AND user_id = ? AND status != 'deleted'
+    SELECT d.*, u.email
+    FROM documents d
+    JOIN users u ON u.id = d.user_id
+    WHERE d.id = ? AND d.user_id = ? AND d.status != 'deleted'
   `).get(req.params.id, userId);
   if (!existing) return res.status(404).json({ error: 'Dokument nicht gefunden' });
 
@@ -2812,26 +2876,40 @@ app.patch('/api/documents/:id', requireAuth, (req, res) => {
 
   tx();
 
-  const row = db.prepare('SELECT * FROM documents WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+  let row = db.prepare(`
+    SELECT d.*, u.email
+    FROM documents d
+    JOIN users u ON u.id = d.user_id
+    WHERE d.id = ? AND d.user_id = ?
+  `).get(req.params.id, userId);
+  const nextStatus = patch.status ?? row.status;
+  const nextFolderPath = patch.folder_path ?? row.folder_path;
+  const movedPath = await moveDocumentFileToReadablePath(row, { status: nextStatus, folderPath: nextFolderPath });
+  if (movedPath && movedPath !== row.storage_path) {
+    db.prepare('UPDATE documents SET storage_path = ?, updated_at = ? WHERE id = ? AND user_id = ?')
+      .run(movedPath, new Date().toISOString(), req.params.id, userId);
+    row = db.prepare('SELECT * FROM documents WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+  }
   return res.status(200).json({ document: documentResponse(row) });
 });
 
 app.delete('/api/documents/:id', requireAuth, async (req, res) => {
   const userId = currentUserId(req);
   const doc = db.prepare(`
-    SELECT id, storage_path FROM documents
-    WHERE id = ? AND user_id = ? AND status != 'deleted'
+    SELECT d.*, u.email
+    FROM documents d
+    JOIN users u ON u.id = d.user_id
+    WHERE d.id = ? AND d.user_id = ? AND d.status != 'deleted'
   `).get(req.params.id, userId);
   if (!doc) return res.status(404).json({ error: 'Dokument nicht gefunden' });
 
   db.prepare("UPDATE documents SET status = 'deleted', updated_at = ? WHERE id = ? AND user_id = ?")
     .run(new Date().toISOString(), req.params.id, userId);
 
-  // Delete file from filesystem
-  try {
-    await unlink(doc.storage_path);
-  } catch (err) {
-    console.error(`Failed to delete file ${doc.storage_path}:`, err?.message || err);
+  const movedPath = await moveDocumentFileToReadablePath(doc, { status: 'deleted', folderPath: doc.folder_path });
+  if (movedPath && movedPath !== doc.storage_path) {
+    db.prepare('UPDATE documents SET storage_path = ?, updated_at = ? WHERE id = ? AND user_id = ?')
+      .run(movedPath, new Date().toISOString(), req.params.id, userId);
   }
 
   return res.status(200).json({ message: 'Dokument gelöscht' });

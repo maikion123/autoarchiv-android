@@ -29,6 +29,7 @@ export interface ArchivedDoc {
   confidence?: number | null;
   wichtigkeitsgrund?: string | null;
   status?: "uploaded" | "analyzed" | "archived" | "failed" | "deleted";
+  storageLocation?: string | null;
   // file blob stored separately
 }
 
