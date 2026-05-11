@@ -210,7 +210,7 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
               </div>
 
               {activeTab === "preview" ? (
-                <div className="grid min-h-0 grid-rows-[auto_1fr_auto] gap-0">
+                <div className="grid min-h-0 h-full grid-rows-[auto_1fr_auto] gap-0">
                   {/* Zoom Controls (nur für Bilder) */}
                   {activeDoc.mimeType.startsWith("image/") && url && !loadError && (
                     <div className="flex items-center justify-between border-b border-border/40 bg-black/20 px-3 py-2 sm:px-4">
@@ -241,7 +241,7 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
                   )}
 
                   {/* Preview Content */}
-                  <div className="grid place-items-center overflow-auto p-2 sm:p-3 lg:p-4">
+                  <div className="grid min-h-0 place-items-center overflow-auto p-2 sm:p-3 lg:p-4">
                     {loadError ? (
                       <div className="text-center space-y-3 text-sm text-muted-foreground">
                         <FileText className="mx-auto h-10 w-10 opacity-30" />

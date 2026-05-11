@@ -1486,6 +1486,9 @@ function inferSender(text, filename) {
   const normalized = normalizeAnalysisText(text);
   const knownSenders = [
     [/\bvattenfall\b/, 'Vattenfall Europe Sales GmbH'],
+    [/\badac\b/, 'ADAC Autoversicherung'],
+    [/\breise-schutz\b|\breiseschutz\b/, 'Reise-Schutz Versicherung'],
+    [/\bbesenkalender\b|\blkz\b/, 'LKZ Besenkalender'],
     [/\bmedikamente-per-klick\b|\bluitpold-apotheke\b|\bapotheke\b/, 'Luitpold-Apotheke Bad Steben'],
     [/\bdzr\b|\bdeutsches zahnarztliches rechenzentrum\b/, 'DZR Deutsches Zahnärztliches Rechenzentrum GmbH'],
     [/\bmarcus engler\b|\bzahnarzt\b/, 'Marcus Engler Zahnarzt'],
@@ -1733,7 +1736,7 @@ function analyzeExtractedText({ filename, mimeType, text }) {
 
   // Strict R+V detection: Only if explicitly spelled out
   const hasExplicitRPlusV = /\br\s*\+\s*v\b|\br\s*(?:und|plus)\s+v\b|\bruv\b/i.test(text);
-  const hasInsurance = scores.versicherung >= 6 && hasExplicitRPlusV;
+  const hasInsurance = scores.versicherung >= 6;
   const hasVehicle = scores.fahrzeug >= 5;
   const isVehicleInsurance = hasInsurance && hasVehicle;
 
