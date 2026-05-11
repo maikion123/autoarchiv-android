@@ -9,7 +9,7 @@ import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import Database from 'better-sqlite3';
 import crypto from 'crypto';
-import { mkdir, writeFile, unlink } from 'fs/promises';
+import { mkdir, writeFile, unlink, rename, access, readdir, rmdir } from 'fs/promises';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, extname, join } from 'path';
@@ -213,6 +213,68 @@ try {
   // Column already exists.
 }
 
+function isLegacyStoragePath(pathValue = '') {
+  return /\/storage\/users\/[0-9a-f-]{16,}\/documents\/[0-9a-f-]{16,}\//i.test(String(pathValue));
+}
+
+async function cleanupEmptyParents(startDir, stopDir) {
+  let dir = startDir;
+  while (dir && dir.startsWith(stopDir) && dir !== stopDir) {
+    try {
+      const entries = await readdir(dir);
+      if (entries.length) return;
+      await rmdir(dir);
+      dir = dirname(dir);
+    } catch {
+      return;
+    }
+  }
+}
+
+async function migrateReadableStorage() {
+  const rows = db.prepare(`
+    SELECT d.id, d.user_id, u.email, d.filename, d.absender, d.dokumenttyp, d.created_at, d.storage_path
+    FROM documents d
+    JOIN users u ON u.id = d.user_id
+    WHERE d.storage_path LIKE ?
+  `).all(`${STORAGE_PATH}/users/%`);
+
+  for (const row of rows) {
+    if (!isLegacyStoragePath(row.storage_path)) continue;
+    try {
+      await access(row.storage_path);
+    } catch {
+      continue;
+    }
+
+    const { documentDir, storagePath } = readableStoragePaths({
+      userEmail: row.email,
+      documentId: row.id,
+      filename: row.filename,
+      absender: row.absender,
+      dokumenttyp: row.dokumenttyp,
+      createdAt: row.created_at,
+      extension: extname(row.storage_path) || extname(row.filename) || '.pdf',
+    });
+    if (storagePath === row.storage_path) continue;
+
+    await mkdir(documentDir, { recursive: true });
+    try {
+      await rename(row.storage_path, storagePath);
+    } catch (err) {
+      console.warn('storage migration skipped', row.id, errorSummary(err));
+      continue;
+    }
+    db.prepare('UPDATE documents SET storage_path = ?, updated_at = ? WHERE id = ?')
+      .run(storagePath, new Date().toISOString(), row.id);
+    await cleanupEmptyParents(dirname(row.storage_path), join(STORAGE_PATH, 'users'));
+  }
+}
+
+migrateReadableStorage().catch((err) => {
+  console.error('storage migration failed', errorSummary(err));
+});
+
 const DEFAULT_AGENTS = [
   ['claude-code', 'Claude Code', 'ai', 'idle', 'Backend, Auth, Deployment und komplexe Refactors'],
   ['codex', 'Codex', 'ai', 'idle', 'Frontend, UI, schnelle Umsetzung und Codebase-Arbeit'],
@@ -362,8 +424,50 @@ function sanitizeFilename(filename = 'dokument') {
   return cleaned.slice(0, 180) || 'dokument';
 }
 
+function slugifyPathPart(value = 'dokument', maxLength = 80) {
+  const slug = String(value || 'dokument')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ß/g, 'ss')
+    .replace(/[^a-zA-Z0-9äöüÄÖÜ]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
+  return (slug || 'dokument').slice(0, maxLength).replace(/-+$/g, '') || 'dokument';
+}
+
+function userStorageSlug(emailOrId = '') {
+  const email = String(emailOrId || '');
+  const local = email.includes('@') ? email.split('@')[0] : email;
+  return slugifyPathPart(local || emailOrId || 'user', 80);
+}
+
+function documentStorageSlug({ documentId, filename, absender, dokumenttyp, createdAt }) {
+  const date = new Date(createdAt || Date.now());
+  const isoDate = Number.isNaN(date.getTime()) ? new Date().toISOString().slice(0, 10) : date.toISOString().slice(0, 10);
+  const sender = absender && absender !== 'Unbekannt' ? absender : filename;
+  const type = dokumenttyp && dokumenttyp !== 'Sonstiges' ? dokumenttyp : '';
+  const base = [isoDate, sender, type]
+    .map((part) => slugifyPathPart(part, 42))
+    .filter(Boolean)
+    .join('_');
+  return `${base}_${String(documentId).slice(0, 8)}`;
+}
+
 function storagePathFor(userId, documentId, filename) {
   return join(STORAGE_PATH, 'users', userId, 'documents', documentId, filename);
+}
+
+function readableStoragePaths({ userEmail, documentId, filename, absender, dokumenttyp, createdAt, extension }) {
+  const date = new Date(createdAt || Date.now());
+  const month = Number.isNaN(date.getTime()) ? new Date().toISOString().slice(0, 7) : date.toISOString().slice(0, 7);
+  const ext = extension || extname(filename || '') || '.pdf';
+  const userSlug = userStorageSlug(userEmail);
+  const docSlug = documentStorageSlug({ documentId, filename, absender, dokumenttyp, createdAt });
+  const documentDir = join(STORAGE_PATH, 'users', userSlug, 'documents', month, docSlug);
+  return {
+    documentDir,
+    storagePath: join(documentDir, `original${ext}`),
+  };
 }
 
 function parseJsonArray(value) {
@@ -2377,6 +2481,7 @@ app.post('/api/documents/upload', requireAuth, express.raw({
   const originalFilename = sanitizeFilename(req.query.filename || 'dokument');
   const mimeType = String(req.query.mimeType || req.headers['content-type'] || 'application/octet-stream').split(';')[0];
   const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from([]);
+  const user = userId ? db.prepare('SELECT email FROM users WHERE id = ?').get(userId) : null;
 
   if (!userId) return res.status(401).json({ error: 'Nicht angemeldet' });
   if (!(mimeType.startsWith('image/') || mimeType === 'application/pdf')) {
@@ -2388,10 +2493,17 @@ app.post('/api/documents/upload', requireAuth, express.raw({
 
   const documentId = uid();
   const storageFilename = `original${extname(originalFilename) || extForMime(mimeType)}`;
-  const documentDir = join(STORAGE_PATH, 'users', userId, 'documents', documentId);
-  const storagePath = storagePathFor(userId, documentId, storageFilename);
   const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
   const now = new Date().toISOString();
+  const { documentDir, storagePath } = readableStoragePaths({
+    userEmail: user?.email || userId,
+    documentId,
+    filename: originalFilename,
+    absender: '',
+    dokumenttyp: '',
+    createdAt: now,
+    extension: extname(storageFilename) || extForMime(mimeType),
+  });
   let ocrEngine = mimeType === 'application/pdf' ? 'pdfjs' : 'tesseract';
 
   try {
@@ -2485,15 +2597,23 @@ app.post('/api/documents/upload-pages', requireAuth, async (req, res) => {
   const userId = currentUserId(req);
   const originalFilename = sanitizeFilename(req.body?.filename || 'mehrseitiger-scan.pdf').replace(/\.[^.]+$/, '') + '.pdf';
   const pages = Array.isArray(req.body?.pages) ? req.body.pages.slice(0, 5) : [];
+  const user = userId ? db.prepare('SELECT email FROM users WHERE id = ?').get(userId) : null;
 
   if (!userId) return res.status(401).json({ error: 'Nicht angemeldet' });
   if (!pages.length) return res.status(400).json({ error: 'Keine Seiten übergeben' });
   if (pages.length > 5) return res.status(400).json({ error: 'Maximal 5 Seiten pro Scan' });
 
   const documentId = uid();
-  const documentDir = join(STORAGE_PATH, 'users', userId, 'documents', documentId);
-  const storagePath = storagePathFor(userId, documentId, 'original.pdf');
   const now = new Date().toISOString();
+  const { documentDir, storagePath } = readableStoragePaths({
+    userEmail: user?.email || userId,
+    documentId,
+    filename: originalFilename,
+    absender: '',
+    dokumenttyp: '',
+    createdAt: now,
+    extension: '.pdf',
+  });
   const pageBuffers = [];
   const pdfPages = [];
   const textParts = [];
