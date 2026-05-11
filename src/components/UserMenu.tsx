@@ -92,13 +92,13 @@ function ProfileModal({
             onClick={onClose}
           />
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
             transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-            className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center pointer-events-none p-4"
+            className="fixed top-0 left-0 right-0 z-[90] flex items-start justify-center pointer-events-none p-4 pt-20 sm:pt-[50vh] sm:translate-y-[-50%]"
           >
-            <div className="glass-strong border-glow rounded-t-2xl sm:rounded-2xl p-6 max-w-md w-full sm:w-[90vw] pointer-events-auto max-h-[90vh] overflow-y-auto">
+            <div className="glass-strong border-glow rounded-2xl p-6 max-w-md w-full sm:w-[90vw] pointer-events-auto max-h-[70vh] overflow-y-auto">
               <h2 className="text-lg font-semibold text-foreground mb-4">Profil bearbeiten</h2>
 
               <div className="space-y-4">
@@ -234,13 +234,13 @@ function PasswordModal({
             onClick={onClose}
           />
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
             transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-            className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center pointer-events-none p-4"
+            className="fixed top-0 left-0 right-0 z-[90] flex items-start justify-center pointer-events-none p-4 pt-20 sm:pt-[50vh] sm:translate-y-[-50%]"
           >
-            <div className="glass-strong border-glow rounded-t-2xl sm:rounded-2xl p-6 max-w-md w-full sm:w-[90vw] pointer-events-auto max-h-[90vh] overflow-y-auto">
+            <div className="glass-strong border-glow rounded-2xl p-6 max-w-md w-full sm:w-[90vw] pointer-events-auto max-h-[70vh] overflow-y-auto">
               <h2 className="text-lg font-semibold text-foreground mb-4">Passwort ändern</h2>
 
               <div className="space-y-4">
@@ -393,6 +393,8 @@ export default function UserMenu({ email, displayName, onLogout }: UserMenuProps
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [currentDisplayName, setCurrentDisplayName] = useState(displayName);
   const menuRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, right: 0 });
 
   const initials = getInitials(currentDisplayName, email);
 
@@ -406,6 +408,16 @@ export default function UserMenu({ email, displayName, onLogout }: UserMenuProps
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setDropdownPosition({
+        top: rect.bottom + window.scrollY + 8,
+        right: window.innerWidth - rect.right + window.scrollX,
+      });
     }
   }, [isOpen]);
 
@@ -445,6 +457,7 @@ export default function UserMenu({ email, displayName, onLogout }: UserMenuProps
   return (
     <div ref={menuRef} className="relative">
       <button
+        ref={buttonRef}
         onClick={() => setIsOpen(!isOpen)}
         className="rounded-2xl glass hover:bg-muted/60 px-2 sm:px-3 py-2 flex items-center gap-2 text-foreground transition-colors min-h-[44px] sm:min-h-auto"
         title={currentDisplayName || email}
@@ -472,7 +485,12 @@ export default function UserMenu({ email, displayName, onLogout }: UserMenuProps
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -10 }}
             transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-            className="absolute right-0 top-full mt-2 w-48 sm:w-52 glass-strong border-glow rounded-2xl overflow-hidden z-[50] shadow-lg"
+            style={{
+              position: 'fixed',
+              top: `${dropdownPosition.top}px`,
+              right: `${dropdownPosition.right}px`,
+            }}
+            className="w-48 sm:w-52 glass-strong border-glow rounded-2xl overflow-hidden z-[50] shadow-lg"
           >
             <div className="divide-y divide-border/20">
               <button
