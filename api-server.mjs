@@ -18,6 +18,8 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import sharp from 'sharp';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { reviewWithAI as reviewDocumentWithAI, decideFinalAnalysis, createRegexFallback } from './src/server/analysis/documentPipeline.mjs';
+import { prepareLayoutAnalysisInput } from './src/server/analysis/layoutPipeline.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -42,8 +44,20 @@ const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || undefined;
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434/api/generate';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3:8b';
 const OLLAMA_TIMEOUT_MS = parseInt(process.env.OLLAMA_TIMEOUT_MS || '10000', 10);
-// USE_OLLAMA disabled - using fast local regex analysis instead (free, no tokens, instant)
-let USE_OLLAMA_ANALYSIS = false;
+const ENABLE_LAYOUT_ANALYSIS = process.env.ENABLE_LAYOUT_ANALYSIS === 'true';
+const LAYOUT_MAX_PAGES = Math.max(1, parseInt(process.env.LAYOUT_MAX_PAGES || '1', 10) || 1);
+const LAYOUT_IMAGE_DPI = Math.max(72, parseInt(process.env.LAYOUT_IMAGE_DPI || '150', 10) || 150);
+const LAYOUT_MAX_IMAGE_BYTES = Math.max(256 * 1024, parseInt(process.env.LAYOUT_MAX_IMAGE_BYTES || `${5 * 1024 * 1024}`, 10) || (5 * 1024 * 1024));
+const ENABLE_VISION_REVIEW = process.env.ENABLE_VISION_REVIEW === 'true';
+const VISION_MODEL = process.env.VISION_MODEL || '';
+const VISION_TIMEOUT_MS = Math.max(1000, parseInt(process.env.VISION_TIMEOUT_MS || '90000', 10) || 90000);
+const USE_OLLAMA_ANALYSIS = process.env.USE_OLLAMA_ANALYSIS === 'true';
+const ADMIN_EMAILS = new Set(
+  String(process.env.ADMIN_EMAILS || 'kevin.reinhardt.zvw@gmail.com')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+);
 let OLLAMA_AVAILABLE = false;
 const MAX_OLLAMA_TEXT_LENGTH = 6000;
 const OLLAMA_OPTIONS = {
@@ -64,6 +78,7 @@ db.exec(`
     email        TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     email_verified INTEGER NOT NULL DEFAULT 0,
+    role         TEXT NOT NULL DEFAULT 'user',
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -106,7 +121,15 @@ db.exec(`
     wichtigkeit         TEXT NOT NULL DEFAULT 'mittel',
     tags_json           TEXT NOT NULL DEFAULT '[]',
     analysis_hints_json TEXT NOT NULL DEFAULT '{}',
+    regex_analysis_json TEXT NOT NULL DEFAULT '{}',
+    ai_analysis_json    TEXT NOT NULL DEFAULT '{}',
+    vision_analysis_json TEXT NOT NULL DEFAULT '{}',
+    final_analysis_json TEXT NOT NULL DEFAULT '{}',
+    layout_analysis_json TEXT NOT NULL DEFAULT '{}',
     analysis_mode       TEXT NOT NULL DEFAULT 'regex',
+    review_status       TEXT NOT NULL DEFAULT 'review_required',
+    review_reason       TEXT NOT NULL DEFAULT '',
+    should_auto_archive INTEGER NOT NULL DEFAULT 0,
     confidence          REAL,
     wichtigkeitsgrund   TEXT,
     status              TEXT NOT NULL DEFAULT 'uploaded',
@@ -181,6 +204,22 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_document_folders_parent ON document_folders(parent_id, sort_order, name);
 
+  CREATE TABLE IF NOT EXISTS navigation_items (
+    id            TEXT PRIMARY KEY,
+    label         TEXT NOT NULL,
+    path          TEXT NOT NULL,
+    icon          TEXT NOT NULL DEFAULT 'Folder',
+    section       TEXT NOT NULL DEFAULT 'main',
+    sort_order    INTEGER NOT NULL DEFAULT 0,
+    visible       INTEGER NOT NULL DEFAULT 1,
+    role_required TEXT NOT NULL DEFAULT 'user',
+    is_external   INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_navigation_items_section_sort ON navigation_items(section, sort_order, label);
+
   CREATE TABLE IF NOT EXISTS agents (
     id              TEXT PRIMARY KEY,
     name            TEXT NOT NULL,
@@ -205,12 +244,88 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_agents_updated ON agents(updated_at DESC);
   CREATE INDEX IF NOT EXISTS idx_agent_events_created ON agent_events(created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS sessions (
+    id            TEXT PRIMARY KEY,
+    user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    last_activity TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at    TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+  CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 `);
+
+// Clean up old sessions
+db.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
+
+try {
+  db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
+} catch {
+  // Column already exists.
+}
+
+if (ADMIN_EMAILS.size > 0) {
+  const placeholders = Array.from(ADMIN_EMAILS).map(() => '?').join(', ');
+  db.prepare(`UPDATE users SET role = 'admin', updated_at = datetime('now') WHERE lower(email) IN (${placeholders})`).run(...Array.from(ADMIN_EMAILS));
+}
 
 try {
   db.exec("ALTER TABLE documents ADD COLUMN analysis_hints_json TEXT NOT NULL DEFAULT '{}'");
 } catch {
   // Column already exists.
+}
+for (const sql of [
+  "ALTER TABLE documents ADD COLUMN regex_analysis_json TEXT NOT NULL DEFAULT '{}'",
+  "ALTER TABLE documents ADD COLUMN ai_analysis_json TEXT NOT NULL DEFAULT '{}'",
+  "ALTER TABLE documents ADD COLUMN vision_analysis_json TEXT NOT NULL DEFAULT '{}'",
+  "ALTER TABLE documents ADD COLUMN final_analysis_json TEXT NOT NULL DEFAULT '{}'",
+  "ALTER TABLE documents ADD COLUMN layout_analysis_json TEXT NOT NULL DEFAULT '{}'",
+  "ALTER TABLE documents ADD COLUMN review_status TEXT NOT NULL DEFAULT 'review_required'",
+  "ALTER TABLE documents ADD COLUMN review_reason TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE documents ADD COLUMN should_auto_archive INTEGER NOT NULL DEFAULT 0",
+]) {
+  try {
+    db.exec(sql);
+  } catch {
+    // Column already exists.
+  }
+}
+
+const DEFAULT_NAVIGATION_ITEMS = [
+  { id: 'nav-overview', label: 'Übersicht', path: '/', icon: 'LayoutDashboard', section: 'main', sort_order: 10, visible: 1, role_required: 'user', is_external: 0 },
+  { id: 'nav-search', label: 'Suche', path: '/suche', icon: 'Search', section: 'main', sort_order: 20, visible: 1, role_required: 'user', is_external: 0 },
+  { id: 'nav-payments', label: 'Zahlungen', path: '/zahlungen', icon: 'Wallet', section: 'main', sort_order: 30, visible: 1, role_required: 'user', is_external: 0 },
+  { id: 'nav-appointments', label: 'Termine', path: '/termine', icon: 'CalendarDays', section: 'main', sort_order: 40, visible: 1, role_required: 'user', is_external: 0 },
+  { id: 'nav-inbox', label: 'Eingang', path: '/eingang', icon: 'Inbox', section: 'main', sort_order: 50, visible: 1, role_required: 'user', is_external: 0 },
+  { id: 'nav-agents', label: 'Agenten', path: '/agents', icon: 'UsersRound', section: 'main', sort_order: 60, visible: 1, role_required: 'user', is_external: 0 },
+  { id: 'nav-admin', label: 'Admin', path: '/admin', icon: 'ShieldCheck', section: 'admin', sort_order: 70, visible: 1, role_required: 'admin', is_external: 0 },
+];
+
+const navCount = db.prepare('SELECT COUNT(*) AS count FROM navigation_items').get();
+if (Number(navCount?.count || 0) === 0) {
+  const insertNav = db.prepare(`
+    INSERT INTO navigation_items (
+      id, label, path, icon, section, sort_order, visible, role_required, is_external, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+  `);
+  const navTx = db.transaction((items) => {
+    for (const item of items) {
+      insertNav.run(
+        item.id,
+        item.label,
+        item.path,
+        item.icon,
+        item.section,
+        item.sort_order,
+        item.visible,
+        item.role_required,
+        item.is_external,
+      );
+    }
+  });
+  navTx(DEFAULT_NAVIGATION_ITEMS);
 }
 
 async function cleanupEmptyParents(startDir, stopDir) {
@@ -394,6 +509,113 @@ function currentUserId(req) {
   return req.user?.userId;
 }
 
+function getUserById(userId) {
+  if (!userId) return null;
+  return db.prepare('SELECT id, email, email_verified, role, created_at, updated_at FROM users WHERE id = ?').get(userId) || null;
+}
+
+function getDocumentById(documentId) {
+  if (!documentId) return null;
+  return db.prepare(`
+    SELECT d.*, u.email AS user_email
+    FROM documents d
+    JOIN users u ON u.id = d.user_id
+    WHERE d.id = ?
+  `).get(documentId) || null;
+}
+
+function isAdminUser(user) {
+  if (!user) return false;
+  const role = String(user.role || '').toLowerCase();
+  return role === 'admin' || ADMIN_EMAILS.has(String(user.email || '').toLowerCase());
+}
+
+function navigationItemResponse(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    label: row.label,
+    path: row.path,
+    icon: row.icon,
+    section: row.section,
+    sortOrder: row.sort_order,
+    visible: Boolean(row.visible),
+    roleRequired: String(row.role_required || 'user'),
+    isExternal: Boolean(row.is_external),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function listNavigationItems(role = 'user') {
+  const normalizedRole = String(role || 'user').toLowerCase() === 'admin' ? 'admin' : 'user';
+  const rows = db.prepare(`
+    SELECT *
+    FROM navigation_items
+    WHERE visible = 1
+      AND (role_required = 'user' OR ? = 'admin')
+    ORDER BY sort_order ASC, label ASC
+  `).all(normalizedRole);
+  return rows.map(navigationItemResponse).filter(Boolean);
+}
+
+function getNavigationItemById(id) {
+  if (!id) return null;
+  return db.prepare('SELECT * FROM navigation_items WHERE id = ?').get(id) || null;
+}
+
+function cleanNavigationItemInput(body = {}) {
+  const out = {};
+  if (body.label !== undefined) {
+    const label = String(body.label || '').trim();
+    if (!label) throw new Error('Bezeichnung erforderlich');
+    out.label = label;
+  }
+  if (body.path !== undefined) {
+    const path = String(body.path || '').trim();
+    if (!path) throw new Error('Pfad erforderlich');
+    out.path = path;
+  }
+  if (body.icon !== undefined) {
+    const icon = String(body.icon || '').trim() || 'Folder';
+    out.icon = icon;
+  }
+  if (body.section !== undefined) {
+    const section = String(body.section || '').trim() || 'main';
+    out.section = section.slice(0, 40);
+  }
+  if (body.sortOrder !== undefined) {
+    const sortOrder = Number(body.sortOrder);
+    out.sort_order = Number.isFinite(sortOrder) ? sortOrder : 0;
+  }
+  if (body.visible !== undefined) {
+    out.visible = body.visible ? 1 : 0;
+  }
+  if (body.roleRequired !== undefined) {
+    const roleRequired = String(body.roleRequired || '').trim().toLowerCase();
+    out.role_required = roleRequired === 'admin' ? 'admin' : 'user';
+  }
+  if (body.isExternal !== undefined) {
+    out.is_external = body.isExternal ? 1 : 0;
+  }
+  if (!Object.keys(out).length) {
+    throw new Error('Keine gültigen Änderungen übergeben');
+  }
+  out.updated_at = new Date().toISOString();
+  return out;
+}
+
+function requireAdmin(req, res, next) {
+  requireAuth(req, res, () => {
+    const user = getUserById(currentUserId(req));
+    if (!user || !isAdminUser(user)) {
+      return res.status(403).json({ error: 'Admin-Zugriff erforderlich' });
+    }
+    req.adminUser = user;
+    return next();
+  });
+}
+
 function sanitizeFilename(filename = 'dokument') {
   const cleaned = String(filename)
     .replace(/[\\/]/g, '_')
@@ -432,6 +654,22 @@ function documentStorageSlug({ documentId, filename, absender, dokumenttyp, crea
   return `${base}_${String(documentId).slice(0, 8)}`;
 }
 
+function documentDisplayFilename({ absender, dokumenttyp, originalFilename = 'dokument.pdf' }) {
+  const ext = extname(String(originalFilename || '')) || '.pdf';
+  const sender = String(absender || '').trim();
+  const type = String(dokumenttyp || '').trim();
+  const base = sender && sender !== 'Unbekannt'
+    ? sender
+    : type && type !== 'Sonstiges'
+      ? type
+      : String(originalFilename || 'dokument').replace(/\.[^.]+$/, '');
+  return `${sanitizeFilename(base).replace(/\.[^.]+$/, '')}${ext}`.replace(/\s+/g, ' ').trim();
+}
+
+function documentStorageFilename({ absender, dokumenttyp, originalFilename = 'dokument.pdf' }) {
+  return sanitizeFilename(documentDisplayFilename({ absender, dokumenttyp, originalFilename }));
+}
+
 function folderPathParts(folderPath = '') {
   return String(folderPath || '07_Sonstiges')
     .split('/')
@@ -441,11 +679,12 @@ function folderPathParts(folderPath = '') {
 
 function storageStatusSegment(status = 'analyzed') {
   if (status === 'archived') return 'archived';
+  if (status === 'review') return 'review';
   if (status === 'deleted') return 'deleted';
   return 'analyzed';
 }
 
-function readableStoragePaths({ userEmail, documentId, filename, absender, dokumenttyp, createdAt, extension, status = 'analyzed', folderPath = '' }) {
+function readableStoragePaths({ userEmail, documentId, filename, absender, dokumenttyp, createdAt, extension, status = 'analyzed', folderPath = '', storageFilename }) {
   const date = new Date(createdAt || Date.now());
   const month = Number.isNaN(date.getTime()) ? new Date().toISOString().slice(0, 7) : date.toISOString().slice(0, 7);
   const ext = extension || extname(filename || '') || '.pdf';
@@ -456,7 +695,7 @@ function readableStoragePaths({ userEmail, documentId, filename, absender, dokum
   const documentDir = join(STORAGE_PATH, 'users', userSlug, 'documents', statusSegment, ...folderParts, month, docSlug);
   return {
     documentDir,
-    storagePath: join(documentDir, `original${ext}`),
+    storagePath: join(documentDir, storageFilename || `original${ext}`),
   };
 }
 
@@ -478,6 +717,11 @@ async function moveDocumentFileToReadablePath(row, { status = row.status, folder
     extension: extname(row.storage_path) || extname(row.filename) || extForMime(row.mime_type),
     status,
     folderPath,
+    storageFilename: documentStorageFilename({
+      absender: row.absender,
+      dokumenttyp: row.dokumenttyp,
+      originalFilename: row.original_filename || row.filename || row.storage_path || 'dokument.pdf',
+    }),
   });
   if (target.storagePath === row.storage_path) return row.storage_path;
 
@@ -490,6 +734,19 @@ async function moveDocumentFileToReadablePath(row, { status = row.status, folder
     console.warn('document file move skipped', row.id, errorSummary(err));
     return row.storage_path;
   }
+}
+
+async function syncDocumentReadableMetadata(row, { status = row.status, folderPath = row.folder_path } = {}) {
+  const nextFilename = documentDisplayFilename({
+    absender: row.absender,
+    dokumenttyp: row.dokumenttyp,
+    originalFilename: row.original_filename || row.filename || 'dokument.pdf',
+  });
+  const movedPath = await moveDocumentFileToReadablePath({ ...row, filename: nextFilename }, { status, folderPath });
+  return {
+    filename: nextFilename,
+    storagePath: movedPath,
+  };
 }
 
 function parseJsonArray(value) {
@@ -508,6 +765,17 @@ function parseJsonObject(value) {
   } catch {
     return {};
   }
+}
+
+function safeStorageSegment(value) {
+  return String(value || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    .replace(/^_+|_+$/g, '') || 'unknown';
+}
+
+function layoutStorageDir({ userEmail, documentId }) {
+  return join(STORAGE_PATH, 'layout', safeStorageSegment(userEmail), documentId);
 }
 
 function documentResponse(row) {
@@ -534,12 +802,166 @@ function documentResponse(row) {
     wichtigkeit: row.wichtigkeit,
     tags: parseJsonArray(row.tags_json),
     analysisHints: parseJsonObject(row.analysis_hints_json),
+    regexAnalysis: parseJsonObject(row.regex_analysis_json),
+    aiAnalysis: parseJsonObject(row.ai_analysis_json),
+    visionAnalysis: parseJsonObject(row.vision_analysis_json),
+    finalAnalysis: parseJsonObject(row.final_analysis_json),
+    layoutAnalysisInput: parseJsonObject(row.layout_analysis_json),
     analysisMode: row.analysis_mode,
+    reviewStatus: row.review_status,
+    reviewReason: row.review_reason,
+    shouldAutoArchive: Boolean(row.should_auto_archive),
     confidence: row.confidence,
     wichtigkeitsgrund: row.wichtigkeitsgrund,
     status: row.status,
     storageLocation,
   };
+}
+
+function normalizeDocumentAnalysisResult(analysis, fallback = {}) {
+  const finalAnalysis = analysis?.finalAnalysis && typeof analysis.finalAnalysis === 'object'
+    ? analysis.finalAnalysis
+    : {};
+  const regexAnalysis = analysis?.regexAnalysis && typeof analysis.regexAnalysis === 'object'
+    ? analysis.regexAnalysis
+    : {};
+  const aiAnalysis = analysis?.aiAnalysis && typeof analysis.aiAnalysis === 'object'
+    ? analysis.aiAnalysis
+    : null;
+  const visionAnalysis = analysis?.visionAnalysis && typeof analysis.visionAnalysis === 'object'
+    ? analysis.visionAnalysis
+    : null;
+  const merged = {
+    ...regexAnalysis,
+    ...finalAnalysis,
+    absender: finalAnalysis.absender || regexAnalysis.absender || fallback.absender || 'Unbekannt',
+    dokumenttyp: finalAnalysis.dokumenttyp || regexAnalysis.dokumenttyp || fallback.dokumenttyp || 'Sonstiges',
+    zusammenfassung: finalAnalysis.zusammenfassung || regexAnalysis.zusammenfassung || fallback.zusammenfassung || '',
+    zahlungsbetrag: finalAnalysis.zahlungsbetrag ?? regexAnalysis.zahlungsbetrag ?? fallback.zahlungsbetrag ?? null,
+    faelligkeitsdatum: finalAnalysis.faelligkeitsdatum ?? regexAnalysis.faelligkeitsdatum ?? fallback.faelligkeitsdatum ?? null,
+    ablaufdatum: finalAnalysis.ablaufdatum ?? regexAnalysis.ablaufdatum ?? fallback.ablaufdatum ?? null,
+    vorgeschlagenerOrdner: finalAnalysis.vorgeschlagenerOrdner || regexAnalysis.vorgeschlagenerOrdner || fallback.vorgeschlagenerOrdner || '07_Sonstiges',
+    vorgeschlagenerUnterordner: finalAnalysis.vorgeschlagenerUnterordner || regexAnalysis.vorgeschlagenerUnterordner || fallback.vorgeschlagenerUnterordner || '',
+    wichtigkeit: finalAnalysis.wichtigkeit || regexAnalysis.wichtigkeit || fallback.wichtigkeit || 'mittel',
+    tags: Array.isArray(finalAnalysis.tags) && finalAnalysis.tags.length
+      ? finalAnalysis.tags
+      : (Array.isArray(regexAnalysis.tags) ? regexAnalysis.tags : Array.isArray(fallback.tags) ? fallback.tags : []),
+    analysisMode: analysis?.analysisMode || finalAnalysis.analysisMode || regexAnalysis.analysisMode || 'regex',
+    reviewStatus: analysis?.reviewStatus || finalAnalysis.reviewStatus || 'review_required',
+    reviewReason: analysis?.reviewReason || analysis?.reason || finalAnalysis.reviewReason || finalAnalysis.reason || regexAnalysis.reason || fallback.reason || '',
+    shouldAutoArchive: Boolean(analysis?.shouldAutoArchive ?? finalAnalysis.shouldAutoArchive ?? false),
+    confidence: typeof analysis?.confidence === 'number'
+      ? analysis.confidence
+      : (typeof finalAnalysis.confidence === 'number'
+        ? finalAnalysis.confidence
+        : (typeof regexAnalysis.confidence === 'number' ? regexAnalysis.confidence : null)),
+    analysisHints: finalAnalysis.analysisHints && typeof finalAnalysis.analysisHints === 'object'
+      ? finalAnalysis.analysisHints
+      : (regexAnalysis.analysisHints && typeof regexAnalysis.analysisHints === 'object' ? regexAnalysis.analysisHints : {}),
+    regexAnalysis,
+    aiAnalysis,
+    visionAnalysis,
+    finalAnalysis: Object.keys(finalAnalysis).length ? finalAnalysis : regexAnalysis,
+    layoutAnalysisInput: analysis?.layoutAnalysisInput && typeof analysis.layoutAnalysisInput === 'object'
+      ? analysis.layoutAnalysisInput
+      : null,
+  };
+
+  return merged;
+}
+
+async function persistAnalyzedDocument({
+  documentId,
+  userId,
+  analysis,
+  text,
+  ocrEngine,
+  benchmark,
+  extraTags = [],
+}) {
+  const normalized = normalizeDocumentAnalysisResult(analysis);
+  const folderPath = normalized.vorgeschlagenerUnterordner
+    ? `${normalized.vorgeschlagenerOrdner}/${normalized.vorgeschlagenerUnterordner}`
+    : normalized.vorgeschlagenerOrdner || '07_Sonstiges';
+  const shouldAutoArchive = Boolean(normalized.shouldAutoArchive && normalized.reviewStatus === 'auto_ready');
+  const nextStatus = shouldAutoArchive ? 'archived' : 'review';
+  const tags = Array.from(new Set([
+    ...(Array.isArray(normalized.tags) ? normalized.tags : []),
+    ...extraTags,
+  ])).slice(0, 20);
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    UPDATE documents SET
+      folder_path = ?,
+      absender = ?,
+      dokumenttyp = ?,
+      zusammenfassung = ?,
+      zahlungsbetrag = ?,
+      faelligkeitsdatum = ?,
+      ablaufdatum = ?,
+      wichtigkeit = ?,
+      tags_json = ?,
+      analysis_hints_json = ?,
+      analysis_mode = ?,
+      confidence = ?,
+      wichtigkeitsgrund = ?,
+      regex_analysis_json = ?,
+      ai_analysis_json = ?,
+      vision_analysis_json = ?,
+      final_analysis_json = ?,
+      layout_analysis_json = ?,
+      review_status = ?,
+      review_reason = ?,
+      should_auto_archive = ?,
+      status = ?,
+      updated_at = ?
+    WHERE id = ? AND user_id = ?
+  `).run(
+    folderPath,
+    normalized.absender || 'Unbekannt',
+    normalized.dokumenttyp || 'Sonstiges',
+    normalized.zusammenfassung || '',
+    normalized.zahlungsbetrag ?? null,
+    normalized.faelligkeitsdatum ?? null,
+    normalized.ablaufdatum ?? null,
+    normalized.wichtigkeit || 'mittel',
+    JSON.stringify(tags),
+    JSON.stringify(normalized.analysisHints || {}),
+    normalized.analysisMode || 'regex',
+    normalized.confidence ?? null,
+    normalized.reviewReason || '',
+    JSON.stringify(normalized.regexAnalysis || {}),
+    JSON.stringify(normalized.aiAnalysis || {}),
+    JSON.stringify(normalized.visionAnalysis || {}),
+    JSON.stringify(normalized.finalAnalysis || normalized),
+    JSON.stringify(normalized.layoutAnalysisInput || {}),
+    normalized.reviewStatus || 'review_required',
+    normalized.reviewReason || '',
+    shouldAutoArchive ? 1 : 0,
+    nextStatus,
+    now,
+    documentId,
+    userId,
+  );
+
+  db.prepare(`
+    INSERT INTO document_texts (document_id, extracted_text, ocr_engine)
+    VALUES (?, ?, ?)
+    ON CONFLICT(document_id) DO UPDATE SET
+      extracted_text = excluded.extracted_text,
+      ocr_engine = excluded.ocr_engine
+  `).run(documentId, text || '', ocrEngine);
+
+  let row = db.prepare('SELECT d.*, u.email FROM documents d JOIN users u ON u.id = d.user_id WHERE d.id = ? AND d.user_id = ?').get(documentId, userId);
+  const sync = await syncDocumentReadableMetadata(row, { status: nextStatus, folderPath: row.folder_path });
+  if (sync.storagePath !== row.storage_path || sync.filename !== row.filename) {
+    db.prepare('UPDATE documents SET filename = ?, storage_path = ?, updated_at = ? WHERE id = ? AND user_id = ?')
+      .run(sync.filename, sync.storagePath, new Date().toISOString(), documentId, userId);
+    row = db.prepare('SELECT d.*, u.email FROM documents d JOIN users u ON u.id = d.user_id WHERE d.id = ? AND d.user_id = ?').get(documentId, userId);
+  }
+
+  return { row, benchmark };
 }
 
 function paymentResponse(row) {
@@ -705,8 +1127,112 @@ function cleanDocumentPatch(body = {}) {
   if (out.wichtigkeit && !['niedrig', 'mittel', 'hoch'].includes(out.wichtigkeit)) {
     delete out.wichtigkeit;
   }
-  if (out.status && !['uploaded', 'analyzed', 'archived', 'failed', 'deleted'].includes(out.status)) {
+  if (out.status && !['uploaded', 'analyzed', 'review', 'archived', 'failed', 'deleted'].includes(out.status)) {
     delete out.status;
+  }
+
+  out.updated_at = new Date().toISOString();
+  return out;
+}
+
+function cleanAdminUserPatch(body = {}) {
+  const out = {};
+  if (body.role !== undefined) {
+    const role = String(body.role || '').trim().toLowerCase();
+    if (['admin', 'user'].includes(role)) {
+      out.role = role;
+    }
+  }
+  if (body.emailVerified !== undefined) {
+    out.email_verified = body.emailVerified ? 1 : 0;
+  }
+  if (body.email !== undefined) {
+    const email = String(body.email || '').trim().toLowerCase();
+    if (email && email.includes('@')) {
+      out.email = email;
+    }
+  }
+  if (Object.keys(out).length === 0) {
+    throw new Error('Keine gültigen Änderungen übergeben');
+  }
+  out.updated_at = new Date().toISOString();
+  return out;
+}
+
+function cleanAdminDocumentPatch(body = {}) {
+  const out = {};
+  const stringFields = {
+    folderPath: 'folder_path',
+    absender: 'absender',
+    dokumenttyp: 'dokumenttyp',
+    zusammenfassung: 'zusammenfassung',
+    faelligkeitsdatum: 'faelligkeitsdatum',
+    ablaufdatum: 'ablaufdatum',
+    wichtigkeit: 'wichtigkeit',
+    wichtigkeitsgrund: 'wichtigkeitsgrund',
+    status: 'status',
+    reviewStatus: 'review_status',
+    reviewReason: 'review_reason',
+    analysisMode: 'analysis_mode',
+  };
+
+  for (const [input, column] of Object.entries(stringFields)) {
+    if (body[input] === undefined) continue;
+    out[column] = body[input] === null ? null : String(body[input]).trim();
+  }
+
+  if (body.zahlungsbetrag !== undefined) {
+    const amount = body.zahlungsbetrag === null || body.zahlungsbetrag === ''
+      ? null
+      : Number(body.zahlungsbetrag);
+    out.zahlungsbetrag = Number.isFinite(amount) ? amount : null;
+  }
+
+  if (body.confidence !== undefined) {
+    const confidence = body.confidence === null || body.confidence === ''
+      ? null
+      : Number(body.confidence);
+    out.confidence = Number.isFinite(confidence) ? confidence : null;
+  }
+
+  if (body.shouldAutoArchive !== undefined) {
+    out.should_auto_archive = body.shouldAutoArchive ? 1 : 0;
+  }
+
+  if (body.tags !== undefined) {
+    out.tags_json = JSON.stringify(Array.isArray(body.tags)
+      ? body.tags.map((tag) => String(tag).trim()).filter(Boolean).slice(0, 20)
+      : []);
+  }
+
+  if (body.regexAnalysis !== undefined) {
+    out.regex_analysis_json = JSON.stringify(body.regexAnalysis || {});
+  }
+  if (body.aiAnalysis !== undefined) {
+    out.ai_analysis_json = JSON.stringify(body.aiAnalysis || {});
+  }
+  if (body.visionAnalysis !== undefined) {
+    out.vision_analysis_json = JSON.stringify(body.visionAnalysis || {});
+  }
+  if (body.finalAnalysis !== undefined) {
+    out.final_analysis_json = JSON.stringify(body.finalAnalysis || {});
+  }
+  if (body.layoutAnalysisInput !== undefined) {
+    out.layout_analysis_json = JSON.stringify(body.layoutAnalysisInput || {});
+  }
+
+  if (out.wichtigkeit && !['niedrig', 'mittel', 'hoch'].includes(out.wichtigkeit)) {
+    delete out.wichtigkeit;
+  }
+  if (out.review_status && !['auto_ready', 'review_required', 'analysis_failed'].includes(out.review_status)) {
+    delete out.review_status;
+  }
+  if (out.status && !['uploaded', 'analyzed', 'review', 'archived', 'failed', 'deleted'].includes(out.status)) {
+    delete out.status;
+  }
+
+  if (Object.keys(out).length === 0) {
+    throw new Error('Keine gültigen Änderungen übergeben');
   }
 
   out.updated_at = new Date().toISOString();
@@ -892,8 +1418,34 @@ function requireAuth(req, res, next) {
   if (!token) return res.status(401).json({ error: 'Nicht angemeldet' });
   try {
     req.user = jwt.verify(token, JWT_SECRET);
+
+    // Check session activity (30-minute timeout)
+    const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(req.user.sessionId);
+    if (!session) {
+      res.clearCookie('auth_token');
+      return res.status(401).json({ error: 'Sitzung ungültig' });
+    }
+
+    const now = new Date();
+    const lastActivity = new Date(session.last_activity);
+    const inactiveMs = now - lastActivity;
+    const TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+    if (inactiveMs > TIMEOUT_MS) {
+      // Session expired, delete it and clear cookie
+      db.prepare('DELETE FROM sessions WHERE id = ?').run(session.id);
+      res.clearCookie('auth_token');
+      return res.status(401).json({ error: 'Sitzung abgelaufen (Inaktivität)' });
+    }
+
+    // Update last activity
+    db.prepare("UPDATE sessions SET last_activity = datetime('now') WHERE id = ?").run(session.id);
+
     next();
-  } catch {
+  } catch (err) {
+    if (err.name !== 'JsonWebTokenError') {
+      console.error('[Auth] Unexpected error:', err);
+    }
     res.clearCookie('auth_token');
     return res.status(401).json({ error: 'Sitzung abgelaufen' });
   }
@@ -1711,6 +2263,8 @@ function analyzeExtractedText({ filename, mimeType, text }) {
     wichtigkeit: 'mittel',
     tags: [],
     analysisMode: 'regex',
+    confidence: 0,
+    reason: 'Kein hinreichender OCR-Text',
   };
 
   // If no meaningful text extracted, return empty
@@ -1758,6 +2312,8 @@ function analyzeExtractedText({ filename, mimeType, text }) {
     wichtigkeit: 'mittel',
     tags: [],
     analysisMode: 'regex',
+    confidence: 0,
+    reason: 'Regex-Basisanalyse',
   };
 
   // Folder assignment based on ACTUAL content only
@@ -1805,6 +2361,22 @@ function analyzeExtractedText({ filename, mimeType, text }) {
   if (plate) tags.add(`kennzeichen:${plate}`);
   if (hasExplicitRPlusV) tags.add('r+v');
   result.tags = Array.from(tags).slice(0, 8);
+
+  const confidenceSignals = [
+    result.absender ? 0.18 : 0,
+    result.dokumenttyp ? 0.16 : 0,
+    result.vorgeschlagenerOrdner && result.vorgeschlagenerOrdner !== '07_Sonstiges' ? 0.14 : 0,
+    result.zahlungsbetrag != null ? 0.12 : 0,
+    result.faelligkeitsdatum || result.ablaufdatum ? 0.1 : 0,
+    tags.size > 0 ? 0.08 : 0,
+  ];
+  const confidence = Math.max(0, Math.min(0.95, 0.24 + confidenceSignals.reduce((sum, value) => sum + value, 0)));
+  result.confidence = Number(confidence.toFixed(2));
+  result.reason = [
+    result.absender ? 'Absender erkannt' : 'Absender unklar',
+    result.dokumenttyp ? 'Dokumenttyp erkannt' : 'Dokumenttyp unklar',
+    result.vorgeschlagenerOrdner && result.vorgeschlagenerOrdner !== '07_Sonstiges' ? `Ordner ${result.vorgeschlagenerOrdner}` : 'Sonderfall',
+  ].join(' · ');
 
   console.log('analyzeExtractedText result', {
     filename,
@@ -2183,20 +2755,83 @@ async function addUserFriendlySummary({ analysis, filename, mimeType, text }) {
   };
 }
 
-async function analyzeTextWithFallback({ filename, mimeType, text, userId = null }) {
-  const regexResult = analyzeExtractedText({ filename, mimeType, text });
-  let merged;
+async function analyzeTextWithFallback({ filename, mimeType, text, userId = null, regexResult = null, layoutAnalysisInput = null }) {
+  const resolvedRegex = regexResult || applyLearningRules(
+    userId,
+    analyzeExtractedText({ filename, mimeType, text }),
+    { filename, text },
+  );
 
-  if (!hasMeaningfulText(text)) {
-    merged = mergeAnalyses(regexResult, null, text ? 'regex' : 'regex');
-    merged = applyLearningRules(userId, merged, { filename, text });
-    return addUserFriendlySummary({ analysis: merged, filename, mimeType, text });
+  let aiAnalysis = null;
+  let visionAnalysis = null;
+  let aiError = null;
+  let analysisModeHint = 'regex';
+  let reviewSource = null;
+
+  if (hasMeaningfulText(text) && USE_OLLAMA_ANALYSIS) {
+    if (OLLAMA_AVAILABLE) {
+      try {
+        const review = await reviewDocumentWithAI({
+          fetchImpl: fetch,
+          ollamaUrl: OLLAMA_URL,
+          ollamaModel: OLLAMA_MODEL,
+          visionModel: VISION_MODEL,
+          ollamaOptions: OLLAMA_OPTIONS,
+          timeoutMs: OLLAMA_TIMEOUT_MS,
+          visionTimeoutMs: VISION_TIMEOUT_MS,
+          filename,
+          mimeType,
+          text,
+          extractedText: text,
+          regexAnalysis: resolvedRegex,
+          layoutAnalysisInput,
+          folderOptions: Object.values(FOLDERS),
+          enableVisionReview: ENABLE_VISION_REVIEW,
+        });
+        aiAnalysis = review?.aiAnalysis || null;
+        visionAnalysis = review?.visionAnalysis || null;
+        analysisModeHint = review?.analysisMode || analysisModeHint;
+        reviewSource = review?.reviewSource || null;
+        if (!aiAnalysis && review?.textError) {
+          aiError = review.textError;
+        }
+        if (!aiAnalysis && review?.visionError && !aiError) {
+          aiError = review.visionError;
+        }
+      } catch (err) {
+        aiAnalysis = null;
+        aiError = errorSummary(err);
+      }
+    } else {
+      aiError = 'Ollama nicht verfügbar';
+    }
   }
 
-  // Use fast regex analysis (free, no tokens, instant)
-  // Ollama disabled - regex provides good results and is instant
-  merged = mergeAnalyses(regexResult, null, 'regex');
-  merged = applyLearningRules(userId, merged, { filename, text });
+  const decision = decideFinalAnalysis({
+    filename,
+    mimeType,
+    text,
+    regexAnalysis: resolvedRegex,
+    aiAnalysis,
+    aiError,
+    analysisModeHint,
+  });
+  const finalAnalysis = applyLearningRules(userId, decision.finalAnalysis || decision.regexAnalysis || resolvedRegex, { filename, text });
+  const merged = {
+    ...finalAnalysis,
+    regexAnalysis: decision.regexAnalysis || resolvedRegex,
+    aiAnalysis,
+    visionAnalysis,
+    finalAnalysis,
+    layoutAnalysisInput,
+    analysisMode: decision.analysisMode || analysisModeHint || finalAnalysis.analysisMode || 'regex',
+    reviewStatus: decision.reviewStatus || finalAnalysis.reviewStatus || 'review_required',
+    reviewReason: decision.reason || finalAnalysis.reviewReason || '',
+    shouldAutoArchive: Boolean(decision.shouldAutoArchive),
+    confidence: typeof decision.confidence === 'number' ? decision.confidence : finalAnalysis.confidence ?? null,
+    analysisHints: finalAnalysis.analysisHints || resolvedRegex.analysisHints || {},
+  };
+
   return addUserFriendlySummary({ analysis: merged, filename, mimeType, text });
 }
 
@@ -2423,6 +3058,50 @@ function pdfString(value) {
   return String(value || '').replace(/[\\()]/g, '\\$&');
 }
 
+async function maybePrepareLayoutAnalysis({
+  enabled,
+  documentPath,
+  filename,
+  mimeType,
+  extractedText,
+  regexAnalysis,
+  layoutOutputDir,
+}) {
+  if (!enabled) {
+    console.info('layout analysis disabled', { filename, mimeType, enabled: false });
+    return null;
+  }
+  if (mimeType !== 'application/pdf') {
+    console.info('layout analysis disabled', { filename, mimeType, enabled: false, reason: 'not_pdf' });
+    return null;
+  }
+
+  const result = await prepareLayoutAnalysisInput({
+    documentPath,
+    filename,
+    mimeType,
+    extractedText,
+    regexAnalysis,
+    enabled,
+    maxPages: LAYOUT_MAX_PAGES,
+    dpi: LAYOUT_IMAGE_DPI,
+    maxImageBytes: LAYOUT_MAX_IMAGE_BYTES,
+    outputDir: layoutOutputDir,
+    logger: console,
+  });
+
+  if (result?.layoutAnalysisInput) {
+    console.info('layout analysis ready', {
+      filename,
+      mimeType,
+      pageCount: result.layoutAnalysisInput.pageCount || 0,
+      renderedPages: result.layoutAnalysisInput.pageImages?.length || 0,
+    });
+  }
+
+  return result?.layoutAnalysisInput || null;
+}
+
 async function imageBufferToPdfPage(buffer) {
   const { data: jpeg, info } = await sharp(buffer, { failOnError: false })
     .rotate()
@@ -2589,66 +3268,41 @@ app.post('/api/documents/upload', requireAuth, express.raw({
       const extracted = await extractTextFromBuffer({ mimeType, buffer });
       text = extracted.text;
       ocrEngine = extracted.engine || ocrEngine;
-      analysis = await analyzeTextWithFallback({ filename: originalFilename, mimeType, text, userId });
+      const regexResult = applyLearningRules(
+        userId,
+        analyzeExtractedText({ filename: originalFilename, mimeType, text }),
+        { filename: originalFilename, text },
+      );
+      const layoutAnalysisInput = await maybePrepareLayoutAnalysis({
+        enabled: ENABLE_LAYOUT_ANALYSIS,
+        documentPath: storagePath,
+        filename: originalFilename,
+        mimeType,
+        extractedText: text,
+        regexAnalysis: regexResult,
+        layoutOutputDir: layoutStorageDir({ userEmail: user?.email || userId, documentId }),
+      });
+      analysis = await analyzeTextWithFallback({
+        filename: originalFilename,
+        mimeType,
+        text,
+        userId,
+        regexResult,
+        layoutAnalysisInput,
+      });
     } catch (err) {
       console.error('documents/upload analysis fallback', errorSummary(err));
-      analysis = { ...inferDocument(originalFilename, mimeType), analysisMode: 'regex' };
+      analysis = createRegexFallback(inferDocument(originalFilename, mimeType), 'OCR- oder Analysefehler');
     }
-    const benchmark = evaluateBenchmark(analysis, originalFilename, text);
-
-    const tagsJson = JSON.stringify(Array.isArray(analysis.tags) ? analysis.tags.slice(0, 20) : []);
-    const analysisHintsJson = JSON.stringify(
-      analysis.analysisHints && typeof analysis.analysisHints === 'object' ? analysis.analysisHints : {},
-    );
-    db.prepare(`
-      UPDATE documents SET
-        folder_path = ?,
-        absender = ?,
-        dokumenttyp = ?,
-        zusammenfassung = ?,
-        zahlungsbetrag = ?,
-        faelligkeitsdatum = ?,
-        ablaufdatum = ?,
-        wichtigkeit = ?,
-        tags_json = ?,
-        analysis_hints_json = ?,
-        analysis_mode = ?,
-        confidence = ?,
-        wichtigkeitsgrund = ?,
-        status = ?,
-        updated_at = ?
-      WHERE id = ? AND user_id = ?
-    `).run(
-      analysis.vorgeschlagenerUnterordner
-        ? `${analysis.vorgeschlagenerOrdner}/${analysis.vorgeschlagenerUnterordner}`
-        : analysis.vorgeschlagenerOrdner || '07_Sonstiges',
-      analysis.absender || 'Unbekannt',
-      analysis.dokumenttyp || 'Sonstiges',
-      analysis.zusammenfassung || '',
-      analysis.zahlungsbetrag ?? null,
-      analysis.faelligkeitsdatum ?? null,
-      analysis.ablaufdatum ?? null,
-      analysis.wichtigkeit || 'mittel',
-      tagsJson,
-      analysisHintsJson,
-      analysis.analysisMode || 'regex',
-      analysis.confidence ?? null,
-      analysis.wichtigkeitsgrund ?? null,
-      'analyzed',
-      new Date().toISOString(),
+    const benchmark = evaluateBenchmark(analysis.finalAnalysis || analysis, originalFilename, text);
+    const { row } = await persistAnalyzedDocument({
       documentId,
       userId,
-    );
-
-    db.prepare(`
-      INSERT INTO document_texts (document_id, extracted_text, ocr_engine)
-      VALUES (?, ?, ?)
-      ON CONFLICT(document_id) DO UPDATE SET
-        extracted_text = excluded.extracted_text,
-        ocr_engine = excluded.ocr_engine
-    `).run(documentId, text || '', ocrEngine);
-
-    const row = db.prepare('SELECT * FROM documents WHERE id = ? AND user_id = ?').get(documentId, userId);
+      analysis,
+      text,
+      ocrEngine,
+      benchmark,
+    });
     return res.status(201).json({ document: documentResponse(row), benchmark });
   } catch (err) {
     console.error('documents/upload failed', errorSummary(err));
@@ -2727,66 +3381,42 @@ app.post('/api/documents/upload-pages', requireAuth, async (req, res) => {
     const text = textParts.join('\n\n').trim();
     let analysis;
     try {
-      analysis = await analyzeTextWithFallback({ filename: originalFilename, mimeType: 'application/pdf', text, userId });
+      const regexResult = applyLearningRules(
+        userId,
+        analyzeExtractedText({ filename: originalFilename, mimeType: 'application/pdf', text }),
+        { filename: originalFilename, text },
+      );
+      const layoutAnalysisInput = await maybePrepareLayoutAnalysis({
+        enabled: ENABLE_LAYOUT_ANALYSIS,
+        documentPath: storagePath,
+        filename: originalFilename,
+        mimeType: 'application/pdf',
+        extractedText: text,
+        regexAnalysis: regexResult,
+        layoutOutputDir: layoutStorageDir({ userEmail: user?.email || userId, documentId }),
+      });
+      analysis = await analyzeTextWithFallback({
+        filename: originalFilename,
+        mimeType: 'application/pdf',
+        text,
+        userId,
+        regexResult,
+        layoutAnalysisInput,
+      });
     } catch (err) {
       console.error('documents/upload-pages analysis fallback', errorSummary(err));
-      analysis = { ...inferDocument(originalFilename, 'application/pdf'), analysisMode: 'regex' };
+      analysis = createRegexFallback(inferDocument(originalFilename, 'application/pdf'), 'OCR- oder Analysefehler');
     }
-    const benchmark = evaluateBenchmark(analysis, originalFilename, text);
-    const tagsJson = JSON.stringify(Array.from(new Set([...(Array.isArray(analysis.tags) ? analysis.tags : []), 'mehrseitig'])).slice(0, 20));
-    const analysisHintsJson = JSON.stringify(
-      analysis.analysisHints && typeof analysis.analysisHints === 'object' ? analysis.analysisHints : {},
-    );
-
-    db.prepare(`
-      UPDATE documents SET
-        folder_path = ?,
-        absender = ?,
-        dokumenttyp = ?,
-        zusammenfassung = ?,
-        zahlungsbetrag = ?,
-        faelligkeitsdatum = ?,
-        ablaufdatum = ?,
-        wichtigkeit = ?,
-        tags_json = ?,
-        analysis_hints_json = ?,
-        analysis_mode = ?,
-        confidence = ?,
-        wichtigkeitsgrund = ?,
-        status = ?,
-        updated_at = ?
-      WHERE id = ? AND user_id = ?
-    `).run(
-      analysis.vorgeschlagenerUnterordner
-        ? `${analysis.vorgeschlagenerOrdner}/${analysis.vorgeschlagenerUnterordner}`
-        : analysis.vorgeschlagenerOrdner || '07_Sonstiges',
-      analysis.absender || 'Unbekannt',
-      analysis.dokumenttyp || 'Sonstiges',
-      analysis.zusammenfassung || '',
-      analysis.zahlungsbetrag ?? null,
-      analysis.faelligkeitsdatum ?? null,
-      analysis.ablaufdatum ?? null,
-      analysis.wichtigkeit || 'mittel',
-      tagsJson,
-      analysisHintsJson,
-      analysis.analysisMode || 'regex',
-      analysis.confidence ?? null,
-      analysis.wichtigkeitsgrund ?? null,
-      'analyzed',
-      new Date().toISOString(),
+    const benchmark = evaluateBenchmark(analysis.finalAnalysis || analysis, originalFilename, text);
+    const { row } = await persistAnalyzedDocument({
       documentId,
       userId,
-    );
-
-    db.prepare(`
-      INSERT INTO document_texts (document_id, extracted_text, ocr_engine)
-      VALUES (?, ?, ?)
-      ON CONFLICT(document_id) DO UPDATE SET
-        extracted_text = excluded.extracted_text,
-        ocr_engine = excluded.ocr_engine
-    `).run(documentId, text || '', Array.from(new Set(engines)).join(',') || 'tesseract');
-
-    const row = db.prepare('SELECT * FROM documents WHERE id = ? AND user_id = ?').get(documentId, userId);
+      analysis,
+      text,
+      ocrEngine: Array.from(new Set(engines)).join(',') || 'tesseract',
+      benchmark,
+      extraTags: ['mehrseitig'],
+    });
     return res.status(201).json({ document: documentResponse(row), benchmark });
   } catch (err) {
     console.error('documents/upload-pages failed', errorSummary(err));
@@ -2798,10 +3428,41 @@ app.get('/api/documents', requireAuth, (req, res) => {
   const userId = currentUserId(req);
   const rows = db.prepare(`
     SELECT * FROM documents
-    WHERE user_id = ? AND status = 'archived'
+    WHERE user_id = ? AND status != 'deleted'
     ORDER BY created_at DESC
   `).all(userId);
   return res.status(200).json({ documents: rows.map(documentResponse) });
+});
+
+app.get('/api/documents/summary', requireAuth, (req, res) => {
+  const userId = currentUserId(req);
+  const summary = db.prepare(`
+    SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN status = 'analyzed' THEN 1 ELSE 0 END) AS analyzed,
+      SUM(CASE WHEN status = 'review' THEN 1 ELSE 0 END) AS review,
+      SUM(CASE WHEN status = 'archived' THEN 1 ELSE 0 END) AS archived,
+      SUM(CASE WHEN status = 'deleted' THEN 1 ELSE 0 END) AS deleted
+    FROM documents
+    WHERE user_id = ?
+  `).get(userId) || {};
+
+  const total = Number(summary.total || 0);
+  const analyzed = Number(summary.analyzed || 0);
+  const review = Number(summary.review || 0);
+  const archived = Number(summary.archived || 0);
+  const deleted = Number(summary.deleted || 0);
+
+  return res.status(200).json({
+    summary: {
+      total,
+      analyzed,
+      review,
+      archived,
+      deleted,
+      visible: total - deleted,
+    },
+  });
 });
 
 app.get('/api/documents/:id', requireAuth, (req, res) => {
@@ -2887,11 +3548,16 @@ app.patch('/api/documents/:id', requireAuth, async (req, res) => {
   `).get(req.params.id, userId);
   const nextStatus = patch.status ?? row.status;
   const nextFolderPath = patch.folder_path ?? row.folder_path;
-  const movedPath = await moveDocumentFileToReadablePath(row, { status: nextStatus, folderPath: nextFolderPath });
-  if (movedPath && movedPath !== row.storage_path) {
-    db.prepare('UPDATE documents SET storage_path = ?, updated_at = ? WHERE id = ? AND user_id = ?')
-      .run(movedPath, new Date().toISOString(), req.params.id, userId);
-    row = db.prepare('SELECT * FROM documents WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+  const sync = await syncDocumentReadableMetadata(row, { status: nextStatus, folderPath: nextFolderPath });
+  if (sync.storagePath !== row.storage_path || sync.filename !== row.filename) {
+    db.prepare('UPDATE documents SET filename = ?, storage_path = ?, updated_at = ? WHERE id = ? AND user_id = ?')
+      .run(sync.filename, sync.storagePath, new Date().toISOString(), req.params.id, userId);
+    row = db.prepare(`
+      SELECT d.*, u.email
+      FROM documents d
+      JOIN users u ON u.id = d.user_id
+      WHERE d.id = ? AND d.user_id = ?
+    `).get(req.params.id, userId);
   }
   return res.status(200).json({ document: documentResponse(row) });
 });
@@ -3358,8 +4024,26 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     return res.status(403).json({ error: 'E-Mail-Adresse noch nicht verifiziert. Bitte prüfe deinen Posteingang.' });
   }
 
+  // Create session with 30-minute timeout
+  const sessionId = uid();
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 30 * 60 * 1000); // 30 minutes
+
+  try {
+    // Clean up old sessions for this user
+    db.prepare("DELETE FROM sessions WHERE user_id = ? AND expires_at < datetime('now')").run(user.id);
+
+    db.prepare(`
+      INSERT INTO sessions (id, user_id, last_activity, expires_at, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(sessionId, user.id, now.toISOString(), expiresAt.toISOString(), now.toISOString());
+  } catch (dbErr) {
+    console.error('[Login] Session creation failed:', dbErr.message);
+    return res.status(500).json({ error: 'Sitzung konnte nicht erstellt werden' });
+  }
+
   const token = jwt.sign(
-    { userId: user.id, email: user.email },
+    { userId: user.id, email: user.email, sessionId: sessionId },
     JWT_SECRET,
     { expiresIn: '4h' }
   );
@@ -3373,7 +4057,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   });
 
   log('LOGIN_SUCCESS', { userId: user.id, ip });
-  return res.status(200).json({ email: user.email });
+  return res.status(200).json({ email: user.email, role: String(user.role || 'user') });
 });
 
 // ── POST /api/auth/logout ─────────────────────────────────────────────────────
@@ -3384,6 +4068,10 @@ app.post('/api/auth/logout', (req, res) => {
     try {
       const decoded = jwt.verify(token, JWT_SECRET);
       log('LOGOUT', { userId: decoded.userId, ip });
+      // Delete session
+      if (decoded.sessionId) {
+        db.prepare('DELETE FROM sessions WHERE id = ?').run(decoded.sessionId);
+      }
     } catch { /* abgelaufener Token – trotzdem löschen */ }
   }
   res.clearCookie('auth_token', {
@@ -3397,7 +4085,340 @@ app.post('/api/auth/logout', (req, res) => {
 
 // ── GET /api/auth/me ──────────────────────────────────────────────────────────
 app.get('/api/auth/me', requireAuth, (req, res) => {
-  return res.status(200).json({ email: req.user.email });
+  const user = getUserById(currentUserId(req));
+  return res.status(200).json({
+    email: req.user.email,
+    role: isAdminUser(user) ? 'admin' : 'user',
+  });
+});
+
+app.get('/api/navigation', requireAuth, (req, res) => {
+  const user = getUserById(currentUserId(req));
+  const role = isAdminUser(user) ? 'admin' : 'user';
+  return res.status(200).json({ items: listNavigationItems(role) });
+});
+
+app.get('/api/admin/summary', requireAdmin, (_req, res) => {
+  const users = db.prepare(`
+    SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN email_verified = 1 THEN 1 ELSE 0 END) AS verified,
+      SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END) AS admins
+    FROM users
+  `).get() || {};
+
+  const docs = db.prepare(`
+    SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN status = 'analyzed' THEN 1 ELSE 0 END) AS analyzed,
+      SUM(CASE WHEN review_status = 'review_required' OR status = 'review' THEN 1 ELSE 0 END) AS review,
+      SUM(CASE WHEN status = 'archived' THEN 1 ELSE 0 END) AS archived,
+      SUM(CASE WHEN status = 'deleted' THEN 1 ELSE 0 END) AS deleted
+    FROM documents
+  `).get() || {};
+
+  return res.status(200).json({
+    system: {
+      api: 'ok',
+      ollamaAvailable: OLLAMA_AVAILABLE,
+      useOllamaAnalysis: USE_OLLAMA_ANALYSIS,
+      layoutAnalysis: ENABLE_LAYOUT_ANALYSIS,
+      visionReview: ENABLE_VISION_REVIEW,
+      visionModel: VISION_MODEL || null,
+    },
+    users: {
+      total: Number(users.total || 0),
+      verified: Number(users.verified || 0),
+      admins: Number(users.admins || 0),
+    },
+    documents: {
+      total: Number(docs.total || 0),
+      analyzed: Number(docs.analyzed || 0),
+      review: Number(docs.review || 0),
+      archived: Number(docs.archived || 0),
+      deleted: Number(docs.deleted || 0),
+    },
+  });
+});
+
+app.get('/api/admin/users', requireAdmin, (_req, res) => {
+  const rows = db.prepare(`
+    SELECT
+      u.id,
+      u.email,
+      u.email_verified,
+      u.role,
+      u.created_at,
+      u.updated_at,
+      COUNT(d.id) AS document_count,
+      SUM(CASE WHEN d.review_status = 'review_required' OR d.status = 'review' THEN 1 ELSE 0 END) AS review_count,
+      SUM(CASE WHEN d.status = 'archived' THEN 1 ELSE 0 END) AS archived_count,
+      MAX(d.updated_at) AS last_document_at
+    FROM users u
+    LEFT JOIN documents d ON d.user_id = u.id
+    GROUP BY u.id
+    ORDER BY u.created_at DESC
+  `).all();
+
+  return res.status(200).json({
+    users: rows.map((row) => ({
+      id: row.id,
+      email: row.email,
+      emailVerified: Boolean(row.email_verified),
+      role: String(row.role || 'user'),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      documentCount: Number(row.document_count || 0),
+      reviewCount: Number(row.review_count || 0),
+      archivedCount: Number(row.archived_count || 0),
+      lastDocumentAt: row.last_document_at || null,
+    })),
+  });
+});
+
+app.get('/api/admin/documents', requireAdmin, (req, res) => {
+  const limit = Math.max(10, Math.min(100, parseInt(req.query.limit || '25', 10) || 25));
+  const status = String(req.query.status || '').trim();
+  const whereStatus = status && ['analyzed', 'review', 'archived', 'deleted'].includes(status)
+    ? `AND d.status = '${status}'`
+    : status === 'review_required'
+      ? `AND d.review_status = 'review_required'`
+      : '';
+
+  const rows = db.prepare(`
+    SELECT
+      d.id,
+      d.user_id,
+      u.email AS user_email,
+      d.filename,
+      d.original_filename,
+      d.folder_path,
+      d.status,
+      d.review_status,
+      d.review_reason,
+      d.should_auto_archive,
+      d.confidence,
+      d.absender,
+      d.dokumenttyp,
+      d.zusammenfassung,
+      d.created_at,
+      d.updated_at
+    FROM documents d
+    JOIN users u ON u.id = d.user_id
+    WHERE 1=1 ${whereStatus}
+    ORDER BY d.updated_at DESC
+    LIMIT ?
+  `).all(limit);
+
+  return res.status(200).json({
+    documents: rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      userEmail: row.user_email,
+      filename: row.filename,
+      originalFilename: row.original_filename,
+      folderPath: row.folder_path,
+      status: row.status,
+      reviewStatus: row.review_status,
+      reviewReason: row.review_reason,
+      shouldAutoArchive: Boolean(row.should_auto_archive),
+      confidence: row.confidence == null ? null : Number(row.confidence),
+      absender: row.absender,
+      dokumenttyp: row.dokumenttyp,
+      zusammenfassung: row.zusammenfassung,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    })),
+  });
+});
+
+app.get('/api/admin/navigation', requireAdmin, (_req, res) => {
+  const rows = db.prepare(`
+    SELECT *
+    FROM navigation_items
+    ORDER BY sort_order ASC, label ASC
+  `).all();
+  return res.status(200).json({ items: rows.map(navigationItemResponse).filter(Boolean) });
+});
+
+app.post('/api/admin/navigation', requireAdmin, (req, res) => {
+  const patch = cleanNavigationItemInput(req.body);
+  if (!patch.label || !patch.path) {
+    return res.status(400).json({ error: 'Label und Pfad erforderlich' });
+  }
+
+  const id = req.body.id ? String(req.body.id) : `nav-${slugifyPathPart(patch.label, 24)}-${uid().slice(0, 6)}`;
+  const existing = getNavigationItemById(id);
+  if (existing) {
+    return res.status(400).json({ error: 'Navigationseintrag existiert bereits' });
+  }
+
+  db.prepare(`
+    INSERT INTO navigation_items (
+      id, label, path, icon, section, sort_order, visible, role_required, is_external, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    patch.label,
+    patch.path,
+    patch.icon || 'Folder',
+    patch.section || 'main',
+    patch.sort_order ?? 0,
+    patch.visible ?? 1,
+    patch.role_required || 'user',
+    patch.is_external ?? 0,
+    new Date().toISOString(),
+    new Date().toISOString(),
+  );
+
+  return res.status(201).json({ item: navigationItemResponse(getNavigationItemById(id)) });
+});
+
+app.patch('/api/admin/navigation/:id', requireAdmin, (req, res) => {
+  const existing = getNavigationItemById(req.params.id);
+  if (!existing) {
+    return res.status(404).json({ error: 'Navigationseintrag nicht gefunden' });
+  }
+
+  const patch = cleanNavigationItemInput(req.body);
+  const assignments = Object.keys(patch).map((column) => `${column} = ?`).join(', ');
+  db.prepare(`UPDATE navigation_items SET ${assignments} WHERE id = ?`).run(
+    ...Object.values(patch),
+    existing.id,
+  );
+
+  return res.status(200).json({ item: navigationItemResponse(getNavigationItemById(existing.id)) });
+});
+
+app.delete('/api/admin/navigation/:id', requireAdmin, (req, res) => {
+  const existing = getNavigationItemById(req.params.id);
+  if (!existing) {
+    return res.status(404).json({ error: 'Navigationseintrag nicht gefunden' });
+  }
+  db.prepare('DELETE FROM navigation_items WHERE id = ?').run(existing.id);
+  return res.status(200).json({ message: 'Navigationseintrag gelöscht' });
+});
+
+app.patch('/api/admin/users/:id', requireAdmin, (req, res) => {
+  const existing = getUserById(req.params.id);
+  if (!existing) {
+    return res.status(404).json({ error: 'Benutzer nicht gefunden' });
+  }
+
+  const patch = cleanAdminUserPatch(req.body);
+  if (patch.email && patch.email !== String(existing.email || '').toLowerCase()) {
+    const duplicate = db.prepare('SELECT id FROM users WHERE lower(email) = ? AND id != ?').get(patch.email, existing.id);
+    if (duplicate) {
+      return res.status(400).json({ error: 'E-Mail bereits vergeben' });
+    }
+  }
+
+  const assignments = Object.keys(patch).map((column) => `${column} = ?`).join(', ');
+  db.prepare(`UPDATE users SET ${assignments} WHERE id = ?`).run(
+    ...Object.values(patch),
+    existing.id,
+  );
+
+  const updated = getUserById(existing.id);
+  return res.status(200).json({
+    user: updated ? {
+      id: updated.id,
+      email: updated.email,
+      emailVerified: Boolean(updated.email_verified),
+      role: String(updated.role || 'user'),
+      createdAt: updated.created_at,
+      updatedAt: updated.updated_at,
+    } : null,
+  });
+});
+
+app.patch('/api/admin/documents/:id', requireAdmin, async (req, res) => {
+  const existing = getDocumentById(req.params.id);
+  if (!existing) {
+    return res.status(404).json({ error: 'Dokument nicht gefunden' });
+  }
+
+  const patch = cleanAdminDocumentPatch(req.body);
+  if (patch.folder_path) {
+    const folderExists = db.prepare('SELECT id FROM document_folders WHERE id = ?').get(patch.folder_path);
+    if (!folderExists) {
+      return res.status(400).json({ error: 'Zielordner nicht gefunden' });
+    }
+  }
+
+  const assignments = Object.keys(patch).map((column) => `${column} = ?`).join(', ');
+  const nextStatus = patch.status ?? existing.status;
+  const nextFolderPath = patch.folder_path ?? existing.folder_path;
+
+  db.transaction(() => {
+    db.prepare(`UPDATE documents SET ${assignments} WHERE id = ?`).run(
+      ...Object.values(patch),
+      existing.id,
+    );
+
+    if (patch.folder_path && patch.folder_path !== existing.folder_path) {
+      const topFolder = String(nextFolderPath || '').split('/')[0] || existing.folder_path.split('/')[0];
+      db.prepare(`
+        UPDATE payments
+        SET kategorie = ?, updated_at = ?
+        WHERE user_id = ? AND document_id = ?
+      `).run(topFolder || '07_Sonstiges', new Date().toISOString(), existing.user_id, existing.id);
+    }
+  })();
+
+  let row = getDocumentById(existing.id);
+  const sync = await syncDocumentReadableMetadata(row, { status: nextStatus, folderPath: nextFolderPath });
+  if (sync.storagePath !== row.storage_path || sync.filename !== row.filename) {
+    db.prepare('UPDATE documents SET filename = ?, storage_path = ?, updated_at = ? WHERE id = ?')
+      .run(sync.filename, sync.storagePath, new Date().toISOString(), existing.id);
+    row = getDocumentById(existing.id);
+  }
+
+  return res.status(200).json({ document: documentResponse(row) });
+});
+
+app.post('/api/admin/documents/:id/reanalyze', requireAdmin, async (req, res) => {
+  const existing = getDocumentById(req.params.id);
+  if (!existing) {
+    return res.status(404).json({ error: 'Dokument nicht gefunden' });
+  }
+
+  const textRow = db.prepare('SELECT extracted_text, ocr_engine FROM document_texts WHERE document_id = ?').get(existing.id);
+  const extractedText = String(textRow?.extracted_text || '');
+  if (!extractedText.trim()) {
+    return res.status(400).json({ error: 'Kein OCR-Text für Reanalyse vorhanden' });
+  }
+
+  try {
+    const layoutAnalysisInput = await maybePrepareLayoutAnalysis({
+      documentPath: existing.storage_path,
+      mimeType: existing.mime_type,
+      filename: existing.filename,
+    });
+    const analysis = await analyzeTextWithFallback({
+      filename: existing.filename,
+      mimeType: existing.mime_type,
+      text: extractedText,
+      userId: existing.user_id,
+      regexResult: null,
+      layoutAnalysisInput,
+    });
+
+    await persistAnalyzedDocument({
+      documentId: existing.id,
+      userId: existing.user_id,
+      analysis,
+      text: extractedText,
+      ocrEngine: textRow?.ocr_engine || 'unknown',
+      benchmark: null,
+    });
+
+    const refreshed = getDocumentById(existing.id);
+    return res.status(200).json({ document: documentResponse(refreshed) });
+  } catch (err) {
+    console.error('[admin] reanalyze failed:', err);
+    return res.status(500).json({ error: 'Reanalyse fehlgeschlagen' });
+  }
 });
 
 // ── START ─────────────────────────────────────────────────────────────────────
