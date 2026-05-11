@@ -8,6 +8,58 @@ type: project
 
 ## Changelog
 
+### [2026-05-11] CRITICAL FIX: OCR Analysis - R+V False Positive Bug
+
+**SEVERITY:** 🔴 CRITICAL
+
+**Problem:**
+User reinhardt.maik95@gmail.com's ALL documents were misclassified as "R+V Versicherung"
+- Energy contracts detected as R+V ❌
+- Calendars detected as R+V ❌
+- Cancellations detected as R+V ❌
+- Every document got wrong sender, type, and summary
+
+**Root Cause Identified:**
+Regex `/r\s*v/i` was matching "rv" anywhere in text with optional spaces:
+- "entrag**v**erwalten" (Vertrag Verwalten) → matched
+- "Energieversorger" + next word → matched
+- Any document with common German words like "Vertrag", "Verwaltung", "Versorgung"
+
+**Solution:**
+1. **New Regex Pattern** - Explicit word boundaries + explicit separators:
+   - Old: `/r\s*(?:plus|und)?\s*v|ruv|r\s*v/i` (too loose)
+   - New: `/\br\s*\+\s*v\b|\br\s*(?:und|plus)\s+v\b|\bruv\b/i` (strict)
+
+2. **Changes Made:**
+   - `inferSender()` - R+V needs explicit + or "und"/"plus"
+   - `scoreDocumentCategory()` - Reduced weight for R+V patterns (4 instead of 6+8)
+   - `hasInsurance` regex - Word boundaries required
+   - `hasVehicle` regex - Word boundaries added
+   - R+V tag detection - Explicit patterns only
+
+3. **Test Coverage:**
+   - ✅ 'Vertrag Verwalten' → NOT detected as R+V
+   - ✅ 'R+V Versicherung' → Correctly detected
+   - ✅ 'R und V' → Correctly detected
+   - ✅ 'RUV' → Correctly detected
+   - ✅ 'Rechnungsverwaltung' → NOT detected as R+V
+   - ✅ 'Energieversorgung' → NOT detected as R+V
+   - ✅ 'Vattenfall' → NOT detected as R+V
+
+**Files Modified:**
+- `api-server.mjs` (5 regex fixes)
+
+**Build Status:** ✅ Erfolgreich (`npm run build`)
+
+**Deployment Impact:**
+- ⚠️ Users will see correct analysis on next upload
+- Old documents stay as stored (manual correction possible via edit)
+- No data loss or migration needed
+
+**Commit:** `1eca68b`
+
+---
+
 ### [2026-05-11] Mobile Fix: Document Preview + Image Zoom
 
 **Problem:**
