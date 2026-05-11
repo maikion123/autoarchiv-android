@@ -63,6 +63,8 @@ const DROPZONE_ACCEPT = {
   "image/heif": [".heif"],
 };
 
+const MAX_CAMERA_PHOTOS = 5;
+
 function mimeTypeFor(file: File) {
   if (file.type) return file.type;
   const name = file.name.toLowerCase();
@@ -81,6 +83,7 @@ export default function EingangPage() {
   const [folders, setFolders] = useState<FolderNode[]>(DEFAULT_FOLDER_TREE);
   const [folderPaths, setFolderPaths] = useState<string[]>([]);
   const [previewingDoc, setPreviewingDoc] = useState<ArchivedDoc | null>(null);
+  const [pendingCameraFiles, setPendingCameraFiles] = useState<File[]>([]);
 
   const reloadFolders = useCallback(async () => {
       const tree = await loadFolderTree();
@@ -176,13 +179,39 @@ export default function EingangPage() {
   const handleCameraChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     try {
       const files = Array.from(event.target.files || []).filter((file) => mimeTypeFor(file).startsWith("image/"));
-      if (files.length) onDrop(files);
+      if (!files.length) return;
+      setPendingCameraFiles((current) => {
+        const remaining = MAX_CAMERA_PHOTOS - current.length;
+        if (remaining <= 0) {
+          toast.error(`Maximal ${MAX_CAMERA_PHOTOS} Fotos pro Scan`);
+          return current;
+        }
+        const next = [...current, ...files.slice(0, remaining)];
+        if (files.length > remaining) toast.error(`Es wurden nur ${remaining} weitere Fotos übernommen`);
+        return next;
+      });
     } catch {
       toast.error("Foto konnte nicht übernommen werden. Bitte versuche Datei hochladen.");
     } finally {
       event.target.value = "";
     }
-  }, [onDrop]);
+  }, []);
+
+  const analyzePendingCameraPhotos = useCallback(() => {
+    if (!pendingCameraFiles.length) return;
+    const items: QueueItem[] = pendingCameraFiles.map((file, index) => ({
+      id: uid(),
+      file: new File([file], file.name || `foto-${index + 1}.jpg`, { type: file.type || "image/jpeg" }),
+      stage: "queued",
+    }));
+    setQueue((q) => [...items, ...q]);
+    setPendingCameraFiles([]);
+    items.forEach((it) => analyze(it));
+  }, [analyze, pendingCameraFiles]);
+
+  const removePendingCameraPhoto = useCallback((index: number) => {
+    setPendingCameraFiles((current) => current.filter((_, i) => i !== index));
+  }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -265,16 +294,71 @@ export default function EingangPage() {
         <label className="glass border-glow relative cursor-pointer overflow-hidden rounded-2xl p-5 text-center transition hover:shadow-[0_0_30px_oklch(0.72_0.16_220/0.4)] md:p-8">
           <input
             type="file"
+            accept="image/*"
+            capture="environment"
             className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
             aria-label="Foto aufnehmen"
             onChange={handleCameraChange}
           />
           <Camera className="mx-auto h-9 w-9 text-secondary md:h-10 md:w-10" />
           <div className="mt-2 text-base font-semibold md:mt-3">Foto aufnehmen</div>
-          <div className="mt-1 text-xs text-muted-foreground hidden md:block">Am besten auf dem Smartphone</div>
-          <div className="mt-1 text-xs text-muted-foreground md:hidden">Kamera öffnen</div>
+          <div className="mt-1 text-xs text-muted-foreground hidden md:block">Sammelt bis zu 5 Fotos vor der Analyse</div>
+          <div className="mt-1 text-xs text-muted-foreground md:hidden">{pendingCameraFiles.length}/{MAX_CAMERA_PHOTOS} Fotos gesammelt</div>
         </label>
       </div>
+
+      {pendingCameraFiles.length > 0 && (
+        <div className="glass border-glow rounded-2xl p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold">Fotos bereit</div>
+              <div className="text-xs text-muted-foreground">
+                {pendingCameraFiles.length}/{MAX_CAMERA_PHOTOS} Fotos werden erst nach deinem Start analysiert.
+              </div>
+            </div>
+            <div className="flex w-full gap-2 sm:w-auto">
+              <button
+                type="button"
+                onClick={() => setPendingCameraFiles([])}
+                className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl glass px-3 text-sm hover:bg-muted sm:flex-none"
+              >
+                <X className="h-4 w-4" />
+                Leeren
+              </button>
+              <button
+                type="button"
+                onClick={analyzePendingCameraPhotos}
+                className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-cyan-400 px-3 text-sm font-semibold text-white sm:flex-none"
+              >
+                <Sparkles className="h-4 w-4" />
+                Fotos analysieren
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            {pendingCameraFiles.map((file, index) => (
+              <div key={`${file.name}-${file.lastModified}-${index}`} className="flex items-center gap-2 rounded-xl bg-background/40 p-2">
+                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                  {index + 1}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs font-medium">{file.name || `Foto ${index + 1}`}</div>
+                  <div className="text-[11px] text-muted-foreground">{fmtBytes(file.size)}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removePendingCameraPhoto(index)}
+                  className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                  aria-label="Foto entfernen"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <AnimatePresence mode="popLayout">
         {queue.length === 0 && (

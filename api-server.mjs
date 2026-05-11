@@ -781,7 +781,7 @@ app.use(cors({
   origin: process.env.FRONTEND_ORIGIN || 'https://nextkm.de',
   credentials: true,
 }));
-app.use(express.json({ limit: '30mb' }));
+app.use(express.json({ limit: '80mb' }));
 app.use(cookieParser());
 
 // ── ROUTES ────────────────────────────────────────────────────────────────────
@@ -1334,14 +1334,15 @@ function applyLearningRules(userId, analysis, { filename = '', text = '' } = {})
 function inferSender(text, filename) {
   const normalized = normalizeAnalysisText(text);
   const branded = [
-    [/r\s*(?:plus|und)?\s*v|ruv|r\s*v/, 'R+V Versicherung'],
+    // R+V: must be explicit (+ or surrounded by word boundaries, or "r und v", "r plus v")
+    [/\br\s*\+\s*v\b|\br\s*(?:und|plus)\s+v\b|\bruv\b/, 'R+V Versicherung'],
     [/hirner|latzko|lotzko|himer|hiner|hirner\s*(?:und|&|\+)\s*(?:latzko|lotzko)/, 'Hirner & Latzko'],
-    [/allianz/, 'Allianz Versicherung'],
-    [/hdi/, 'HDI Versicherung'],
-    [/axa/, 'AXA Versicherung'],
-    [/devk/, 'DEVK Versicherung'],
-    [/huk\s*[- ]?coburg|huk/, 'HUK-Coburg'],
-    [/ergo/, 'ERGO Versicherung'],
+    [/\ballianz\b/, 'Allianz Versicherung'],
+    [/\bhdi\b/, 'HDI Versicherung'],
+    [/\baxa\b/, 'AXA Versicherung'],
+    [/\bdevk\b/, 'DEVK Versicherung'],
+    [/\bhuk\s*[- ]?coburg|\bhuk\b/, 'HUK-Coburg'],
+    [/\bergo\b/, 'ERGO Versicherung'],
   ];
 
   for (const [rx, sender] of branded) {
@@ -1508,8 +1509,9 @@ function scoreDocumentCategory(text, filename) {
 
   if (has('vertrag', 'vertragsnummer', 'laufzeit', 'kundigung', 'kündigung', 'widerruf')) scores.vertrag += 5;
 
-  if (has('versicherung', 'versicherungs', 'police', 'haftpflicht', 'kasko', 'kfz versicherung', 'schaden', 'r plus v', 'r und v', 'ruv', 'r+v')) scores.versicherung += 6;
-  if (has('r plus v', 'r und v', 'ruv', 'r+v', 'kfz versicherung', 'kfz-versicherung')) scores.versicherung += 8;
+  if (has('versicherung', 'versicherungs', 'police', 'haftpflicht', 'kasko', 'kfz versicherung', 'schaden')) scores.versicherung += 6;
+  if (has('kfz versicherung', 'kfz-versicherung')) scores.versicherung += 8;
+  if (has('r plus v', 'r und v', 'ruv', 'r+v')) scores.versicherung += 4;
 
   if (has('fahrzeug', 'kfz', 'kennzeichen', 'zulassung', 'abmeldung', 'tuv', 'tüv', 'hu', 'hauptuntersuchung', 'auto')) scores.fahrzeug += 5;
   if (has('kennzeichen', 'kfz', 'fahrzeug')) scores.fahrzeug += 2;
@@ -1519,9 +1521,9 @@ function scoreDocumentCategory(text, filename) {
 
   if (has('arzt', 'kranken', 'gesundheit', 'befund', 'rezept', 'klinik', 'patient')) scores.gesundheit += 5;
 
-  if ((scores.versicherung > 0 || scores.fahrzeug > 0) && has('r plus v', 'r und v', 'ruv', 'r+v', 'kfz versicherung', 'kfz-versicherung')) {
-    scores.versicherung += 8;
-    scores.fahrzeug += 6;
+  if ((scores.versicherung > 0 || scores.fahrzeug > 0) && (has('kfz versicherung', 'kfz-versicherung') || (has('fahrzeug', 'kfz') && has('versicherung')))) {
+    scores.versicherung += 6;
+    scores.fahrzeug += 4;
   }
 
   return scores;
@@ -1541,8 +1543,8 @@ function analyzeExtractedText({ filename, mimeType, text }) {
   const subject = extractLabelValue(text, ['betreff', 'leistung', 'gegenstand', 'verwendungszweck']);
   const amountHint = pickPrimaryAmountCandidate(combined);
   const bestAmount = amountHint?.value ?? null;
-  const hasInsurance = scores.versicherung > 0 || /r\s*(?:plus|und)?\s*v|ruv|r\s*v/i.test(combined);
-  const hasVehicle = scores.fahrzeug > 0 || /kfz|fahrzeug|kennzeichen|zulassung/i.test(combined);
+  const hasInsurance = scores.versicherung > 0 || /\br\s*\+\s*v\b|\br\s*(?:und|plus)\s+v\b|\bruv\b/i.test(combined);
+  const hasVehicle = scores.fahrzeug > 0 || /\b(?:kfz|fahrzeug|kennzeichen|zulassung)\b/i.test(combined);
   const isVehicleInsurance = hasInsurance && hasVehicle;
   const documentDateHint = parseDateNearWithHint(text, ['datum', 'rechnungsdatum', 'belegdatum', 'rechnung vom']);
   const dueDateHint = parseDateNearWithHint(text, ['fällig', 'faellig', 'zahlbar bis', 'bis zum', 'zahlung bis', 'abbuchung am', 'einzug am', 'fällig am', 'faellig am', 'zu zahlen bis']);
@@ -1615,7 +1617,7 @@ function analyzeExtractedText({ filename, mimeType, text }) {
     : (text ? text.replace(/\s+/g, ' ').trim().slice(0, 240) : fallback.zusammenfassung);
 
   if (plate) tags.add(`kennzeichen:${plate}`);
-  if (/r\s*(?:plus|und)?\s*v|ruv|r\s*v/i.test(combined)) tags.add('r+v');
+  if (/\br\s*\+\s*v\b|\br\s*(?:und|plus)\s+v\b|\bruv\b/i.test(combined)) tags.add('r+v');
   result.tags = Array.from(tags).slice(0, 8);
 
   return result;
@@ -2220,6 +2222,67 @@ async function extractTextFromBuffer({ mimeType, buffer }) {
 
 async function analyzeLocally({ filename, mimeType, imageBase64 }) {
   return analyzeBuffer({ filename, mimeType, buffer: Buffer.from(imageBase64, 'base64') });
+}
+
+function pdfString(value) {
+  return String(value || '').replace(/[\\()]/g, '\\$&');
+}
+
+async function imageBufferToPdfPage(buffer) {
+  const image = sharp(buffer, { failOnError: false }).rotate();
+  const metadata = await image.metadata();
+  const jpeg = await image.jpeg({ quality: 84, mozjpeg: true }).toBuffer();
+  return {
+    image: jpeg,
+    width: Math.max(1, metadata.width || 1240),
+    height: Math.max(1, metadata.height || 1754),
+  };
+}
+
+function createPdfFromJpegPages(pages, title = 'AutoArchiv Scan') {
+  const objects = [];
+  const addObject = (body) => {
+    objects.push(Buffer.isBuffer(body) ? body : Buffer.from(String(body), 'binary'));
+    return objects.length;
+  };
+
+  const catalogId = addObject('');
+  const pagesId = addObject('');
+  const pageIds = [];
+
+  for (const [index, page] of pages.entries()) {
+    const imageId = addObject(Buffer.concat([
+      Buffer.from(`<< /Type /XObject /Subtype /Image /Width ${page.width} /Height ${page.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${page.image.length} >>\nstream\n`, 'binary'),
+      page.image,
+      Buffer.from('\nendstream', 'binary'),
+    ]));
+    const content = Buffer.from(`q\n${page.width} 0 0 ${page.height} 0 0 cm\n/Im${index + 1} Do\nQ`, 'binary');
+    const contentId = addObject(Buffer.concat([
+      Buffer.from(`<< /Length ${content.length} >>\nstream\n`, 'binary'),
+      content,
+      Buffer.from('\nendstream', 'binary'),
+    ]));
+    const pageId = addObject(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${page.width} ${page.height}] /Resources << /XObject << /Im${index + 1} ${imageId} 0 R >> >> /Contents ${contentId} 0 R >>`);
+    pageIds.push(pageId);
+  }
+
+  objects[catalogId - 1] = Buffer.from(`<< /Type /Catalog /Pages ${pagesId} 0 R >>`, 'binary');
+  objects[pagesId - 1] = Buffer.from(`<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`, 'binary');
+  const infoId = addObject(`<< /Title (${pdfString(title)}) /Producer (AutoArchiv) >>`);
+
+  const chunks = [Buffer.from('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n', 'binary')];
+  const offsets = [0];
+  for (let i = 0; i < objects.length; i += 1) {
+    offsets.push(Buffer.concat(chunks).length);
+    chunks.push(Buffer.from(`${i + 1} 0 obj\n`, 'binary'), objects[i], Buffer.from('\nendobj\n', 'binary'));
+  }
+  const xrefOffset = Buffer.concat(chunks).length;
+  chunks.push(Buffer.from(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`, 'binary'));
+  for (let i = 1; i < offsets.length; i += 1) {
+    chunks.push(Buffer.from(`${String(offsets[i]).padStart(10, '0')} 00000 n \n`, 'binary'));
+  }
+  chunks.push(Buffer.from(`trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R /Info ${infoId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`, 'binary'));
+  return Buffer.concat(chunks);
 }
 
 // ── POST /api/analyze-document ────────────────────────────────────────────────
