@@ -1422,14 +1422,24 @@ const authLimiter = rateLimit({
 // ── JWT-MIDDLEWARE ─────────────────────────────────────────────────────────────
 function requireAuth(req, res, next) {
   const token = req.cookies?.auth_token;
-  if (!token) return res.status(401).json({ error: 'Nicht angemeldet' });
+  if (!token) {
+    console.debug('[Auth] No token in cookie');
+    return res.status(401).json({ error: 'Nicht angemeldet' });
+  }
+
   try {
     req.user = jwt.verify(token, JWT_SECRET);
+    console.debug('[Auth] Token verified for user:', req.user.userId);
 
     // Check session activity (30-minute timeout)
     const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(req.user.sessionId);
     if (!session) {
-      res.clearCookie('auth_token');
+      console.warn('[Auth] Session not found:', req.user.sessionId);
+      res.clearCookie('auth_token', {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'strict',
+      });
       return res.status(401).json({ error: 'Sitzung ungültig' });
     }
 
@@ -1440,21 +1450,29 @@ function requireAuth(req, res, next) {
 
     if (inactiveMs > TIMEOUT_MS) {
       // Session expired, delete it and clear cookie
+      console.warn('[Auth] Session timeout:', req.user.userId);
       db.prepare('DELETE FROM sessions WHERE id = ?').run(session.id);
-      res.clearCookie('auth_token');
+      res.clearCookie('auth_token', {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'strict',
+      });
       return res.status(401).json({ error: 'Sitzung abgelaufen (Inaktivität)' });
     }
 
     // Update last activity
     db.prepare("UPDATE sessions SET last_activity = datetime('now') WHERE id = ?").run(session.id);
+    console.debug('[Auth] Session updated, proceeding to route');
 
     next();
   } catch (err) {
-    if (err.name !== 'JsonWebTokenError') {
-      console.error('[Auth] Unexpected error:', err);
-    }
-    res.clearCookie('auth_token');
-    return res.status(401).json({ error: 'Sitzung abgelaufen' });
+    console.error('[Auth] JWT verification error:', err.name, err.message);
+    res.clearCookie('auth_token', {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+    });
+    return res.status(401).json({ error: 'Authentifizierung erforderlich' });
   }
 }
 
