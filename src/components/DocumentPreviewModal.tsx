@@ -184,7 +184,7 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
           <motion.div
             initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }}
             transition={{ type: "spring", damping: 22 }}
-            className="glass-strong relative grid h-[100dvh] w-full max-w-7xl grid-rows-[minmax(0,50dvh)_minmax(0,1fr)] overflow-hidden rounded-none border-glow sm:h-[92vh] sm:rounded-2xl sm:grid-rows-[minmax(0,55dvh)_minmax(0,1fr)] lg:h-[96vh] lg:max-w-[90vw] lg:grid-rows-[minmax(0,60dvh)_minmax(0,1fr)] md:grid-cols-[minmax(0,1fr)_400px] md:grid-rows-1 md:max-h-[calc(100vh-2rem)]"
+            className="glass-strong relative grid h-[100dvh] w-full max-w-7xl grid-rows-[minmax(0,50dvh)_minmax(0,1fr)] overflow-hidden rounded-none border-glow sm:h-[94vh] sm:rounded-2xl sm:grid-rows-[minmax(0,56dvh)_minmax(0,1fr)] lg:h-[98vh] lg:max-w-[92vw] lg:grid-rows-[minmax(0,64dvh)_minmax(0,1fr)] xl:h-[99vh] xl:max-w-[95vw] xl:grid-rows-[minmax(0,68dvh)_minmax(0,1fr)] md:grid-cols-[minmax(0,1fr)_420px] md:grid-rows-1"
             onClick={(e) => e.stopPropagation()}
           >
             <button onClick={onClose} className="absolute right-3 top-3 z-10 grid h-10 w-10 place-items-center rounded-full glass hover:bg-muted">
