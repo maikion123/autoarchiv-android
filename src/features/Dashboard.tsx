@@ -228,7 +228,11 @@ export default function Dashboard() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.04 }}
                 onClick={() => { setOpenFolder(f.id); setOpenSubfolder(null); }}
-                className="group glass relative overflow-hidden rounded-2xl border-glow p-4 text-left transition cursor-pointer hover:shadow-[0_0_30px_oklch(0.62_0.24_290/0.25)]"
+                className="group glass relative overflow-hidden rounded-2xl border-glow p-4 text-left transition cursor-pointer hover:shadow-[0_0_30px_oklch(0.62_0.24_290/0.3)] hover:border-primary/40 active:scale-[0.98]"
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { setOpenFolder(f.id); setOpenSubfolder(null); } }}
+                aria-label={`Öffne ${f.name} Kategorie`}
               >
                 <div className="relative z-10 flex items-start justify-between">
                   <button
@@ -241,7 +245,7 @@ export default function Dashboard() {
                     style={{
                       backgroundColor: displayColor
                     }}
-                    title="Kategorie bearbeiten"
+                    title="Kategorie bearbeiten (Farbe, Icon)"
                   >
                     {(() => {
                       const IconComponent = getIconComponent(displayIcon);
@@ -257,16 +261,22 @@ export default function Dashboard() {
                         setOpenFolderInSelectionMode(true);
                       }}
                       className="p-1 rounded-lg hover:bg-white/20 transition-colors"
-                      title="Unterordner auswählen und löschen"
+                      title="Unterordner bearbeiten"
                     >
                       <Edit2 className="h-4 w-4 text-white" />
                     </button>
                     <span className="rounded-full glass px-2 py-0.5 text-xs">{count}</span>
                   </div>
                 </div>
-                <div className="relative z-10 mt-3 text-sm font-semibold">{f.name}</div>
+                <button
+                  onClick={() => { setOpenFolder(f.id); setOpenSubfolder(null); }}
+                  className="relative z-10 mt-3 text-sm font-semibold text-left w-full group-hover:text-primary transition-colors"
+                  aria-label={`Öffne ${f.name}`}
+                >
+                  {f.name}
+                </button>
                 <div className="relative z-10 mt-0.5 text-[11px] text-muted-foreground opacity-0 transition group-hover:opacity-100">
-                  {subCount} Unterordner
+                  {subCount} Unterordner · Klicken zum Öffnen
                 </div>
                 <div className="relative z-10 mt-3 h-1 overflow-hidden rounded-full bg-muted/40">
                   <div
