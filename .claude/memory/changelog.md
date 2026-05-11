@@ -8,6 +8,61 @@ type: project
 
 ## Changelog
 
+### [2026-05-11] MODERN USER MENU - PROFILE & PASSWORD MANAGEMENT
+
+**SEVERITY:** 🟢 FEATURE
+
+**What Changed Today:**
+- Implemented modern SaaS-style user menu with profile avatar, dropdown menu, and modals
+- Backend: Added `display_name` column to users table
+- Backend: New `PATCH /api/auth/profile` endpoint for updating display name (1-50 chars)
+- Backend: New `PATCH /api/auth/change-password` endpoint with current password validation
+- Backend: Extended `GET /api/auth/me` to return `displayName`
+- Frontend: Created `UserMenu.tsx` component with:
+  - Avatar circle with user initials + violet-cyan gradient
+  - Dropdown menu with 3 options (Edit Profile, Change Password, Logout)
+  - ProfileModal for editing display name with real-time validation
+  - PasswordModal with password strength indicator and visibility toggles
+  - Framer Motion animations (spring transitions)
+  - Glass-morphism design system integration
+- Frontend: Integrated UserMenu into AppShell, removed old "Sicher verbunden" status indicator
+- UX: Improved mobile responsiveness:
+  - Dropdown uses fixed positioning (doesn't shift logo)
+  - Modals open from top on mobile, scrollable downward
+  - 48px touch targets on mobile for accessibility
+  - Active state feedback on buttons
+  - Proper overflow handling for small screens
+
+**Why This Matters:**
+- Professional UI/UX matching modern SaaS standards
+- Users can customize their display name
+- Secure password change with validation
+- Mobile-friendly (no layout shifts, accessible content)
+- Removes unnecessary status indicator clutter
+
+**Files Changed:**
+- `api-server.mjs` (new endpoints, display_name migration, auth/me extension)
+- `src/components/UserMenu.tsx` (new file, complete implementation)
+- `src/components/AppShell.tsx` (integration, state management)
+
+**Build/Verification:**
+```bash
+npm run build  # ✅ Success
+# Test endpoints when API server reloads:
+curl -X PATCH http://localhost:3001/api/auth/profile \
+  -H "Content-Type: application/json" \
+  -d '{"displayName": "Test"}'
+```
+
+**Status:** ✅ Implemented, Committed (2dd53ae, 1929e16, d70b83c), Deployed to dist/
+
+**Commits:**
+- `2dd53ae` - feat: implement modern user menu with profile and password management
+- `1929e16` - refactor: improve UserMenu mobile responsiveness and touch targets
+- `d70b83c` - fix: improve UserMenu positioning for better mobile UX
+
+---
+
 ### [2026-05-11] SESSION IDLE TIMEOUT - 30 MIN INACTIVITY SECURITY FIX
 
 **SEVERITY:** 🟡 HIGH (Security)

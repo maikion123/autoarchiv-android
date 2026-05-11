@@ -140,11 +140,84 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 | POST | /api/auth/register | No | 10/15min | `{message: "OTP sent"}` |
 | POST | /api/auth/verify-otp | No | 10/15min | `{message: "Verified"}` |
 | POST | /api/auth/resend-otp | No | 10/15min | `{message: "Code sent"}` |
-| POST | /api/auth/login | No | 25/15min per IP+email | `{email: "..."}` + cookie |
+| POST | /api/auth/login | No | 25/15min per IP+email | `{email: "...", role: "user", displayName: "..."}` + cookie |
 | POST | /api/auth/logout | Cookie | 10/15min | `{message: "Logged out"}` |
-| GET | /api/auth/me | Cookie | 10/15min | `{email: "..."}` |
+| GET | /api/auth/me | Cookie | 10/15min | `{email: "...", role: "user", displayName: "..."}` |
+| **PATCH** | **/api/auth/profile** | **Cookie** | **10/15min** | **`{message: "Profil aktualisiert", displayName: "..."}`** |
+| **PATCH** | **/api/auth/change-password** | **Cookie** | **10/15min** | **`{message: "Passwort geändert"}`** |
 | POST | /api/analyze-document | Cookie | No | Free local PDF text extraction / Tesseract image OCR metadata for uploads; filename fallback |
 | GET | /api/health | No | No | `{status: "ok"}` |
+
+---
+
+## Profile Management Endpoints (NEW - 2026-05-11)
+
+### `PATCH /api/auth/profile` — Update Display Name
+**Input:** `{ displayName: "Max Mustermann" }`
+
+**Validation:**
+- displayName must be 1-50 characters
+- Trimmed of whitespace
+- Cannot be empty after trim
+
+**Response on Success (200):**
+```json
+{
+  "message": "Profil aktualisiert",
+  "displayName": "Max Mustermann"
+}
+```
+
+**Error Responses:**
+- 400: `{ error: "Anzeigename erforderlich" }`
+- 400: `{ error: "Anzeigename muss 1-50 Zeichen lang sein" }`
+- 401: `{ error: "Unauthorized" }`
+- 500: `{ error: "Fehler beim Aktualisieren des Profils" }`
+
+**Security:**
+- Requires valid auth cookie
+- Updates `users.display_name` column
+- Updates `updated_at` timestamp
+
+---
+
+### `PATCH /api/auth/change-password` — Change Password
+**Input:** 
+```json
+{
+  "currentPassword": "oldPass123!",
+  "newPassword": "newPass456!"
+}
+```
+
+**Validation:**
+- `currentPassword`: Must match existing password hash (bcryptjs.compareSync)
+- `newPassword`:
+  - Minimum 8 characters
+  - Must contain at least one special char: `!@#$%^&*()\-_=+[]{}';:"\\|,.<>/?`
+  - Must not be empty
+
+**Response on Success (200):**
+```json
+{
+  "message": "Passwort geändert"
+}
+```
+
+**Error Responses:**
+- 400: `{ error: "Passwort und neues Passwort erforderlich" }`
+- 400: `{ error: "Passwort muss mindestens 8 Zeichen lang sein" }`
+- 400: `{ error: "Passwort muss mindestens ein Sonderzeichen enthalten" }`
+- 401: `{ error: "Benutzer nicht gefunden" }`
+- 401: `{ error: "Aktuelles Passwort ist falsch" }`
+- 500: `{ error: "Fehler beim Ändern des Passworts" }`
+
+**Security:**
+- Requires valid auth cookie
+- Timing-safe comparison for current password (bcryptjs)
+- New password hashed with bcryptjs (cost 12)
+- Old password never returned or logged
+- Updates `users.password_hash` and `updated_at`
 
 ---
 

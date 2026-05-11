@@ -26,6 +26,7 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 **Invoice Amount Selection:** ✅ Hardened. `Rechnungsbetrag` / `Gesamtbetrag` lines win over VAT lines, which fixed the heating-company photo that previously misread `38,59 EUR` instead of the actual `241,69 EUR`.
 **Archived-Only Views:** ✅ Dashboard counts, folder panels, top senders, and search now only surface archived documents; analysis/review states are no longer mixed into the user-facing document counts.
 **Database:** ✅ Fixed permission issues (directory 775, file 664, cleaned WAL files)
+**User Menu (Modern SaaS):** ✅ Implemented 2026-05-11. Avatar with initials + dropdown menu (Edit Profile, Change Password, Logout). ProfileModal for display name (1-50 chars). PasswordModal with strength meter + visibility toggles. Replaces old "Sicher verbunden" status indicator. Mobile-optimized: fixed dropdown positioning (no logo shift), modals open from top with downward scroll on mobile, 48px touch targets. Integrated into AppShell header (desktop + mobile). Fully animated with Framer Motion springs.
 
 ## Tech Stack
 
@@ -64,6 +65,48 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 - **Database Location:** `/srv/projects/autoarchiv/data/autoarchiv.db`
 - **Domain:** nextkm.de (HTTPS via Let's Encrypt)
 
+## Frontend Components (Key UI)
+
+### UserMenu (`src/components/UserMenu.tsx`) — Modern SaaS User Interface
+**Purpose:** Profile management, password change, logout  
+**Added:** 2026-05-11
+
+**Features:**
+- Avatar circle with user initials + violet-cyan gradient
+- Fixed positioning dropdown menu (3 options: Edit Profile, Change Password, Logout)
+- ProfileModal: Edit display name (1-50 chars, real-time validation)
+- PasswordModal: Change password with strength meter + visibility toggles
+- Framer Motion spring animations throughout
+- Mobile-optimized: 48px touch targets, active state feedback, proper overflow
+- Glass-morphism design (matches design system)
+
+**Props:** `email`, `displayName?`, `onLogout()`  
+**State Management:** Local state for modals + display name; parent (AppShell) provides initial values  
+**Integration:** AppShell replaces old "Sicher verbunden" status + logout button with UserMenu on both desktop and mobile
+
+**Mobile Fixes:**
+- Dropdown: Fixed positioning to prevent logo shift
+- Modals: Open from top (pt-20) on mobile, centered on desktop (pt-50vh)
+- Content: max-h-[70vh] overflow-y-auto for scrollable fields
+- Buttons: Full-width on mobile, flex-wrap for stacking
+
+---
+
+### AppShell (`src/components/AppShell.tsx`) — Auth Guard + Main Layout
+**Updated:** 2026-05-11 (added displayName state + UserMenu integration)
+
+**Auth State Tracking:**
+- `userEmail`, `userRole`, `displayName` (new)
+- Fetches from `GET /api/auth/me` which now returns `displayName`
+- Updates all states on auth success, clears on logout
+
+**Header Changes:**
+- Desktop: Replaced status pill + logout button with `<UserMenu />`
+- Mobile: Replaced status pills + logout button with `<UserMenu />`
+- "Sitzung wird bestätigt" amber pill kept (shows during auth check)
+
+---
+
 ## Architecture Diagram
 
 ```
@@ -78,8 +121,11 @@ Nginx (Port 443)
 
 ### users
 ```sql
-id (TEXT PK) | email (UNIQUE) | password_hash | email_verified (INT) | created_at | updated_at
+id (TEXT PK) | email (UNIQUE) | password_hash | email_verified (INT) | role | display_name | created_at | updated_at
 ```
+
+**New columns (2026-05-11):**
+- `display_name` (TEXT, nullable) — User's custom display name for the UI (1-50 chars, set via PATCH /api/auth/profile)
 
 ### email_verification_codes
 ```sql
