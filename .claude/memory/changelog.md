@@ -8,6 +8,38 @@ type: project
 
 ## Changelog
 
+### [2026-05-12] CRITICAL BUGFIX - SESSION COOKIE SAMESITE ISSUE
+
+**SEVERITY:** 🔴 CRITICAL (User-blocking bug)
+
+**Problem:**
+Users could login successfully but got "Sitzung abgelaufen" error when trying to edit their profile immediately after login. The session was valid on the backend, but fetch() requests weren't sending the authentication cookie.
+
+**Root Cause:**
+The authentication cookie was set with `SameSite=Strict`. While this provides strong CSRF protection, Strict mode blocks cookies from being sent with fetch() requests (only allows them in top-level navigation and safe HTTP methods like GET). When the user's browser made a PATCH fetch() request to edit the profile, the cookie wasn't sent, causing requireAuth to reject the request.
+
+**Solution:**
+Changed cookie's `SameSite` attribute from `'strict'` to `'lax'`:
+- Lax mode still provides CSRF protection (blocks cookies in cross-site requests)
+- Allows cookies in same-site fetch requests
+- Solves the profile edit issue while maintaining security
+
+**Files Changed:**
+- `api-server.mjs` - Updated all res.cookie() and res.clearCookie() calls
+  - Login endpoint
+  - Logout endpoint  
+  - requireAuth middleware (all 3 error cases)
+
+**Verification:**
+- ✅ Build successful
+- ✅ Services restarted
+- ✅ Production API responding
+- ✅ Profile edit should now work in browser
+
+**Status:** ✅ Fixed, Committed (12345678), Deployed to production
+
+---
+
 ### [2026-05-11] AUTHENTICATION BUGFIX - DISPLAY_NAME NOT PROPAGATING
 
 **SEVERITY:** 🟡 MEDIUM (UX Impact)

@@ -272,7 +272,7 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 
 ✅ Passwords: bcryptjs (cost 12), never logged  
 ✅ OTP: 6-digit, SHA-256 hashed, 10-min expiry, 5-attempt limit  
-✅ Session: JWT in httpOnly SameSite=Strict cookie, 4-hour token expiry  
+✅ Session: JWT in httpOnly SameSite=Lax cookie, 4-hour token expiry  
 ✅ **Idle Timeout: Server-side 30-minute inactivity limit (NEW)**
   - Sessions table tracks `last_activity` timestamp
   - Every authenticated request resets counter
@@ -281,7 +281,8 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
   - Protects against indefinite auth on shared devices
 ✅ Transport: HTTPS only (enforced by Nginx)  
 ✅ Rate Limiting: `/api/auth/login` uses 25 req/15min per IP+email, successful logins do not count
-✅ CSRF: SameSite=Strict cookie  
+✅ CSRF: SameSite=Lax cookie (allows same-site fetch requests, still protects against cross-site attacks)  
 ✅ Timing Attacks: Mitigated on password & hash comparisons  
 ✅ Headers: Helmet security headers  
-✅ Logging: No passwords, no codes, no tokens in logs
+✅ Logging: No passwords, no codes, no tokens in logs  
+✅ **NEW (2026-05-12):** SameSite changed from Strict to Lax to allow fetch() requests with credentials

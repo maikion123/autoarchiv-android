@@ -1441,24 +1441,30 @@ const authLimiter = rateLimit({
 // ── JWT-MIDDLEWARE ─────────────────────────────────────────────────────────────
 function requireAuth(req, res, next) {
   const token = req.cookies?.auth_token;
+  const debugLog = (msg) => {
+    const timestamp = new Date().toISOString();
+    console.error(`[${timestamp}] ${msg}`);
+  };
+
   if (!token) {
-    console.debug('[Auth] No token in cookie');
+    debugLog('[Auth] ❌ No token in cookie');
     return res.status(401).json({ error: 'Nicht angemeldet' });
   }
 
   try {
     req.user = jwt.verify(token, JWT_SECRET);
-    console.debug('[Auth] Token verified for user:', req.user.userId);
+    debugLog(`[Auth] ✓ Token verified for user: ${req.user.userId} sessionId: ${req.user.sessionId}`);
 
     // Check session activity (30-minute timeout)
     const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(req.user.sessionId);
     if (!session) {
-      console.warn('[Auth] Session not found:', req.user.sessionId);
+      debugLog(`[Auth] ❌ Session not found in DB: ${req.user.sessionId}`);
       const clearDomain = getCookieDomain(req);
       const clearOptions = {
         httpOnly: true,
         secure: true,
-        sameSite: 'strict',
+        sameSite: 'lax',
+        path: '/',
       };
       if (clearDomain) {
         clearOptions.domain = clearDomain;
@@ -1472,15 +1478,18 @@ function requireAuth(req, res, next) {
     const inactiveMs = now - lastActivity;
     const TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
+    debugLog(`[Auth] Session check: now=${now.toISOString()} lastActivity=${lastActivity.toISOString()} inactiveMs=${Math.round(inactiveMs / 1000)}s timeout=${Math.round(TIMEOUT_MS / 1000)}s expired=${inactiveMs > TIMEOUT_MS}`);
+
     if (inactiveMs > TIMEOUT_MS) {
       // Session expired, delete it and clear cookie
-      console.warn('[Auth] Session timeout:', req.user.userId);
+      debugLog(`[Auth] ❌ Session timeout (inactive > 30min): ${req.user.userId}`);
       db.prepare('DELETE FROM sessions WHERE id = ?').run(session.id);
       const clearDomain = getCookieDomain(req);
       const clearOptions = {
         httpOnly: true,
         secure: true,
-        sameSite: 'strict',
+        sameSite: 'lax',
+        path: '/',
       };
       if (clearDomain) {
         clearOptions.domain = clearDomain;
@@ -1491,11 +1500,11 @@ function requireAuth(req, res, next) {
 
     // Update last activity
     db.prepare("UPDATE sessions SET last_activity = datetime('now') WHERE id = ?").run(session.id);
-    console.debug('[Auth] Session updated, proceeding to route');
+    debugLog(`[Auth] ✓ Session valid, updated last_activity`);
 
     next();
   } catch (err) {
-    console.error('[Auth] JWT verification error:', err.name, err.message);
+    debugLog(`[Auth] ❌ JWT verification error: ${err.name}: ${err.message}`);
     const clearDomain = getCookieDomain(req);
     const clearOptions = {
       httpOnly: true,
@@ -4112,8 +4121,9 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   const cookieOptions = {
     httpOnly: true,
     secure: true,
-    sameSite: 'strict',
+    sameSite: 'lax',  // Changed from 'strict' to 'lax' - allows same-site fetch requests
     maxAge: 4 * 60 * 60 * 1000,
+    path: '/',
   };
   if (cookieDomain) {
     cookieOptions.domain = cookieDomain;
