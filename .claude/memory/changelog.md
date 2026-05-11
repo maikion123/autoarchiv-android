@@ -8,6 +8,45 @@ type: project
 
 ## Changelog
 
+### [2026-05-11] AUTHENTICATION BUGFIX - DISPLAY_NAME NOT PROPAGATING
+
+**SEVERITY:** 🟡 MEDIUM (UX Impact)
+
+**Problem Discovered:**
+- Frontend `checkAuthStatus()` function wasn't extracting `displayName` from `/api/auth/me` response
+- Login endpoint wasn't returning `displayName` in response
+- Result: User's profile name never displayed in UserMenu avatar, showing only email initials
+
+**Root Cause:**
+- `api-server.mjs` GET /api/auth/me endpoint WAS returning displayName (line 4211)
+- But `src/lib/auth.ts` checkAuthStatus() function only extracted `email` and `role`, ignoring `displayName`
+- Backend login endpoint also didn't include displayName in response
+
+**Solution Implemented:**
+- Updated `src/lib/auth.ts` checkAuthStatus() return type to include `displayName`
+- Updated checkAuthStatus() to return `displayName` from API response
+- Updated `api-server.mjs` login endpoint to return `displayName` in response
+- AppShell component already uses returned displayName (line 114) so no frontend changes needed
+
+**Files Changed:**
+- `src/lib/auth.ts` (added displayName to return type and extraction logic)
+- `api-server.mjs` (added displayName to login endpoint response)
+
+**Build/Verification:**
+```bash
+npm run build  # ✅ Success
+pm2 restart all  # ✅ API and frontend restarted
+# After next login, displayName should appear in UserMenu and update correctly
+```
+
+**Status:** ✅ Fixed, Committed (02bbb34), Deployed
+
+**Next Investigation:**
+- Original "Sitzung abgelaufen" error on PATCH /api/auth/profile still needs diagnosis
+- This fix addresses displayName propagation, but the session timeout issue may be separate
+
+---
+
 ### [2026-05-11] MODERN USER MENU - PROFILE & PASSWORD MANAGEMENT
 
 **SEVERITY:** 🟢 FEATURE

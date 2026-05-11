@@ -73,7 +73,7 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
      ```
    - Sign with HS256 (JWT_SECRET)
    - Set httpOnly cookie: `auth_token=token; HttpOnly; SameSite=Strict; Domain=nextkm.de; Max-Age=14400`
-   - Return: `{ email: user.email, role: user.role }`
+   - Return: `{ email: user.email, role: user.role, displayName: user.display_name || null }`
 5. If invalid:
    - Delay response (timing attack mitigation)
    - Return 401: `{ error: "Invalid credentials" }`
@@ -106,7 +106,7 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 
 **Route Handler:**
 1. Get user from DB
-2. Return: `{ email: user.email, role: user.role }`
+2. Return: `{ email: user.email, role: user.role, displayName: user.display_name || null }`
 
 **Key Security Points:**
 - Session timeout is server-side (cannot be bypassed by client)
