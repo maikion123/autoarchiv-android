@@ -267,6 +267,12 @@ try {
   // Column already exists.
 }
 
+try {
+  db.exec("ALTER TABLE users ADD COLUMN display_name TEXT");
+} catch {
+  // Column already exists.
+}
+
 if (ADMIN_EMAILS.size > 0) {
   const placeholders = Array.from(ADMIN_EMAILS).map(() => '?').join(', ');
   db.prepare(`UPDATE users SET role = 'admin', updated_at = datetime('now') WHERE lower(email) IN (${placeholders})`).run(...Array.from(ADMIN_EMAILS));
@@ -4084,12 +4090,79 @@ app.post('/api/auth/logout', (req, res) => {
   return res.status(200).json({ message: 'Abgemeldet' });
 });
 
+// ── PATCH /api/auth/profile ───────────────────────────────────────────────────
+app.patch('/api/auth/profile', requireAuth, (req, res) => {
+  const { displayName } = req.body;
+
+  if (!displayName || typeof displayName !== 'string') {
+    return res.status(400).json({ error: 'Anzeigename erforderlich' });
+  }
+
+  const trimmed = displayName.trim();
+  if (trimmed.length === 0 || trimmed.length > 50) {
+    return res.status(400).json({ error: 'Anzeigename muss 1-50 Zeichen lang sein' });
+  }
+
+  const userId = currentUserId(req);
+  try {
+    db.prepare('UPDATE users SET display_name = ?, updated_at = datetime("now") WHERE id = ?')
+      .run(trimmed, userId);
+    return res.status(200).json({ message: 'Profil aktualisiert', displayName: trimmed });
+  } catch (err) {
+    console.error('Profile update error:', errorSummary(err));
+    return res.status(500).json({ error: 'Fehler beim Aktualisieren des Profils' });
+  }
+});
+
+// ── PATCH /api/auth/change-password ────────────────────────────────────────────
+app.patch('/api/auth/change-password', requireAuth, (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Passwort und neues Passwort erforderlich' });
+  }
+
+  const userId = currentUserId(req);
+  const user = getUserById(userId);
+
+  if (!user) {
+    return res.status(401).json({ error: 'Benutzer nicht gefunden' });
+  }
+
+  // Verify current password
+  const isValid = bcrypt.compareSync(currentPassword, user.password_hash);
+  if (!isValid) {
+    return res.status(401).json({ error: 'Aktuelles Passwort ist falsch' });
+  }
+
+  // Validate new password
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: 'Passwort muss mindestens 8 Zeichen lang sein' });
+  }
+
+  const hasSpecial = /[!@#$%^&*()\-_=+\[\]{};':"\\|,.<>/?]/.test(newPassword);
+  if (!hasSpecial) {
+    return res.status(400).json({ error: 'Passwort muss mindestens ein Sonderzeichen enthalten' });
+  }
+
+  try {
+    const newHash = bcrypt.hashSync(newPassword, 12);
+    db.prepare('UPDATE users SET password_hash = ?, updated_at = datetime("now") WHERE id = ?')
+      .run(newHash, userId);
+    return res.status(200).json({ message: 'Passwort geändert' });
+  } catch (err) {
+    console.error('Password change error:', errorSummary(err));
+    return res.status(500).json({ error: 'Fehler beim Ändern des Passworts' });
+  }
+});
+
 // ── GET /api/auth/me ──────────────────────────────────────────────────────────
 app.get('/api/auth/me', requireAuth, (req, res) => {
   const user = getUserById(currentUserId(req));
   return res.status(200).json({
     email: req.user.email,
     role: isAdminUser(user) ? 'admin' : 'user',
+    displayName: user?.display_name || null,
   });
 });
 
