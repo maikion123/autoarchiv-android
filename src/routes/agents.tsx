@@ -4,7 +4,7 @@ import AgentsPage from "../features/Agents";
 export const Route = createFileRoute("/agents")({
   head: () => ({
     meta: [
-      { title: "Agenten — AutoArchiv" },
+      { title: "Agenten — nextKM" },
       { name: "description", content: "Live-Status von Claude Code, Codex, Kevin und Maik." },
     ],
   }),

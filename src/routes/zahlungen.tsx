@@ -4,7 +4,7 @@ import ZahlungenPage from "../features/Zahlungen";
 export const Route = createFileRoute("/zahlungen")({
   head: () => ({
     meta: [
-      { title: "Zahlungen — AutoArchiv" },
+      { title: "Zahlungen — nextKM" },
       { name: "description", content: "Offene und erledigte Zahlungen verwalten." },
     ],
   }),

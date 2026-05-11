@@ -9,6 +9,22 @@ export interface AnalysisHint {
   confidence: number;
 }
 
+export interface LayoutPageImage {
+  pageNumber: number;
+  imagePath: string;
+  width: number;
+  height: number;
+}
+
+export interface LayoutAnalysisInput {
+  filename: string;
+  mimeType: string;
+  pageCount: number;
+  extractedText: string;
+  regexAnalysis: Record<string, unknown>;
+  pageImages: LayoutPageImage[];
+}
+
 export interface ArchivedDoc {
   id: string;
   filename: string;
@@ -25,10 +41,18 @@ export interface ArchivedDoc {
   wichtigkeit: Importance;
   tags: string[];
   analysisHints?: Record<string, AnalysisHint | null>;
-  analysisMode?: "llm" | "regex" | "fallback";
+  regexAnalysis?: Record<string, unknown>;
+  aiAnalysis?: Record<string, unknown> | null;
+  visionAnalysis?: Record<string, unknown> | null;
+  finalAnalysis?: Record<string, unknown>;
+  layoutAnalysisInput?: LayoutAnalysisInput | Record<string, unknown> | null;
+  reviewStatus?: "auto_ready" | "review_required" | "analysis_failed";
+  reviewReason?: string | null;
+  shouldAutoArchive?: boolean;
+  analysisMode?: "llm" | "regex" | "regex_ai" | "regex_vision_ai" | "regex_vision_fallback" | "fallback";
   confidence?: number | null;
   wichtigkeitsgrund?: string | null;
-  status?: "uploaded" | "analyzed" | "archived" | "failed" | "deleted";
+  status?: "uploaded" | "analyzed" | "review" | "archived" | "failed" | "deleted";
   storageLocation?: string | null;
   // file blob stored separately
 }
@@ -41,6 +65,15 @@ export interface DocumentText {
 export interface DocumentDetails {
   document: ArchivedDoc;
   text: DocumentText | null;
+}
+
+export interface DocumentStatusSummary {
+  total: number;
+  analyzed: number;
+  review: number;
+  archived: number;
+  deleted: number;
+  visible: number;
 }
 
 export interface PaymentEntry {
@@ -115,6 +148,31 @@ export async function listDocuments(): Promise<ArchivedDoc[]> {
   }
   const db = await getDB();
   return (await db.getAll("documents")) as ArchivedDoc[];
+}
+
+export async function getDocumentStatusSummary(): Promise<DocumentStatusSummary> {
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/documents/summary", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        return data.summary as DocumentStatusSummary;
+      }
+    } catch {
+      // Fallback to legacy browser archive below.
+    }
+  }
+  const db = await getDB();
+  const documents = (await db.getAll("documents")) as ArchivedDoc[];
+  const counts = documents.reduce((acc, doc) => {
+    acc.total += 1;
+    if (doc.status === "analyzed") acc.analyzed += 1;
+    else if (doc.status === "review") acc.review += 1;
+    else if (doc.status === "archived") acc.archived += 1;
+    else if (doc.status === "deleted") acc.deleted += 1;
+    return acc;
+  }, { total: 0, analyzed: 0, review: 0, archived: 0, deleted: 0 });
+  return { ...counts, visible: counts.total - counts.deleted };
 }
 export async function getDocumentBlob(id: string): Promise<Blob | undefined> {
   if (typeof window !== "undefined") {

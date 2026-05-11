@@ -2,6 +2,12 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { RegisterForm } from "../components/RegisterForm";
 
 export const Route = createFileRoute("/register")({
+  head: () => ({
+    meta: [
+      { title: "Registrieren — nextKM" },
+      { name: "description", content: "Erstelle dein nextKM-Konto, um Dokumente automatisiert zu archivieren." },
+    ],
+  }),
   component: RegisterPage,
 });
 

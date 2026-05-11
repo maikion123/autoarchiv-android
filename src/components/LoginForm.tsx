@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Mail, Lock, ArrowRight } from "lucide-react";
+import { Mail, Lock, ArrowRight, CircleHelp } from "lucide-react";
 import logoImg from "../assets/logo.png";
+import { writeAuthCache } from "../lib/auth";
 
 async function waitForSession() {
   for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -59,6 +60,10 @@ export function LoginForm({ onLogin }: { onLogin: (email: string) => void }) {
         return;
       }
 
+      writeAuthCache(data.email || email, data.role === "admin" ? "admin" : "user");
+      console.debug("[LoginForm] Login success and session cached", {
+        email: data.email || email,
+      });
       onLogin(data.email);
     } catch (err) {
       console.error("[LoginForm] Submit error:", err);
@@ -82,12 +87,12 @@ export function LoginForm({ onLogin }: { onLogin: (email: string) => void }) {
             transition={{ delay: 0.2, type: "spring" }}
             className="flex items-center gap-3"
           >
-            <img src={logoImg} alt="nextKM Logo" className="h-12 w-12 rounded-2xl" />
+            <img src={logoImg} alt="nextKM" className="h-12 w-12 rounded-2xl" />
             <div>
               <h1 className="text-2xl font-bold tracking-tight">
-                Auto<span className="text-gradient">Archiv</span>
+                nextKM
               </h1>
-              <p className="text-xs text-muted-foreground">Privates Dokumentenarchiv</p>
+              <p className="text-xs text-muted-foreground">Briefe automatisch analysieren und archivieren</p>
             </div>
           </motion.div>
         </div>
@@ -101,7 +106,7 @@ export function LoginForm({ onLogin }: { onLogin: (email: string) => void }) {
           <div className="space-y-2">
             <h2 className="text-2xl font-bold">Willkommen zurück</h2>
             <p className="text-sm text-muted-foreground">
-              Melde dich an, um auf dein privates Archiv zuzugreifen
+              Melde dich an, um Dokumente hochzuladen, zu analysieren und sauber abzulegen
             </p>
           </div>
 
@@ -170,6 +175,17 @@ export function LoginForm({ onLogin }: { onLogin: (email: string) => void }) {
               )}
             </motion.button>
           </form>
+
+          <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <a
+              href="mailto:support@nextkm.de?subject=Passwort%20vergessen"
+              className="inline-flex items-center gap-1.5 transition hover:text-foreground"
+            >
+              <CircleHelp className="h-3.5 w-3.5" />
+              Passwort vergessen?
+            </a>
+            <span className="text-right">Sichere Anmeldung mit Session-Cookie</span>
+          </div>
 
           <div className="pt-2 border-t border-border/20 text-center text-xs text-muted-foreground">
             <p>

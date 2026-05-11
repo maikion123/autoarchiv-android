@@ -4,7 +4,7 @@ import Dashboard from "../features/Dashboard";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Übersicht — AutoArchiv" },
+      { title: "nextKM — Dokumentenarchiv" },
       { name: "description", content: "Dein Dashboard mit allen archivierten Dokumenten, offenen Zahlungen und Terminen." },
     ],
   }),

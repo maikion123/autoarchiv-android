@@ -65,7 +65,7 @@
 
 :root {
   --radius: 1rem;
-  /* AutoArchiv 2026 — dark futuristic theme */
+  /* nextKM 2026 — dark futuristic theme */
   --background: oklch(0.08 0.02 280);
   --foreground: oklch(0.96 0.01 280);
   --card: oklch(0.13 0.025 280);

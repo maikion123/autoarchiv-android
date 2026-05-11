@@ -9,7 +9,7 @@ import { useArchive } from "../lib/store";
 import { DEFAULT_FOLDER_TREE, FOLDER_META, createFolder, deleteFolder, flattenFolderTree, getTopFolder, loadFolderTree, renameFolder, type FolderNode } from "../lib/folders";
 import { fmtEUR, fmtDate, daysUntil, fmtBytes } from "../lib/format";
 import { getIconComponent } from "../lib/iconHelper";
-import { deleteDocument, getDocumentBlob, type ArchivedDoc } from "../lib/db";
+import { deleteDocument, getDocumentBlob, getDocumentStatusSummary, type ArchivedDoc, type DocumentStatusSummary } from "../lib/db";
 import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { FolderCreateDialog } from "../components/FolderCreateDialog";
@@ -59,6 +59,8 @@ export default function Dashboard() {
   const [editingFolder, setEditingFolder] = useState<FolderNode | null>(null);
   const [openFolderInSelectionMode, setOpenFolderInSelectionMode] = useState(false);
   const [folderToDelete, setFolderToDelete] = useState<FolderNode | null>(null);
+  const categoriesRef = useRef<HTMLElement | null>(null);
+  const [statusSummary, setStatusSummary] = useState<DocumentStatusSummary | null>(null);
 
   // Hide bottom nav when modals are open
   useEffect(() => {
@@ -88,32 +90,49 @@ export default function Dashboard() {
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      try {
+        const summary = await getDocumentStatusSummary();
+        if (mounted) setStatusSummary(summary);
+      } catch {
+        if (mounted) setStatusSummary(null);
+      }
+    };
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, [documents]);
+
   const stats = useMemo(() => {
     const open = payments.filter((p) => p.status !== "bezahlt");
     const sum = open.reduce((a, p) => a + (p.betrag - (p.paid?.reduce((s, x) => s + x.amount, 0) || 0)), 0);
-    const high = documents.filter((d) => d.wichtigkeit === "hoch").length;
-    const upcoming = documents.filter((d) => {
+    const archivedDocuments = documents.filter((d) => d.status === "archived");
+    const high = archivedDocuments.filter((d) => d.wichtigkeit === "hoch").length;
+    const upcoming = archivedDocuments.filter((d) => {
       const u = daysUntil(d.ablaufdatum);
       return u != null && u >= 0 && u <= 30;
     }).length;
-    return { total: documents.length, openSum: sum, high, upcoming };
+    return { total: archivedDocuments.length, openSum: sum, high, upcoming, archivedDocuments };
   }, [documents, payments]);
 
   const lastDoc = useMemo(() => {
-    return [...documents].sort((a, b) => +new Date(b.uploadedAt) - +new Date(a.uploadedAt))[0];
+    return [...documents].filter((doc) => doc.status === "archived").sort((a, b) => +new Date(b.uploadedAt) - +new Date(a.uploadedAt))[0];
   }, [documents]);
 
   const folderCounts = useMemo(() => {
     const counts = new Map<string, number>();
     flattenFolderTree(folders).forEach((folder) => {
-      counts.set(folder.id, documents.filter((d) => d.folderPath === folder.id || d.folderPath.startsWith(folder.id + "/")).length);
+      counts.set(folder.id, documents.filter((d) => d.status === "archived" && (d.folderPath === folder.id || d.folderPath.startsWith(folder.id + "/"))).length);
     });
     return counts;
   }, [documents, folders]);
 
   const categorySpend = useMemo(() => {
     const map = new Map<string, number>();
-    documents.forEach((d) => {
+    documents.filter((d) => d.status === "archived").forEach((d) => {
       if (d.zahlungsbetrag) {
         const k = getTopFolder(d.folderPath);
         map.set(k, (map.get(k) || 0) + d.zahlungsbetrag);
@@ -124,6 +143,21 @@ export default function Dashboard() {
     return arr;
   }, [documents]);
   const totalSpend = categorySpend.reduce((a, b) => a + b.value, 0);
+  const defaultFolderId = useMemo(() => {
+    const topLevel = folders
+      .map((folder) => ({ folder, count: folderCounts.get(folder.id) || 0 }))
+      .sort((a, b) => b.count - a.count);
+    return topLevel[0]?.folder.id || folders[0]?.id || null;
+  }, [folderCounts, folders]);
+
+  const openFolderOverview = () => {
+    if (defaultFolderId) {
+      setOpenFolder(defaultFolderId);
+      setOpenSubfolder(null);
+      setOpenFolderInSelectionMode(false);
+    }
+    categoriesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   const urgentPayments = useMemo(() => {
     return [...payments]
@@ -134,7 +168,9 @@ export default function Dashboard() {
 
   const topSenders = useMemo(() => {
     const map = new Map<string, number>();
-    documents.forEach((d) => map.set(d.absender, (map.get(d.absender) || 0) + 1));
+    documents
+      .filter((d) => d.status === "archived")
+      .forEach((d) => map.set(d.absender, (map.get(d.absender) || 0) + 1));
     return Array.from(map.entries()).sort((a, b) => b[1] - a[1]).slice(0, 6);
   }, [documents]);
 
@@ -149,11 +185,31 @@ export default function Dashboard() {
 
       {/* KPI cards */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Kpi icon={FileText} label="Dokumente" value={<CountUp value={stats.total} />} accent="from-violet-500 to-fuchsia-500" />
+        <Kpi
+          icon={FileText}
+          label="Archivierte Dokumente"
+          value={<CountUp value={stats.total} />}
+          accent="from-violet-500 to-fuchsia-500"
+          onClick={openFolderOverview}
+          title="Ordnerstruktur und Dokumente öffnen"
+        />
         <Kpi icon={Wallet} label="Offene Zahlungen" value={fmtEUR(stats.openSum)} accent={stats.openSum > 0 ? "from-rose-500 to-amber-400" : "from-emerald-400 to-cyan-400"} glow={stats.openSum > 0} />
         <Kpi icon={AlertTriangle} label="Hohe Wichtigkeit" value={<CountUp value={stats.high} />} accent="from-amber-400 to-orange-500" />
         <Kpi icon={CalendarClock} label="Bald fällig (30T)" value={<CountUp value={stats.upcoming} />} accent="from-cyan-400 to-blue-500" />
       </div>
+
+      <section className="glass rounded-2xl border-glow p-4">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Archiv-Status</h2>
+          <div className="text-xs text-muted-foreground">
+            {statusSummary ? `${statusSummary.review} noch zu archivieren` : "Lade Status..."}
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <StatusKpi label="Archiviert" value={statusSummary?.archived ?? 0} accent="from-emerald-400 to-cyan-400" hint="Bereits sauber abgelegt" />
+          <StatusKpi label="Noch offen" value={statusSummary?.review ?? 0} accent="from-amber-400 to-orange-500" hint="Sollte noch archiviert werden" />
+        </div>
+      </section>
 
       {/* Recently processed banner */}
       {lastDoc && (
@@ -176,7 +232,7 @@ export default function Dashboard() {
       )}
 
       {/* Folder grid */}
-      <section>
+      <section ref={categoriesRef}>
         <h2 className="mb-3 text-lg font-semibold">Kategorien</h2>
         <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_280px]">
           <div className="glass rounded-2xl border-glow p-4">
@@ -379,7 +435,7 @@ export default function Dashboard() {
               setFolders(tree);
               await refresh();
             }}
-            documents={documents}
+            documents={documents.filter((d) => d.status === "archived")}
             onClose={() => {
               setOpenFolder(null);
               setOpenFolderInSelectionMode(false);
@@ -461,7 +517,7 @@ export default function Dashboard() {
       <FolderDeleteDialog
         isOpen={!!folderToDelete}
         folder={folderToDelete}
-        documents={documents}
+        documents={documents.filter((d) => d.status === "archived")}
         folders={folders}
         onClose={() => setFolderToDelete(null)}
         onConfirmDelete={async () => {
@@ -482,9 +538,9 @@ export default function Dashboard() {
         onConfirmMove={async (targetFolderId) => {
           if (!folderToDelete) return;
           try {
-            const docsToMove = documents.filter(
-              (d) => d.folderPath === folderToDelete.id || d.folderPath.startsWith(folderToDelete.id + "/")
-            );
+              const docsToMove = documents.filter(
+                (d) => d.folderPath === folderToDelete.id || d.folderPath.startsWith(folderToDelete.id + "/")
+              );
 
             for (const doc of docsToMove) {
               await fetch(`/api/documents/${encodeURIComponent(doc.id)}`, {
@@ -569,17 +625,37 @@ export default function Dashboard() {
   );
 }
 
-function Kpi({ icon: Icon, label, value, accent, glow }: any) {
+function Kpi({ icon: Icon, label, value, accent, glow, onClick, title }: any) {
   return (
-    <motion.div whileHover={{ y: -2 }} className="glass relative overflow-hidden rounded-2xl border-glow p-4">
+    <motion.button
+      type="button"
+      whileHover={{ y: -2 }}
+      onClick={onClick}
+      title={title}
+      className={`glass relative overflow-hidden rounded-2xl border-glow p-4 text-left ${onClick ? "cursor-pointer transition hover:shadow-[0_0_24px_oklch(0.62_0.24_290/0.18)]" : ""}`}
+    >
       <div className="flex items-center justify-between">
         <div className={`grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br ${accent} ${glow ? "animate-pulse-glow" : ""}`}>
           <Icon className="h-4 w-4 text-white" />
         </div>
+        {onClick && <ChevronRight className="h-4 w-4 text-muted-foreground" />}
       </div>
       <div className="mt-3 text-2xl font-bold tracking-tight">{value}</div>
       <div className="mt-0.5 text-xs text-muted-foreground">{label}</div>
-    </motion.div>
+    </motion.button>
+  );
+}
+
+function StatusKpi({ label, value, accent, hint }: { label: string; value: number; accent: string; hint?: string }) {
+  return (
+    <div className="glass rounded-2xl border border-border/40 p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className={`h-2.5 w-2.5 rounded-full bg-gradient-to-r ${accent}`} />
+        {hint && <span className="text-[11px] text-muted-foreground">{hint}</span>}
+      </div>
+      <div className="mt-3 text-2xl font-bold tracking-tight">{value.toLocaleString("de-DE")}</div>
+      <div className="mt-0.5 text-xs text-muted-foreground">{label}</div>
+    </div>
   );
 }
 

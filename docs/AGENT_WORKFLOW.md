@@ -31,6 +31,8 @@ Codex nutzt entsprechend:
 AGENT_FILES="src/features/Agents.tsx" AGENT_NEXT="Browser testen" npm run agent:start codex "Kevin prueft mit Codex die Agentenansicht"
 ```
 
+Bei jedem Abschluss muss der Agentenstatus vor dem Handoff aktualisiert werden.
+
 Optional koennen betroffene Dateien als Umgebungsvariable mitgegeben werden:
 
 ```bash

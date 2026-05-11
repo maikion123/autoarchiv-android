@@ -4,7 +4,7 @@ import TerminePage from "../features/Termine";
 export const Route = createFileRoute("/termine")({
   head: () => ({
     meta: [
-      { title: "Termine — AutoArchiv" },
+      { title: "Termine — nextKM" },
       { name: "description", content: "Kommende Termine, Zahlungsfälligkeiten und Versicherungsablaufdaten." },
     ],
   }),

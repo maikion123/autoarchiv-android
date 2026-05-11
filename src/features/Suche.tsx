@@ -20,11 +20,16 @@ export default function SuchePage() {
   const [year, setYear] = useState<string>("alle");
   const [preview, setPreview] = useState<ArchivedDoc | null>(null);
 
-  const years = useMemo(() => Array.from(new Set(documents.map((d) => new Date(d.uploadedAt).getFullYear()))).sort((a,b)=>b-a), [documents]);
+  const archivedDocuments = useMemo(
+    () => documents.filter((d) => d.status === "archived"),
+    [documents]
+  );
+
+  const years = useMemo(() => Array.from(new Set(archivedDocuments.map((d) => new Date(d.uploadedAt).getFullYear()))).sort((a,b)=>b-a), [archivedDocuments]);
 
   const results = useMemo(() => {
     const ql = q.toLowerCase().trim();
-    return documents.filter((d) => {
+    return archivedDocuments.filter((d) => {
       if (type !== "alle") {
         if (type === "pdf" && d.mimeType !== "application/pdf") return false;
         if (type === "image" && !d.mimeType.startsWith("image/")) return false;
@@ -33,13 +38,13 @@ export default function SuchePage() {
       if (!ql) return true;
       return [d.filename, d.absender, d.zusammenfassung, d.folderPath, ...(d.tags||[])].some((t) => t?.toLowerCase().includes(ql));
     });
-  }, [documents, q, type, year]);
+  }, [archivedDocuments, q, type, year]);
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight md:text-4xl">Suche</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Volltext über Dateinamen, Absender, KI-Zusammenfassungen und Tags.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Suche nur in archivierten Dokumenten über Dateinamen, Absender, KI-Zusammenfassungen und Tags.</p>
       </div>
 
       <div className="glass border-glow rounded-2xl p-2">

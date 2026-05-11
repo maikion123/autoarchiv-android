@@ -50,12 +50,19 @@ interface QueueItem {
     wichtigkeit: Importance;
     tags: string[];
     addPayment: boolean;
-    analysisMode: "llm" | "regex" | "fallback";
+    analysisMode: "llm" | "regex" | "regex_ai" | "regex_vision_ai" | "regex_vision_fallback" | "fallback";
     confidence: number | null;
     wichtigkeitsgrund: string | null;
+    reviewStatus?: "auto_ready" | "review_required" | "analysis_failed";
+    reviewReason?: string | null;
+    shouldAutoArchive?: boolean;
+    regexAnalysis?: Record<string, unknown>;
+    aiAnalysis?: Record<string, unknown> | null;
+    visionAnalysis?: Record<string, unknown> | null;
+    finalAnalysis?: Record<string, unknown>;
     benchmark?: BenchmarkReport | null;
   };
-}
+  }
 
 const DROPZONE_ACCEPT = {
   "application/pdf": [".pdf"],
@@ -164,6 +171,11 @@ export default function EingangPage() {
         filename: item.file.name || "foto.jpg",
         mimeType,
       });
+      console.debug("[Eingang] Upload start", {
+        filename: item.file.name,
+        mimeType,
+        size: item.file.size,
+      });
       const uploadRes = await fetch(`/api/documents/upload?${params.toString()}`, {
         method: "POST",
         credentials: "include",
@@ -173,26 +185,47 @@ export default function EingangPage() {
       const data = await uploadRes.json().catch(() => {
         throw new Error("Serverantwort konnte nicht gelesen werden");
       });
-      if (!uploadRes.ok) throw new Error(data?.error || "KI-Analyse fehlgeschlagen");
+      if (!uploadRes.ok) {
+        console.warn("[Eingang] Upload failed", {
+          status: uploadRes.status,
+          filename: item.file.name,
+        });
+        const authHint = uploadRes.status === 401 || uploadRes.status === 403
+          ? "Sitzung abgelaufen. Bitte neu anmelden."
+          : null;
+        throw new Error(authHint || data?.error || "KI-Analyse fehlgeschlagen");
+      }
       if ((data as any)?.error) throw new Error((data as any).error);
+      console.debug("[Eingang] Upload success", {
+        filename: item.file.name,
+        documentId: (data as any)?.document?.id || (data as any)?.id,
+      });
       const r = (data as any).document || data;
+      const final = r.finalAnalysis || r;
       const folderPath = r.folderPath || (
-        r.vorgeschlagenerUnterordner
-          ? `${r.vorgeschlagenerOrdner}/${r.vorgeschlagenerUnterordner}`
-          : r.vorgeschlagenerOrdner
+        final.vorgeschlagenerUnterordner
+          ? `${final.vorgeschlagenerOrdner}/${final.vorgeschlagenerUnterordner}`
+          : final.vorgeschlagenerOrdner
       );
       const valid = folderPaths.length > 0 ? folderPaths : flattenFolderTree(folders).map((node) => node.id);
-      const safePath = valid.includes(folderPath) ? folderPath : (valid.includes(r.vorgeschlagenerOrdner) ? r.vorgeschlagenerOrdner : "07_Sonstiges");
+      const safePath = valid.includes(folderPath) ? folderPath : (valid.includes(final.vorgeschlagenerOrdner) ? final.vorgeschlagenerOrdner : "07_Sonstiges");
       setQueue((q) => q.map((x) => x.id === item.id ? {
         ...x, documentId: r.id, stage: "ready",
           result: {
-          absender: r.absender || "Unbekannt", dokumenttyp: r.dokumenttyp || "Sonstiges", zusammenfassung: r.zusammenfassung || "",
-          zahlungsbetrag: r.zahlungsbetrag, faelligkeitsdatum: r.faelligkeitsdatum, ablaufdatum: r.ablaufdatum,
-          folderPath: safePath, wichtigkeit: r.wichtigkeit || "mittel", tags: r.tags || [],
-          addPayment: !!r.zahlungsbetrag,
-          analysisMode: r.analysisMode || "fallback",
-          confidence: typeof r.confidence === "number" ? r.confidence : null,
-          wichtigkeitsgrund: r.wichtigkeitsgrund || null,
+          absender: final.absender || r.absender || "Unbekannt", dokumenttyp: final.dokumenttyp || r.dokumenttyp || "Sonstiges", zusammenfassung: final.zusammenfassung || r.zusammenfassung || "",
+          zahlungsbetrag: final.zahlungsbetrag ?? r.zahlungsbetrag, faelligkeitsdatum: final.faelligkeitsdatum ?? r.faelligkeitsdatum, ablaufdatum: final.ablaufdatum ?? r.ablaufdatum,
+          folderPath: safePath, wichtigkeit: final.wichtigkeit || r.wichtigkeit || "mittel", tags: final.tags || r.tags || [],
+          addPayment: !!(final.zahlungsbetrag ?? r.zahlungsbetrag),
+          analysisMode: r.analysisMode || final.analysisMode || "fallback",
+          confidence: typeof r.confidence === "number" ? r.confidence : (typeof final.confidence === "number" ? final.confidence : null),
+          wichtigkeitsgrund: r.wichtigkeitsgrund || final.reviewReason || null,
+          reviewStatus: r.reviewStatus || final.reviewStatus,
+          reviewReason: r.reviewReason || final.reviewReason || null,
+          shouldAutoArchive: Boolean(r.shouldAutoArchive ?? final.shouldAutoArchive),
+          regexAnalysis: r.regexAnalysis || null,
+          aiAnalysis: r.aiAnalysis || null,
+          visionAnalysis: r.visionAnalysis || null,
+          finalAnalysis: r.finalAnalysis || final || null,
           benchmark: data.benchmark || null,
         },
       } : x));
@@ -205,13 +238,14 @@ export default function EingangPage() {
 
   const applyUploadResult = useCallback((itemId: string, data: any, fallbackPath = "07_Sonstiges") => {
     const r = data.document || data;
+    const final = r.finalAnalysis || r;
     const folderPath = r.folderPath || (
-      r.vorgeschlagenerUnterordner
-        ? `${r.vorgeschlagenerOrdner}/${r.vorgeschlagenerUnterordner}`
-        : r.vorgeschlagenerOrdner
+      final.vorgeschlagenerUnterordner
+        ? `${final.vorgeschlagenerOrdner}/${final.vorgeschlagenerUnterordner}`
+        : final.vorgeschlagenerOrdner
     );
     const valid = folderPaths.length > 0 ? folderPaths : flattenFolderTree(folders).map((node) => node.id);
-    const safePath = valid.includes(folderPath) ? folderPath : (valid.includes(r.vorgeschlagenerOrdner) ? r.vorgeschlagenerOrdner : fallbackPath);
+    const safePath = valid.includes(folderPath) ? folderPath : (valid.includes(final.vorgeschlagenerOrdner) ? final.vorgeschlagenerOrdner : fallbackPath);
     setQueue((q) => q.map((x) => x.id === itemId ? {
       ...x,
       documentId: r.id,
@@ -220,25 +254,37 @@ export default function EingangPage() {
       serverSize: r.size || x.serverSize,
       stage: "ready",
       result: {
-        absender: r.absender || "Unbekannt",
-        dokumenttyp: r.dokumenttyp || "Sonstiges",
-        zusammenfassung: r.zusammenfassung || "",
-        zahlungsbetrag: r.zahlungsbetrag,
-        faelligkeitsdatum: r.faelligkeitsdatum,
-        ablaufdatum: r.ablaufdatum,
+        absender: final.absender || r.absender || "Unbekannt",
+        dokumenttyp: final.dokumenttyp || r.dokumenttyp || "Sonstiges",
+        zusammenfassung: final.zusammenfassung || r.zusammenfassung || "",
+        zahlungsbetrag: final.zahlungsbetrag ?? r.zahlungsbetrag,
+        faelligkeitsdatum: final.faelligkeitsdatum ?? r.faelligkeitsdatum,
+        ablaufdatum: final.ablaufdatum ?? r.ablaufdatum,
         folderPath: safePath,
-        wichtigkeit: r.wichtigkeit || "mittel",
-        tags: r.tags || [],
-        addPayment: !!r.zahlungsbetrag,
-        analysisMode: r.analysisMode || "fallback",
-        confidence: typeof r.confidence === "number" ? r.confidence : null,
-        wichtigkeitsgrund: r.wichtigkeitsgrund || null,
+        wichtigkeit: final.wichtigkeit || r.wichtigkeit || "mittel",
+        tags: final.tags || r.tags || [],
+        addPayment: !!(final.zahlungsbetrag ?? r.zahlungsbetrag),
+        analysisMode: r.analysisMode || final.analysisMode || "fallback",
+        confidence: typeof r.confidence === "number" ? r.confidence : (typeof final.confidence === "number" ? final.confidence : null),
+        wichtigkeitsgrund: r.wichtigkeitsgrund || final.reviewReason || null,
+        reviewStatus: r.reviewStatus || final.reviewStatus,
+        reviewReason: r.reviewReason || final.reviewReason || null,
+        shouldAutoArchive: Boolean(r.shouldAutoArchive ?? final.shouldAutoArchive),
+        regexAnalysis: r.regexAnalysis || null,
+        aiAnalysis: r.aiAnalysis || null,
+        visionAnalysis: r.visionAnalysis || null,
+        finalAnalysis: r.finalAnalysis || final || null,
         benchmark: data.benchmark || null,
       },
     } : x));
   }, [folderPaths, folders]);
 
   const onDrop = useCallback((accepted: File[]) => {
+    console.debug("[Eingang] files dropped", accepted.map((file) => ({
+      name: file.name,
+      type: file.type,
+      size: file.size,
+    })));
     const items: QueueItem[] = accepted.map((f) => ({ id: uid(), file: f, stage: "queued" }));
     setQueue((q) => [...items, ...q]);
     items.forEach((it) => analyze(it));
@@ -248,6 +294,11 @@ export default function EingangPage() {
     try {
       const files = Array.from(event.target.files || []).filter((file) => mimeTypeFor(file).startsWith("image/"));
       if (!files.length) return;
+      console.debug("[Eingang] camera files selected", files.map((file) => ({
+        name: file.name,
+        type: file.type,
+        size: file.size,
+      })));
       setPendingCameraFiles((current) => {
         const remaining = MAX_CAMERA_PHOTOS - current.length;
         if (remaining <= 0) {
@@ -296,8 +347,19 @@ export default function EingangPage() {
       const data = await uploadRes.json().catch(() => {
         throw new Error("Serverantwort konnte nicht gelesen werden");
       });
-      if (!uploadRes.ok) throw new Error(data?.error || "Mehrseitiger Scan fehlgeschlagen");
+      if (!uploadRes.ok) {
+        console.warn("[Eingang] Multi-page upload failed", {
+          status: uploadRes.status,
+          filename,
+          pages: pages.length,
+        });
+        const authHint = uploadRes.status === 401 || uploadRes.status === 403
+          ? "Sitzung abgelaufen. Bitte neu anmelden."
+          : null;
+        throw new Error(authHint || data?.error || "Mehrseitiger Scan fehlgeschlagen");
+      }
       if (data?.error) throw new Error(data.error);
+      console.debug("[Eingang] Multi-page upload success", { filename, pages: pages.length });
       applyUploadResult(item.id, data);
     } catch (err: any) {
       const msg = err?.message || "Mehrseitiger Scan fehlgeschlagen";
@@ -316,6 +378,27 @@ export default function EingangPage() {
     multiple: true,
     useFsAccessApi: false,
   });
+
+  useEffect(() => {
+    const logPageEvent = (eventName: string) => {
+      console.debug("[Eingang] page event", { eventName });
+    };
+    const handlePageHide = () => logPageEvent("pagehide");
+    const handleBeforeUnload = () => logPageEvent("beforeunload");
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        logPageEvent("visibilityhidden");
+      }
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, []);
 
   const archive = async (item: QueueItem) => {
     if (!item.result || !item.documentId) return;
@@ -496,11 +579,11 @@ export default function EingangPage() {
                 onArchive={() => archive(item)}
                 onDiscard={() => discard(item.id)}
                 onCreateFolder={createFolderFromInbox}
-                onPreview={() => item.documentId && setPreviewingDoc({
-                  id: item.documentId,
-                  filename: item.serverFilename || item.file.name,
-                  mimeType: item.serverMimeType || mimeTypeFor(item.file),
-                  size: item.serverSize || item.file.size,
+          onPreview={() => item.documentId && setPreviewingDoc({
+            id: item.documentId,
+            filename: item.serverFilename || item.file.name,
+            mimeType: item.serverMimeType || mimeTypeFor(item.file),
+            size: item.serverSize || item.file.size,
                   folderPath: item.result.folderPath,
                   absender: item.result.absender,
                   dokumenttyp: item.result.dokumenttyp,
@@ -508,11 +591,18 @@ export default function EingangPage() {
                   zahlungsbetrag: item.result.zahlungsbetrag,
                   faelligkeitsdatum: item.result.faelligkeitsdatum,
                   ablaufdatum: item.result.ablaufdatum,
-                  wichtigkeit: item.result.wichtigkeit,
-                  tags: item.result.tags || [],
-                  uploadedAt: new Date().toISOString(),
-                } as ArchivedDoc)}
-              />
+            wichtigkeit: item.result.wichtigkeit,
+            tags: item.result.tags || [],
+            reviewStatus: item.result.reviewStatus,
+            reviewReason: item.result.reviewReason,
+            shouldAutoArchive: item.result.shouldAutoArchive,
+            regexAnalysis: item.result.regexAnalysis,
+            aiAnalysis: item.result.aiAnalysis,
+            visionAnalysis: item.result.visionAnalysis,
+            finalAnalysis: item.result.finalAnalysis,
+            uploadedAt: new Date().toISOString(),
+          } as ArchivedDoc)}
+          />
             )}
 
             {item.stage === "archived" && (
@@ -601,17 +691,37 @@ function ResultCard({ item, folders, folderPaths, onChange, onArchive, onDiscard
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className={`inline-flex items-center rounded-full px-2.5 py-1 ${
-            r.analysisMode === "llm" ? "bg-emerald-500/15 text-emerald-300" :
+            r.analysisMode === "regex_vision_ai" ? "bg-cyan-500/15 text-cyan-300" :
+            r.analysisMode === "regex_vision_fallback" ? "bg-sky-500/15 text-sky-300" :
+            r.analysisMode === "regex_ai" ? "bg-emerald-500/15 text-emerald-300" :
             r.analysisMode === "regex" ? "bg-amber-500/15 text-amber-300" :
-            "bg-destructive/10 text-destructive"
+            r.analysisMode === "fallback" ? "bg-destructive/10 text-destructive" :
+            "bg-primary/15 text-primary"
           }`}>
             Analyse: {r.analysisMode}
           </span>
+          {r.visionAnalysis && (
+            <span className="rounded-full bg-cyan-500/15 px-2.5 py-1 text-cyan-300">
+              Vision aktiv
+            </span>
+          )}
+          {r.reviewStatus && (
+            <span className={`rounded-full px-2.5 py-1 ${
+              r.reviewStatus === "auto_ready" ? "bg-emerald-500/15 text-emerald-300" :
+              r.reviewStatus === "analysis_failed" ? "bg-rose-500/15 text-rose-300" :
+              "bg-amber-500/15 text-amber-300"
+            }`}>
+              {r.reviewStatus === "auto_ready" ? "Auto bereit" : r.reviewStatus === "analysis_failed" ? "Analysefehler" : "Prüfen"}
+            </span>
+          )}
           {r.confidence != null && (
             <span className="text-muted-foreground">Confidence {Math.round(r.confidence * 100)}%</span>
           )}
           {r.wichtigkeitsgrund && (
             <span className="text-muted-foreground">{r.wichtigkeitsgrund}</span>
+          )}
+          {r.reviewReason && (
+            <span className="text-muted-foreground">{r.reviewReason}</span>
           )}
         </div>
         {r.benchmark && (
@@ -768,7 +878,7 @@ function ResultCard({ item, folders, folderPaths, onChange, onArchive, onDiscard
         <Field label="Wichtigkeit">
           <div className="grid grid-cols-3 gap-1 rounded-lg glass p-1 text-xs">
             {(["niedrig","mittel","hoch"] as Importance[]).map((w) => (
-              <button key={w} onClick={() => onChange({ wichtigkeit: w })}
+              <button type="button" key={w} onClick={() => onChange({ wichtigkeit: w })}
                 className={`rounded-md py-1.5 capitalize transition ${r.wichtigkeit===w ? "bg-gradient-to-r from-violet-500 to-cyan-400 text-white" : "hover:bg-muted"}`}>{w}</button>
             ))}
           </div>
@@ -778,7 +888,7 @@ function ResultCard({ item, folders, folderPaths, onChange, onArchive, onDiscard
             {r.tags.map((t) => (
               <span key={t} className="inline-flex items-center gap-1 rounded-full glass px-2 py-0.5 text-[11px]">
                 <Tag className="h-3 w-3" />{t}
-                <button onClick={() => onChange({ tags: r.tags.filter((x) => x !== t) })} className="text-muted-foreground hover:text-foreground">×</button>
+                <button type="button" onClick={() => onChange({ tags: r.tags.filter((x) => x !== t) })} className="text-muted-foreground hover:text-foreground">×</button>
               </span>
             ))}
           </div>
@@ -796,10 +906,10 @@ function ResultCard({ item, folders, folderPaths, onChange, onArchive, onDiscard
           >
             <Eye className="h-4 w-4" /> Vorschau öffnen
           </button>
-          <button onClick={onArchive} className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-cyan-400 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_0_20px_oklch(0.62_0.24_290/0.4)] transition hover:brightness-110">
+          <button type="button" onClick={onArchive} className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-cyan-400 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_0_20px_oklch(0.62_0.24_290/0.4)] transition hover:brightness-110">
             <Check className="h-4 w-4" /> Archivieren
           </button>
-          <button onClick={onDiscard} className="inline-flex items-center justify-center gap-2 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive hover:bg-destructive/20">
+          <button type="button" onClick={onDiscard} className="inline-flex items-center justify-center gap-2 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive hover:bg-destructive/20">
             <X className="h-4 w-4" /> Verwerfen
           </button>
         </div>

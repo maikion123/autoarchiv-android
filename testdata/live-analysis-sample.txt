@@ -1,0 +1,6 @@
+Vattenfall Rechnung
+Kundennummer 12345678
+Rechnungsnummer 2026-05-11-01
+Rechnungsbetrag 61,74 EUR
+Fällig am 2026-05-20
+Bitte zahlen Sie fristgerecht.

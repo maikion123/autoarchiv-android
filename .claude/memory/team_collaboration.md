@@ -36,6 +36,8 @@ npm run agent:done claude-code "What was completed"
 
 Codex uses `codex` instead of `claude-code`. Kevin and Maik normally update status manually in `/agents`, but can also use the CLI with agent ids `kevin` or `maik`.
 
+The current work state should also be mirrored in the memory files on the same day, so the dashboard and the written notes do not drift apart.
+
 If files are affected, include them:
 
 ```bash
@@ -81,7 +83,7 @@ Each agent:
 - Styling & animations
 - Frontend tests
 - Accessibility improvements
-- Current shared focus: keep the `/agents` dashboard and login UI aligned with the backend state, especially around session confirmation after login
+- Current shared focus: keep the `/agents` dashboard and login UI aligned with the backend state, especially around session confirmation after login and the mobile first-upload path after login
 
 ### Communication Protocol
 
@@ -106,6 +108,8 @@ Each agent:
 3. Update relevant docs/memory if the project changed
 4. Mark done with `npm run agent:done <agent-id> "..."`
 5. Post to user with completion summary
+
+At every completion, update the agent status before considering the handoff finished.
 
 ## Git Workflow (for parallel work)
 
@@ -214,6 +218,12 @@ Current agents:
 - `kevin`
 - `maik`
 
+## Current Working Note
+
+- The Android first-upload reload loop has been fixed with auth cache persistence and quieter background auth checks.
+- The live front-end was restarted after the fix and the health endpoint stayed OK.
+- Upload diagnostics are now in the Eingang flow so any future reload or auth reset is easier to spot.
+
 ## Current Work Agreement
 
 - The login/session path is documented in `auth_system.md` and `working_approach.md`.
@@ -257,3 +267,12 @@ If MEMORY.md exceeds 200 lines, split into more files and update the index.
 ---
 
 **Bottom line:** Memory files are the shared brain. Treat them like you'd treat code documentation. Keep them current, and you'll never have to repeat yourself.
+
+---
+
+## 2026-05-11 Session Note
+
+- Today the user asked to limit the visible document areas to archived files only.
+- Implemented and documented: dashboard counts, folder views, top sender stats, and search now stay on archived documents.
+- The frontend build passed and `tanstack-ssr` was restarted after the change.
+- The live agent status for `codex` was updated to `done` again at the end of the session.

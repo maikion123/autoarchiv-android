@@ -181,17 +181,17 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
           className="fixed inset-0 z-[80] grid place-items-center bg-black/60 p-0 backdrop-blur-md sm:p-4"
           onClick={onClose}
         >
-          <motion.div
-            initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }}
-            transition={{ type: "spring", damping: 22 }}
-            className="glass-strong relative grid h-[100dvh] w-full max-w-7xl grid-rows-[minmax(0,50dvh)_minmax(0,1fr)] overflow-hidden rounded-none border-glow sm:h-[94vh] sm:rounded-2xl sm:grid-rows-[minmax(0,56dvh)_minmax(0,1fr)] lg:h-[98vh] lg:max-w-[92vw] lg:grid-rows-[minmax(0,64dvh)_minmax(0,1fr)] xl:h-[99vh] xl:max-w-[95vw] xl:grid-rows-[minmax(0,68dvh)_minmax(0,1fr)] md:grid-cols-[minmax(0,1fr)_420px] md:grid-rows-1"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <motion.div
+          initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }}
+          transition={{ type: "spring", damping: 22 }}
+          className="glass-strong relative flex h-auto max-h-[calc(100dvh-1rem)] w-full max-w-7xl flex-col overflow-hidden rounded-none border-glow sm:max-h-[calc(100dvh-2rem)] sm:rounded-2xl lg:max-w-[92vw] xl:max-w-[95vw] md:max-h-[calc(100dvh-2rem)] md:grid md:grid-cols-[minmax(0,1fr)_420px]"
+          onClick={(e) => e.stopPropagation()}
+        >
             <button onClick={onClose} className="absolute right-3 top-3 z-10 grid h-10 w-10 place-items-center rounded-full glass hover:bg-muted">
               <X className="h-4 w-4" />
             </button>
 
-            <div className="grid min-h-0 grid-rows-[auto_1fr] bg-black/30">
+            <div className="flex min-h-0 flex-1 flex-col bg-black/30">
               <div className="grid gap-2 border-b border-border/40 px-3 py-3 pr-14 sm:flex sm:items-center sm:justify-between sm:gap-3 sm:px-4">
                 <div className="flex max-w-full overflow-x-auto rounded-xl border border-border/50 bg-background/30 p-1 text-xs scrollbar-thin">
                   <TabButton active={activeTab === "preview"} onClick={() => setActiveTab("preview")}>
@@ -210,7 +210,7 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
               </div>
 
               {activeTab === "preview" ? (
-                <div className="grid min-h-0 h-full grid-rows-[auto_1fr_auto] gap-0">
+                <div className="flex min-h-0 flex-1 flex-col gap-0">
                   {/* Zoom Controls (nur für Bilder) */}
                   {activeDoc.mimeType.startsWith("image/") && url && !loadError && (
                     <div className="flex items-center justify-between border-b border-border/40 bg-black/20 px-3 py-2 sm:px-4">
@@ -241,7 +241,7 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
                   )}
 
                   {/* Preview Content */}
-                  <div className="grid min-h-0 place-items-center overflow-auto p-2 sm:p-3 lg:p-4">
+                  <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-2 sm:p-3 lg:p-4">
                     {loadError ? (
                       <div className="text-center space-y-3 text-sm text-muted-foreground">
                         <FileText className="mx-auto h-10 w-10 opacity-30" />
@@ -262,7 +262,7 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
                           src={url}
                           alt={activeDoc.filename}
                           style={{ transform: `scale(${zoom})` }}
-                          className="h-full w-full object-contain rounded-lg shadow-2xl transition-transform cursor-grab active:cursor-grabbing"
+                          className="max-h-[70dvh] w-auto max-w-full object-contain rounded-lg shadow-2xl transition-transform cursor-grab active:cursor-grabbing md:max-h-[calc(100dvh-10rem)]"
                         />
                       ) : activeDoc.mimeType === "application/pdf" ? isMobile ? (
                         <div className="text-center space-y-4 py-8">
@@ -281,12 +281,12 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
                           </div>
                         </div>
                       ) : (
-                        <iframe src={url} title={activeDoc.filename} className="h-full w-full rounded-lg bg-white" />
+                        <iframe src={url} title={activeDoc.filename} className="min-h-[48dvh] w-full rounded-lg bg-white md:min-h-[calc(100dvh-10rem)]" />
                       ) : (
                         <div className="text-muted-foreground">Vorschau nicht verfügbar</div>
                       )
                     ) : (
-                      <div className="skeleton h-full w-full" />
+                      <div className="skeleton min-h-[48dvh] w-full md:min-h-[calc(100dvh-10rem)]" />
                     )}
                   </div>
                 </div>
@@ -306,6 +306,7 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
                 </div>
               ) : (
                 <div className="min-h-0 overflow-auto p-3 sm:p-4">
+                  <AnalysisComparisonPanel doc={activeDoc} />
                   <AnalysisHintsPanel hints={activeDoc.analysisHints} />
                 </div>
               )}
@@ -561,14 +562,142 @@ function AnalysisHintsPanel({ hints }: { hints?: Record<string, AnalysisHint | n
   );
 }
 
+function AnalysisComparisonPanel({ doc }: { doc: ArchivedDoc }) {
+  const regex = doc.regexAnalysis || {};
+  const ai = doc.aiAnalysis || null;
+  const vision = doc.visionAnalysis || null;
+  const final = doc.finalAnalysis || {};
+  const reviewStatus = doc.reviewStatus || final.reviewStatus || "review_required";
+  const reviewReason = doc.reviewReason || (typeof final.reviewReason === "string" ? final.reviewReason : "");
+  const confidence = typeof doc.confidence === "number"
+    ? doc.confidence
+    : (typeof final.confidence === "number" ? final.confidence : null);
+  const visionUsed = Boolean(vision && Object.keys(vision).length);
+
+  return (
+    <div className="mb-4 space-y-3 rounded-xl border border-border/40 bg-background/50 p-3 sm:p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Analyse-Entscheidung</div>
+          <div className="mt-1 text-sm font-medium">
+            {doc.shouldAutoArchive ? "Automatisch archivieren" : reviewStatus === "analysis_failed" ? "Analyse fehlgeschlagen" : "Manuell prüfen"}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className={`rounded-full px-2.5 py-1 ${
+            reviewStatus === "auto_ready" ? "bg-emerald-500/15 text-emerald-300" :
+            reviewStatus === "analysis_failed" ? "bg-rose-500/15 text-rose-300" :
+            "bg-amber-500/15 text-amber-300"
+          }`}>
+            {reviewStatus === "auto_ready" ? "Auto bereit" : reviewStatus === "analysis_failed" ? "Analysefehler" : "Prüfen"}
+          </span>
+          {confidence != null && (
+            <span className="rounded-full bg-primary/10 px-2.5 py-1 text-primary">
+              {Math.round(confidence * 100)}%
+            </span>
+          )}
+        </div>
+      </div>
+
+      {reviewReason && (
+        <div className="rounded-lg border border-border/40 bg-black/10 px-3 py-2 text-sm text-foreground/90">
+          {reviewReason}
+        </div>
+      )}
+      {visionUsed && (
+        <div className="rounded-lg border border-sky-500/20 bg-sky-500/10 px-3 py-2 text-xs text-sky-200">
+          Vision aktiv. Layout-Signale und Seitenbilder wurden mit einbezogen.
+        </div>
+      )}
+
+      <div className={`grid gap-3 ${visionUsed ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
+        <AnalysisFieldCard title="Regex" data={regex} />
+        {visionUsed && <AnalysisFieldCard title="Vision" data={vision || {}} />}
+        <AnalysisFieldCard title="KI" data={ai || {}} emptyLabel={ai ? undefined : "Nicht verwendet"} />
+        <AnalysisFieldCard title="Final" data={final} highlight />
+      </div>
+    </div>
+  );
+}
+
+function AnalysisFieldCard({
+  title,
+  data,
+  emptyLabel,
+  highlight = false,
+}: {
+  title: string;
+  data: Record<string, unknown>;
+  emptyLabel?: string;
+  highlight?: boolean;
+}) {
+  const rows = [
+    ["absender", "Absender"],
+    ["dokumenttyp", "Typ"],
+    ["vorgeschlagenerOrdner", "Ordner"],
+    ["vorgeschlagenerUnterordner", "Unterordner"],
+    ["zahlungsbetrag", "Betrag"],
+    ["faelligkeitsdatum", "Fälligkeit"],
+    ["ablaufdatum", "Ablaufdatum"],
+    ["layoutSignals", "Layout"],
+  ] as const;
+  const hasData = rows.some(([key]) => data?.[key] != null && data?.[key] !== "");
+
+  return (
+    <div className={`rounded-xl border p-3 text-sm ${highlight ? "border-primary/40 bg-primary/5" : "border-border/40 bg-background/40"}`}>
+      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{title}</div>
+      <div className="mt-2 space-y-1.5">
+        {hasData ? rows.map(([key, label]) => {
+          const value = data?.[key];
+          if (value == null || value === "") return null;
+          return (
+            <div key={key} className="flex items-start justify-between gap-3">
+              <span className="shrink-0 text-[11px] uppercase tracking-wider text-muted-foreground">{label}</span>
+              <span className="min-w-0 break-words text-right text-sm">{formatAnalysisValue(key, value)}</span>
+            </div>
+          );
+        }) : (
+          <div className="text-sm text-muted-foreground">{emptyLabel || "—"}</div>
+        )}
+      </div>
+      {typeof data?.confidence === "number" && (
+        <div className="mt-3 text-[11px] text-muted-foreground">
+          Confidence {Math.round(Number(data.confidence) * 100)}%
+        </div>
+      )}
+      {typeof data?.analysisMode === "string" && (
+        <div className="mt-1 break-words text-[11px] text-muted-foreground">
+          Modus {String(data.analysisMode)}
+        </div>
+      )}
+      {Array.isArray(data?.layoutSignals) && data.layoutSignals.length > 0 && (
+        <div className="mt-2 break-words text-[11px] text-muted-foreground">
+          Layout-Signale: {data.layoutSignals.join(", ")}
+        </div>
+      )}
+      {typeof data?.reviewReason === "string" && data.reviewReason && (
+        <div className="mt-2 break-words text-[11px] text-muted-foreground">{String(data.reviewReason)}</div>
+      )}
+    </div>
+  );
+}
+
 function formatHintValue(value: AnalysisHint["value"]) {
   if (value == null || value === "") return "—";
   return typeof value === "number" ? fmtEUR(value) : String(value);
 }
 
+function formatAnalysisValue(key: string, value: unknown) {
+  if (value == null || value === "") return "—";
+  if (key === "zahlungsbetrag" && typeof value === "number") return fmtEUR(value);
+  if (key === "layoutSignals" && Array.isArray(value)) return value.join(", ");
+  return String(value);
+}
+
 function statusLabel(status: ArchivedDoc["status"]) {
   if (status === "archived") return "Archiviert";
   if (status === "analyzed") return "Geprüft, noch nicht archiviert";
+  if (status === "review") return "Zu prüfen";
   if (status === "uploaded") return "Hochgeladen";
   if (status === "failed") return "Fehler";
   if (status === "deleted") return "Gelöscht";

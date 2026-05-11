@@ -4082,7 +4082,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   });
 
   log('LOGIN_SUCCESS', { userId: user.id, ip });
-  return res.status(200).json({ email: user.email, role: String(user.role || 'user') });
+  return res.status(200).json({ email: user.email, role: String(user.role || 'user'), displayName: user.display_name || null });
 });
 
 // ── POST /api/auth/logout ─────────────────────────────────────────────────────

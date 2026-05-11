@@ -147,12 +147,12 @@ export function RegisterForm({ onRegister }: { onRegister: (email: string) => vo
             transition={{ delay: 0.2, type: "spring" }}
             className="flex items-center gap-3"
           >
-            <img src={logoImg} alt="nextKM Logo" className="h-12 w-12 rounded-2xl" />
+            <img src={logoImg} alt="nextKM" className="h-12 w-12 rounded-2xl" />
             <div>
               <h1 className="text-2xl font-bold tracking-tight">
-                Auto<span className="text-gradient">Archiv</span>
+                nextKM
               </h1>
-              <p className="text-xs text-muted-foreground">Privates Dokumentenarchiv</p>
+              <p className="text-xs text-muted-foreground">Briefe automatisch analysieren und archivieren</p>
             </div>
           </motion.div>
         </div>
