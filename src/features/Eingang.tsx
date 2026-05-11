@@ -34,6 +34,9 @@ interface QueueItem {
   id: string;
   documentId?: string;
   file: File;
+  serverFilename?: string;
+  serverMimeType?: string;
+  serverSize?: number;
   stage: Stage;
   error?: string;
   result?: {
@@ -64,6 +67,36 @@ const DROPZONE_ACCEPT = {
 };
 
 const MAX_CAMERA_PHOTOS = 5;
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || "").replace(/^data:[^;]+;base64,/, ""));
+    reader.onerror = () => reject(new Error("Foto konnte nicht gelesen werden"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function imageToScanBase64(file: File): Promise<string> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const maxSide = 1800;
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas nicht verfügbar");
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close();
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.86);
+    return dataUrl.replace(/^data:[^;]+;base64,/, "");
+  } catch {
+    return fileToBase64(file);
+  }
+}
 
 function mimeTypeFor(file: File) {
   if (file.type) return file.type;
@@ -170,6 +203,41 @@ export default function EingangPage() {
     }
   }, [folderPaths, folders]);
 
+  const applyUploadResult = useCallback((itemId: string, data: any, fallbackPath = "07_Sonstiges") => {
+    const r = data.document || data;
+    const folderPath = r.folderPath || (
+      r.vorgeschlagenerUnterordner
+        ? `${r.vorgeschlagenerOrdner}/${r.vorgeschlagenerUnterordner}`
+        : r.vorgeschlagenerOrdner
+    );
+    const valid = folderPaths.length > 0 ? folderPaths : flattenFolderTree(folders).map((node) => node.id);
+    const safePath = valid.includes(folderPath) ? folderPath : (valid.includes(r.vorgeschlagenerOrdner) ? r.vorgeschlagenerOrdner : fallbackPath);
+    setQueue((q) => q.map((x) => x.id === itemId ? {
+      ...x,
+      documentId: r.id,
+      serverFilename: r.filename || x.serverFilename,
+      serverMimeType: r.mimeType || x.serverMimeType,
+      serverSize: r.size || x.serverSize,
+      stage: "ready",
+      result: {
+        absender: r.absender || "Unbekannt",
+        dokumenttyp: r.dokumenttyp || "Sonstiges",
+        zusammenfassung: r.zusammenfassung || "",
+        zahlungsbetrag: r.zahlungsbetrag,
+        faelligkeitsdatum: r.faelligkeitsdatum,
+        ablaufdatum: r.ablaufdatum,
+        folderPath: safePath,
+        wichtigkeit: r.wichtigkeit || "mittel",
+        tags: r.tags || [],
+        addPayment: !!r.zahlungsbetrag,
+        analysisMode: r.analysisMode || "fallback",
+        confidence: typeof r.confidence === "number" ? r.confidence : null,
+        wichtigkeitsgrund: r.wichtigkeitsgrund || null,
+        benchmark: data.benchmark || null,
+      },
+    } : x));
+  }, [folderPaths, folders]);
+
   const onDrop = useCallback((accepted: File[]) => {
     const items: QueueItem[] = accepted.map((f) => ({ id: uid(), file: f, stage: "queued" }));
     setQueue((q) => [...items, ...q]);
@@ -197,17 +265,46 @@ export default function EingangPage() {
     }
   }, []);
 
-  const analyzePendingCameraPhotos = useCallback(() => {
+  const analyzePendingCameraPhotos = useCallback(async () => {
     if (!pendingCameraFiles.length) return;
-    const items: QueueItem[] = pendingCameraFiles.map((file, index) => ({
+    const firstFile = pendingCameraFiles[0];
+    const filename = `Mehrseitiger Scan ${new Date().toLocaleDateString("de-DE")}.pdf`;
+    const item: QueueItem = {
       id: uid(),
-      file: new File([file], file.name || `foto-${index + 1}.jpg`, { type: file.type || "image/jpeg" }),
+      file: firstFile,
+      serverFilename: filename,
+      serverMimeType: "application/pdf",
+      serverSize: pendingCameraFiles.reduce((sum, file) => sum + file.size, 0),
       stage: "queued",
-    }));
-    setQueue((q) => [...items, ...q]);
+    };
+    setQueue((q) => [item, ...q]);
     setPendingCameraFiles([]);
-    items.forEach((it) => analyze(it));
-  }, [analyze, pendingCameraFiles]);
+    setQueue((q) => q.map((x) => x.id === item.id ? { ...x, stage: "analyzing" } : x));
+
+    try {
+      const pages = await Promise.all(pendingCameraFiles.map(async (file) => ({
+        filename: file.name || "foto.jpg",
+        mimeType: "image/jpeg",
+        data: await imageToScanBase64(file),
+      })));
+      const uploadRes = await fetch("/api/documents/upload-pages", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename, pages }),
+      });
+      const data = await uploadRes.json().catch(() => {
+        throw new Error("Serverantwort konnte nicht gelesen werden");
+      });
+      if (!uploadRes.ok) throw new Error(data?.error || "Mehrseitiger Scan fehlgeschlagen");
+      if (data?.error) throw new Error(data.error);
+      applyUploadResult(item.id, data);
+    } catch (err: any) {
+      const msg = err?.message || "Mehrseitiger Scan fehlgeschlagen";
+      setQueue((q) => q.map((x) => x.id === item.id ? { ...x, stage: "error", error: msg } : x));
+      toast.error(msg);
+    }
+  }, [applyUploadResult, pendingCameraFiles]);
 
   const removePendingCameraPhoto = useCallback((index: number) => {
     setPendingCameraFiles((current) => current.filter((_, i) => i !== index));
@@ -228,7 +325,7 @@ export default function EingangPage() {
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        filename: item.file.name,
+        filename: item.serverFilename || item.file.name,
         folderPath: r.folderPath,
         absender: r.absender,
         dokumenttyp: r.dokumenttyp,
@@ -377,7 +474,9 @@ export default function EingangPage() {
               <PipeStep done={item.stage !== "queued"} active={item.stage === "analyzing"} label="OCR & Analyse" Icon={item.stage==="analyzing"?Loader2:Sparkles} spin={item.stage==="analyzing"} />
               <PipeStep done={item.stage === "ready" || item.stage === "archived"} label="Prüfen" Icon={Check} />
               <PipeStep done={item.stage === "archived"} label="Archiviert" Icon={Check} />
-              <div className="w-full truncate text-muted-foreground sm:ml-auto sm:w-auto">{item.file.name} · {fmtBytes(item.file.size)}</div>
+              <div className="w-full truncate text-muted-foreground sm:ml-auto sm:w-auto">
+                {item.serverFilename || item.file.name} · {fmtBytes(item.serverSize || item.file.size)}
+              </div>
             </div>
 
             {item.stage === "error" && (
@@ -399,9 +498,9 @@ export default function EingangPage() {
                 onCreateFolder={createFolderFromInbox}
                 onPreview={() => item.documentId && setPreviewingDoc({
                   id: item.documentId,
-                  filename: item.file.name,
-                  mimeType: mimeTypeFor(item.file),
-                  size: item.file.size,
+                  filename: item.serverFilename || item.file.name,
+                  mimeType: item.serverMimeType || mimeTypeFor(item.file),
+                  size: item.serverSize || item.file.size,
                   folderPath: item.result.folderPath,
                   absender: item.result.absender,
                   dokumenttyp: item.result.dokumenttyp,

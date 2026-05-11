@@ -1530,95 +1530,125 @@ function scoreDocumentCategory(text, filename) {
 }
 
 function analyzeExtractedText({ filename, mimeType, text }) {
-  const fallback = inferDocument(filename, mimeType);
-  const combined = `${filename}\n${text}`;
-  const tags = new Set(fallback.tags);
-  const result = { ...fallback };
+  // STRICT MODE: Only use extracted text, never force defaults
+  const hasText = text && text.trim().length > 10;
 
-  const scores = scoreDocumentCategory(combined, filename);
-  const bestCategory = Object.entries(scores).sort((a, b) => (b[1] - a[1]))[0];
-  const plate = findLicensePlate(combined);
-  const sender = text ? inferSender(text, filename) : fallback.absender;
-  const docType = pickDocumentType(combined, fallback.dokumenttyp);
+  // Start with minimal fallback
+  const emptyResult = {
+    absender: '',
+    dokumenttyp: '',
+    zusammenfassung: '',
+    zahlungsbetrag: null,
+    faelligkeitsdatum: null,
+    ablaufdatum: null,
+    vorgeschlagenerOrdner: '07_Sonstiges',
+    vorgeschlagenerUnterordner: '',
+    wichtigkeit: 'mittel',
+    tags: [],
+    analysisMode: 'regex',
+  };
+
+  // If no meaningful text extracted, return empty
+  if (!hasText) {
+    console.log('analyzeExtractedText: No meaningful text extracted from', filename);
+    return emptyResult;
+  }
+
+  // Only analyze with actual OCR text
+  const combined = `${filename}\n${text}`;
+  const tags = new Set();
+
+  // Extract information from OCR text ONLY (not filename)
+  const sender = inferSender(text, filename);
+  const docType = pickDocumentType(combined, '');
   const subject = extractLabelValue(text, ['betreff', 'leistung', 'gegenstand', 'verwendungszweck']);
-  const amountHint = pickPrimaryAmountCandidate(combined);
-  const bestAmount = amountHint?.value ?? null;
-  const hasInsurance = scores.versicherung > 0 || /\br\s*\+\s*v\b|\br\s*(?:und|plus)\s+v\b|\bruv\b/i.test(combined);
-  const hasVehicle = scores.fahrzeug > 0 || /\b(?:kfz|fahrzeug|kennzeichen|zulassung)\b/i.test(combined);
+  const amountHint = pickPrimaryAmountCandidate(text);
+  const plate = findLicensePlate(text);
+
+  // Only detect category from actual text content, NOT filename
+  const scores = scoreDocumentCategory(text, '');  // Empty filename to avoid false positives
+  const bestCategory = Object.entries(scores).sort((a, b) => (b[1] - a[1]))[0];
+
+  // Strict R+V detection: Only if explicitly spelled out
+  const hasExplicitRPlusV = /\br\s*\+\s*v\b|\br\s*(?:und|plus)\s+v\b|\bruv\b/i.test(text);
+  const hasInsurance = scores.versicherung >= 6 && hasExplicitRPlusV;
+  const hasVehicle = scores.fahrzeug >= 5;
   const isVehicleInsurance = hasInsurance && hasVehicle;
+
+  // Date extraction
   const documentDateHint = parseDateNearWithHint(text, ['datum', 'rechnungsdatum', 'belegdatum', 'rechnung vom']);
   const dueDateHint = parseDateNearWithHint(text, ['fällig', 'faellig', 'zahlbar bis', 'bis zum', 'zahlung bis', 'abbuchung am', 'einzug am', 'fällig am', 'faellig am', 'zu zahlen bis']);
   const expiryDateHint = parseDateNearWithHint(text, ['gültig bis', 'gueltig bis', 'ablauf', 'läuft ab', 'endet am']);
-  const displayDocumentDate = documentDateHint?.value ? documentDateHint.value.split('-').reverse().join('.') : null;
-  let folderHint = null;
 
-  result.dokumenttyp = (docType === 'Rechnung' || textHas(combined, 'rechnung', 'jahresbeitrag', 'zahlung', 'lastschrift'))
-    ? 'Rechnung'
-    : docType;
+  // Build result from ACTUAL text analysis
+  const result = {
+    absender: sender !== 'Unbekannt' ? sender : '', // Empty if not found
+    dokumenttyp: docType || '',
+    zusammenfassung: '',
+    zahlungsbetrag: amountHint?.value ?? null,
+    faelligkeitsdatum: dueDateHint?.value ?? null,
+    ablaufdatum: expiryDateHint?.value ?? null,
+    vorgeschlagenerOrdner: '07_Sonstiges',
+    vorgeschlagenerUnterordner: '',
+    wichtigkeit: 'mittel',
+    tags: [],
+    analysisMode: 'regex',
+  };
 
+  // Folder assignment based on ACTUAL content only
   if (isVehicleInsurance) {
     result.vorgeschlagenerOrdner = '01_Fahrzeug/KFZ-Versicherung';
-    folderHint = makeAnalysisHint(result.vorgeschlagenerOrdner, 'folder:vehicle-insurance', 'KFZ/Fahrzeug und Versicherung erkannt', 0.9);
     tags.add('fahrzeug');
     tags.add('versicherung');
     tags.add('kfz');
-  } else if (bestCategory?.[0] === 'versicherung') {
-    result.vorgeschlagenerOrdner = FOLDERS.versicherung;
-    folderHint = makeAnalysisHint(result.vorgeschlagenerOrdner, 'folder:versicherung-score', 'Versicherungsbegriffe im Dokument erkannt', 0.78);
+  } else if (bestCategory?.[0] === 'versicherung' && scores.versicherung >= 6) {
+    result.vorgeschlagenerOrdner = '04_Versicherung';
     tags.add('versicherung');
-  } else if (bestCategory?.[0] === 'fahrzeug') {
-    result.vorgeschlagenerOrdner = FOLDERS.fahrzeug;
-    folderHint = makeAnalysisHint(result.vorgeschlagenerOrdner, 'folder:fahrzeug-score', 'Fahrzeugbegriffe im Dokument erkannt', 0.78);
+  } else if (bestCategory?.[0] === 'fahrzeug' && scores.fahrzeug >= 5) {
+    result.vorgeschlagenerOrdner = '01_Fahrzeug';
     tags.add('fahrzeug');
-  } else if (bestCategory?.[0] === 'behoerde') {
-    result.vorgeschlagenerOrdner = FOLDERS.behoerde;
+  } else if (bestCategory?.[0] === 'behoerde' && scores.behoerde >= 5) {
+    result.vorgeschlagenerOrdner = '05_Behörde';
     result.wichtigkeit = 'hoch';
-    folderHint = makeAnalysisHint(result.vorgeschlagenerOrdner, 'folder:behoerde-score', 'Behörden- oder Bescheidbegriffe erkannt', 0.78);
     tags.add('behoerde');
-  } else if (bestCategory?.[0] === 'vertrag') {
-    result.vorgeschlagenerOrdner = FOLDERS.vertrag;
-    folderHint = makeAnalysisHint(result.vorgeschlagenerOrdner, 'folder:vertrag-score', 'Vertragsbegriffe im Dokument erkannt', 0.78);
+  } else if (bestCategory?.[0] === 'vertrag' && scores.vertrag >= 5) {
+    result.vorgeschlagenerOrdner = '03_Verträge';
     tags.add('vertrag');
-  } else if (bestCategory?.[0] === 'gesundheit') {
-    result.vorgeschlagenerOrdner = FOLDERS.gesundheit;
-    folderHint = makeAnalysisHint(result.vorgeschlagenerOrdner, 'folder:gesundheit-score', 'Gesundheitsbegriffe im Dokument erkannt', 0.78);
+  } else if (bestCategory?.[0] === 'gesundheit' && scores.gesundheit >= 5) {
+    result.vorgeschlagenerOrdner = '06_Gesundheit';
     tags.add('gesundheit');
-  } else if (textHas(combined, 'rechnung', 'rechnungsnummer', 'gesamtbetrag', 'zu zahlen', 'lastschrift', 'abbuchung')) {
-    result.vorgeschlagenerOrdner = FOLDERS.finanzen;
-    folderHint = makeAnalysisHint(result.vorgeschlagenerOrdner, 'folder:rechnung-finance', 'Rechnungs- oder Zahlungsbegriffe erkannt', 0.76);
+  } else if (bestCategory?.[0] === 'finanzen' && scores.finanzen >= 4) {
+    result.vorgeschlagenerOrdner = '02_Finanzen';
     tags.add('rechnung');
     tags.add('zahlung');
   }
 
-  result.absender = sender;
-  result.zahlungsbetrag = bestAmount;
-  result.faelligkeitsdatum = dueDateHint?.value ?? null;
-  result.ablaufdatum = expiryDateHint?.value ?? null;
-  result.analysisHints = {
-    absender: makeAnalysisHint(sender, text ? 'sender:text-line-or-brand' : 'sender:filename-fallback', sender, text && sender !== 'Unbekannt' ? 0.72 : 0.35),
-    dokumenttyp: makeAnalysisHint(result.dokumenttyp, `document-type:${normalizeAnalysisText(result.dokumenttyp)}`, result.dokumenttyp, result.dokumenttyp !== fallback.dokumenttyp ? 0.78 : 0.52),
-    folderPath: folderHint,
-    zahlungsbetrag: amountHint ? makeAnalysisHint(amountHint.value, amountHint.ruleId, amountHint.sourceText, amountHint.confidence) : null,
-    faelligkeitsdatum: dueDateHint ? makeAnalysisHint(dueDateHint.value, dueDateHint.ruleId, dueDateHint.sourceText, dueDateHint.confidence) : null,
-    ablaufdatum: expiryDateHint ? makeAnalysisHint(expiryDateHint.value, expiryDateHint.ruleId, expiryDateHint.sourceText, expiryDateHint.confidence) : null,
-  };
-
+  // Build summary from actual findings
   const summaryBits = [];
-  if (sender && sender !== 'Unbekannt') summaryBits.push(sender);
+  if (result.absender) summaryBits.push(result.absender);
   if (result.dokumenttyp) summaryBits.push(result.dokumenttyp);
   if (subject) summaryBits.push(subject);
-  if (isVehicleInsurance) summaryBits.push('Kfz-Versicherung');
-  if (displayDocumentDate) summaryBits.push(`Datum ${displayDocumentDate}`);
-  if (plate) summaryBits.push(`Kennzeichen ${plate}`);
-  if (bestAmount != null) summaryBits.push(`Betrag ${bestAmount.toFixed(2).replace('.', ',')} EUR`);
+  if (result.zahlungsbetrag != null) summaryBits.push(`${result.zahlungsbetrag.toFixed(2).replace('.', ',')} EUR`);
   if (result.faelligkeitsdatum) summaryBits.push(`fällig ${result.faelligkeitsdatum}`);
-  result.zusammenfassung = summaryBits.length
-    ? summaryBits.join(' · ')
-    : (text ? text.replace(/\s+/g, ' ').trim().slice(0, 240) : fallback.zusammenfassung);
+  if (plate) summaryBits.push(`Kennz. ${plate}`);
 
+  result.zusammenfassung = summaryBits.length > 0
+    ? summaryBits.join(' · ')
+    : text.replace(/\s+/g, ' ').trim().slice(0, 200);
+
+  // Tags
   if (plate) tags.add(`kennzeichen:${plate}`);
-  if (/\br\s*\+\s*v\b|\br\s*(?:und|plus)\s+v\b|\bruv\b/i.test(combined)) tags.add('r+v');
+  if (hasExplicitRPlusV) tags.add('r+v');
   result.tags = Array.from(tags).slice(0, 8);
+
+  console.log('analyzeExtractedText result', {
+    filename,
+    sender: result.absender,
+    folder: result.vorgeschlagenerOrdner,
+    category: bestCategory?.[0],
+    scores: { ...scores },
+    tags: result.tags,
+  });
 
   return result;
 }
@@ -2229,13 +2259,14 @@ function pdfString(value) {
 }
 
 async function imageBufferToPdfPage(buffer) {
-  const image = sharp(buffer, { failOnError: false }).rotate();
-  const metadata = await image.metadata();
-  const jpeg = await image.jpeg({ quality: 84, mozjpeg: true }).toBuffer();
+  const { data: jpeg, info } = await sharp(buffer, { failOnError: false })
+    .rotate()
+    .jpeg({ quality: 84, mozjpeg: true })
+    .toBuffer({ resolveWithObject: true });
   return {
     image: jpeg,
-    width: Math.max(1, metadata.width || 1240),
-    height: Math.max(1, metadata.height || 1754),
+    width: Math.max(1, info.width || 1240),
+    height: Math.max(1, info.height || 1754),
   };
 }
 
@@ -2447,6 +2478,134 @@ app.post('/api/documents/upload', requireAuth, express.raw({
   } catch (err) {
     console.error('documents/upload failed', errorSummary(err));
     return res.status(500).json({ error: 'Dokument konnte nicht gespeichert werden' });
+  }
+});
+
+app.post('/api/documents/upload-pages', requireAuth, async (req, res) => {
+  const userId = currentUserId(req);
+  const originalFilename = sanitizeFilename(req.body?.filename || 'mehrseitiger-scan.pdf').replace(/\.[^.]+$/, '') + '.pdf';
+  const pages = Array.isArray(req.body?.pages) ? req.body.pages.slice(0, 5) : [];
+
+  if (!userId) return res.status(401).json({ error: 'Nicht angemeldet' });
+  if (!pages.length) return res.status(400).json({ error: 'Keine Seiten übergeben' });
+  if (pages.length > 5) return res.status(400).json({ error: 'Maximal 5 Seiten pro Scan' });
+
+  const documentId = uid();
+  const documentDir = join(STORAGE_PATH, 'users', userId, 'documents', documentId);
+  const storagePath = storagePathFor(userId, documentId, 'original.pdf');
+  const now = new Date().toISOString();
+  const pageBuffers = [];
+  const pdfPages = [];
+  const textParts = [];
+  const engines = [];
+
+  try {
+    for (const [index, page] of pages.entries()) {
+      const mimeType = String(page?.mimeType || 'image/jpeg').split(';')[0];
+      const data = String(page?.data || '').replace(/^data:[^;]+;base64,/, '');
+      if (!mimeType.startsWith('image/') || !data) {
+        return res.status(400).json({ error: `Seite ${index + 1} ist kein Bild` });
+      }
+      const buffer = Buffer.from(data, 'base64');
+      if (!buffer.length) return res.status(400).json({ error: `Seite ${index + 1} ist leer` });
+      pageBuffers.push({ buffer, mimeType });
+      pdfPages.push(await imageBufferToPdfPage(buffer));
+    }
+
+    const pdfBuffer = createPdfFromJpegPages(pdfPages, originalFilename);
+    const sha256 = crypto.createHash('sha256').update(pdfBuffer).digest('hex');
+
+    await mkdir(documentDir, { recursive: true });
+    await writeFile(storagePath, pdfBuffer, { flag: 'wx' });
+
+    db.prepare(`
+      INSERT INTO documents (
+        id, user_id, filename, original_filename, mime_type, size, storage_path, sha256,
+        status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      documentId, userId, originalFilename, originalFilename, 'application/pdf', pdfBuffer.length, storagePath, sha256,
+      'uploaded', now, now,
+    );
+
+    for (const [index, page] of pageBuffers.entries()) {
+      try {
+        const extracted = await extractImageText(page.buffer, page.mimeType);
+        textParts.push(`--- Seite ${index + 1} ---\n${extracted.text || ''}`.trim());
+        engines.push(extracted.engine || 'tesseract');
+      } catch (err) {
+        console.warn('upload-pages OCR failed', index + 1, errorSummary(err));
+        textParts.push(`--- Seite ${index + 1} ---`);
+      }
+    }
+
+    const text = textParts.join('\n\n').trim();
+    let analysis;
+    try {
+      analysis = await analyzeTextWithFallback({ filename: originalFilename, mimeType: 'application/pdf', text, userId });
+    } catch (err) {
+      console.error('documents/upload-pages analysis fallback', errorSummary(err));
+      analysis = { ...inferDocument(originalFilename, 'application/pdf'), analysisMode: 'regex' };
+    }
+    const benchmark = evaluateBenchmark(analysis, originalFilename, text);
+    const tagsJson = JSON.stringify(Array.from(new Set([...(Array.isArray(analysis.tags) ? analysis.tags : []), 'mehrseitig'])).slice(0, 20));
+    const analysisHintsJson = JSON.stringify(
+      analysis.analysisHints && typeof analysis.analysisHints === 'object' ? analysis.analysisHints : {},
+    );
+
+    db.prepare(`
+      UPDATE documents SET
+        folder_path = ?,
+        absender = ?,
+        dokumenttyp = ?,
+        zusammenfassung = ?,
+        zahlungsbetrag = ?,
+        faelligkeitsdatum = ?,
+        ablaufdatum = ?,
+        wichtigkeit = ?,
+        tags_json = ?,
+        analysis_hints_json = ?,
+        analysis_mode = ?,
+        confidence = ?,
+        wichtigkeitsgrund = ?,
+        status = ?,
+        updated_at = ?
+      WHERE id = ? AND user_id = ?
+    `).run(
+      analysis.vorgeschlagenerUnterordner
+        ? `${analysis.vorgeschlagenerOrdner}/${analysis.vorgeschlagenerUnterordner}`
+        : analysis.vorgeschlagenerOrdner || '07_Sonstiges',
+      analysis.absender || 'Unbekannt',
+      analysis.dokumenttyp || 'Sonstiges',
+      analysis.zusammenfassung || '',
+      analysis.zahlungsbetrag ?? null,
+      analysis.faelligkeitsdatum ?? null,
+      analysis.ablaufdatum ?? null,
+      analysis.wichtigkeit || 'mittel',
+      tagsJson,
+      analysisHintsJson,
+      analysis.analysisMode || 'regex',
+      analysis.confidence ?? null,
+      analysis.wichtigkeitsgrund ?? null,
+      'analyzed',
+      new Date().toISOString(),
+      documentId,
+      userId,
+    );
+
+    db.prepare(`
+      INSERT INTO document_texts (document_id, extracted_text, ocr_engine)
+      VALUES (?, ?, ?)
+      ON CONFLICT(document_id) DO UPDATE SET
+        extracted_text = excluded.extracted_text,
+        ocr_engine = excluded.ocr_engine
+    `).run(documentId, text || '', Array.from(new Set(engines)).join(',') || 'tesseract');
+
+    const row = db.prepare('SELECT * FROM documents WHERE id = ? AND user_id = ?').get(documentId, userId);
+    return res.status(201).json({ document: documentResponse(row), benchmark });
+  } catch (err) {
+    console.error('documents/upload-pages failed', errorSummary(err));
+    return res.status(500).json({ error: 'Mehrseitiger Scan konnte nicht gespeichert werden' });
   }
 });
 
