@@ -518,7 +518,7 @@ function currentUserId(req) {
 
 function getUserById(userId) {
   if (!userId) return null;
-  return db.prepare('SELECT id, email, email_verified, role, created_at, updated_at FROM users WHERE id = ?').get(userId) || null;
+  return db.prepare('SELECT id, email, email_verified, role, display_name, password_hash, created_at, updated_at FROM users WHERE id = ?').get(userId) || null;
 }
 
 function getDocumentById(documentId) {
@@ -4122,12 +4122,25 @@ app.patch('/api/auth/profile', requireAuth, (req, res) => {
   }
 
   const userId = currentUserId(req);
+  if (!userId) {
+    console.error('[Profile] No user ID found in request');
+    return res.status(401).json({ error: 'Authentifizierung erforderlich' });
+  }
+
   try {
-    db.prepare('UPDATE users SET display_name = ?, updated_at = datetime("now") WHERE id = ?')
+    console.log('[Profile] Updating display name for user:', userId);
+    const result = db.prepare('UPDATE users SET display_name = ?, updated_at = datetime("now") WHERE id = ?')
       .run(trimmed, userId);
+
+    if (result.changes === 0) {
+      console.warn('[Profile] User not found:', userId);
+      return res.status(404).json({ error: 'Benutzer nicht gefunden' });
+    }
+
+    console.log('[Profile] Display name updated successfully for:', userId);
     return res.status(200).json({ message: 'Profil aktualisiert', displayName: trimmed });
   } catch (err) {
-    console.error('Profile update error:', errorSummary(err));
+    console.error('[Profile] Update error:', errorSummary(err));
     return res.status(500).json({ error: 'Fehler beim Aktualisieren des Profils' });
   }
 });
@@ -4141,15 +4154,22 @@ app.patch('/api/auth/change-password', requireAuth, (req, res) => {
   }
 
   const userId = currentUserId(req);
+  if (!userId) {
+    console.error('[ChangePassword] No user ID found in request');
+    return res.status(401).json({ error: 'Authentifizierung erforderlich' });
+  }
+
   const user = getUserById(userId);
 
   if (!user) {
-    return res.status(401).json({ error: 'Benutzer nicht gefunden' });
+    console.warn('[ChangePassword] User not found:', userId);
+    return res.status(404).json({ error: 'Benutzer nicht gefunden' });
   }
 
   // Verify current password
   const isValid = bcrypt.compareSync(currentPassword, user.password_hash);
   if (!isValid) {
+    console.warn('[ChangePassword] Invalid current password for user:', userId);
     return res.status(401).json({ error: 'Aktuelles Passwort ist falsch' });
   }
 
@@ -4164,12 +4184,20 @@ app.patch('/api/auth/change-password', requireAuth, (req, res) => {
   }
 
   try {
+    console.log('[ChangePassword] Changing password for user:', userId);
     const newHash = bcrypt.hashSync(newPassword, 12);
-    db.prepare('UPDATE users SET password_hash = ?, updated_at = datetime("now") WHERE id = ?')
+    const result = db.prepare('UPDATE users SET password_hash = ?, updated_at = datetime("now") WHERE id = ?')
       .run(newHash, userId);
+
+    if (result.changes === 0) {
+      console.warn('[ChangePassword] User not found during update:', userId);
+      return res.status(404).json({ error: 'Benutzer nicht gefunden' });
+    }
+
+    console.log('[ChangePassword] Password changed successfully for:', userId);
     return res.status(200).json({ message: 'Passwort geändert' });
   } catch (err) {
-    console.error('Password change error:', errorSummary(err));
+    console.error('[ChangePassword] Error:', errorSummary(err));
     return res.status(500).json({ error: 'Fehler beim Ändern des Passworts' });
   }
 });
