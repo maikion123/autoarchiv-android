@@ -92,13 +92,13 @@ function ProfileModal({
             onClick={onClose}
           />
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: -10 }}
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: -10 }}
+            exit={{ opacity: 0, scale: 0.95, y: 10 }}
             transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-            className="fixed inset-0 z-[90] flex items-center justify-center pointer-events-none"
+            className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center pointer-events-none p-4"
           >
-            <div className="glass-strong border-glow rounded-2xl p-6 max-w-md w-[90vw] pointer-events-auto">
+            <div className="glass-strong border-glow rounded-t-2xl sm:rounded-2xl p-6 max-w-md w-full sm:w-[90vw] pointer-events-auto max-h-[90vh] overflow-y-auto">
               <h2 className="text-lg font-semibold text-foreground mb-4">Profil bearbeiten</h2>
 
               <div className="space-y-4">
@@ -107,13 +107,13 @@ function ProfileModal({
                     Anzeigename
                   </label>
                   <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary/50" />
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary/50 pointer-events-none" />
                     <input
                       type="text"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       placeholder="Ihr Name"
-                      className="w-full rounded-xl glass border border-border/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 bg-background/50 pl-10 pr-4 py-2 text-foreground placeholder:text-foreground/50"
+                      className="w-full rounded-xl glass border border-border/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 bg-background/50 pl-10 pr-4 py-3 sm:py-2 text-foreground placeholder:text-foreground/50 text-base sm:text-sm"
                     />
                   </div>
                   <p className="text-xs text-foreground/50 mt-1">{name.length}/50 Zeichen</p>
@@ -133,10 +133,10 @@ function ProfileModal({
                   </div>
                 )}
 
-                <div className="flex gap-2 justify-end pt-4">
+                <div className="flex gap-2 justify-end pt-4 flex-wrap sm:flex-nowrap">
                   <button
                     onClick={onClose}
-                    className="px-4 py-2 rounded-xl glass border border-border/40 hover:bg-muted/60 text-foreground text-sm font-medium transition-colors"
+                    className="flex-1 sm:flex-none px-4 py-3 sm:py-2 rounded-xl glass border border-border/40 hover:bg-muted/60 active:bg-muted/80 text-foreground text-sm font-medium transition-colors min-h-[48px] sm:min-h-auto"
                     disabled={loading}
                   >
                     Abbrechen
@@ -144,7 +144,7 @@ function ProfileModal({
                   <button
                     onClick={handleSave}
                     disabled={loading || !name.trim()}
-                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-cyan-400 text-white text-sm font-medium hover:from-violet-500 hover:to-cyan-300 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    className="flex-1 sm:flex-none px-4 py-3 sm:py-2 rounded-xl bg-gradient-to-r from-violet-600 to-cyan-400 text-white text-sm font-medium hover:from-violet-500 hover:to-cyan-300 active:from-violet-700 active:to-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all min-h-[48px] sm:min-h-auto"
                   >
                     {loading ? 'Speichert...' : 'Speichern'}
                   </button>
@@ -234,13 +234,13 @@ function PasswordModal({
             onClick={onClose}
           />
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: -10 }}
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: -10 }}
+            exit={{ opacity: 0, scale: 0.95, y: 10 }}
             transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-            className="fixed inset-0 z-[90] flex items-center justify-center pointer-events-none"
+            className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center pointer-events-none p-4"
           >
-            <div className="glass-strong border-glow rounded-2xl p-6 max-w-md w-[90vw] pointer-events-auto">
+            <div className="glass-strong border-glow rounded-t-2xl sm:rounded-2xl p-6 max-w-md w-full sm:w-[90vw] pointer-events-auto max-h-[90vh] overflow-y-auto">
               <h2 className="text-lg font-semibold text-foreground mb-4">Passwort ändern</h2>
 
               <div className="space-y-4">
@@ -250,23 +250,23 @@ function PasswordModal({
                     Aktuelles Passwort
                   </label>
                   <div className="relative">
-                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary/50" />
+                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary/50 pointer-events-none" />
                     <input
                       type={showCurrent ? 'text' : 'password'}
                       value={currentPassword}
                       onChange={(e) => setCurrentPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="w-full rounded-xl glass border border-border/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 bg-background/50 pl-10 pr-10 py-2 text-foreground placeholder:text-foreground/50"
+                      className="w-full rounded-xl glass border border-border/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 bg-background/50 pl-10 pr-12 py-3 sm:py-2 text-base sm:text-sm text-foreground placeholder:text-foreground/50"
                     />
                     <button
                       type="button"
                       onClick={() => setShowCurrent(!showCurrent)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground/50 hover:text-foreground/70"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground/50 hover:text-foreground/70 p-2 sm:p-1 -m-2 sm:-m-1"
                     >
                       {showCurrent ? (
-                        <EyeOff className="h-4 w-4" />
+                        <EyeOff className="h-5 w-5 sm:h-4 sm:w-4" />
                       ) : (
-                        <Eye className="h-4 w-4" />
+                        <Eye className="h-5 w-5 sm:h-4 sm:w-4" />
                       )}
                     </button>
                   </div>
@@ -278,23 +278,23 @@ function PasswordModal({
                     Neues Passwort
                   </label>
                   <div className="relative">
-                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary/50" />
+                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary/50 pointer-events-none" />
                     <input
                       type={showNew ? 'text' : 'password'}
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="w-full rounded-xl glass border border-border/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 bg-background/50 pl-10 pr-10 py-2 text-foreground placeholder:text-foreground/50"
+                      className="w-full rounded-xl glass border border-border/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 bg-background/50 pl-10 pr-12 py-3 sm:py-2 text-base sm:text-sm text-foreground placeholder:text-foreground/50"
                     />
                     <button
                       type="button"
                       onClick={() => setShowNew(!showNew)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground/50 hover:text-foreground/70"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground/50 hover:text-foreground/70 p-2 sm:p-1 -m-2 sm:-m-1"
                     >
                       {showNew ? (
-                        <EyeOff className="h-4 w-4" />
+                        <EyeOff className="h-5 w-5 sm:h-4 sm:w-4" />
                       ) : (
-                        <Eye className="h-4 w-4" />
+                        <Eye className="h-5 w-5 sm:h-4 sm:w-4" />
                       )}
                     </button>
                   </div>
@@ -326,23 +326,23 @@ function PasswordModal({
                     Passwort bestätigen
                   </label>
                   <div className="relative">
-                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary/50" />
+                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary/50 pointer-events-none" />
                     <input
                       type={showConfirm ? 'text' : 'password'}
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="w-full rounded-xl glass border border-border/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 bg-background/50 pl-10 pr-10 py-2 text-foreground placeholder:text-foreground/50"
+                      className="w-full rounded-xl glass border border-border/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 bg-background/50 pl-10 pr-12 py-3 sm:py-2 text-base sm:text-sm text-foreground placeholder:text-foreground/50"
                     />
                     <button
                       type="button"
                       onClick={() => setShowConfirm(!showConfirm)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground/50 hover:text-foreground/70"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground/50 hover:text-foreground/70 p-2 sm:p-1 -m-2 sm:-m-1"
                     >
                       {showConfirm ? (
-                        <EyeOff className="h-4 w-4" />
+                        <EyeOff className="h-5 w-5 sm:h-4 sm:w-4" />
                       ) : (
-                        <Eye className="h-4 w-4" />
+                        <Eye className="h-5 w-5 sm:h-4 sm:w-4" />
                       )}
                     </button>
                   </div>
@@ -362,10 +362,10 @@ function PasswordModal({
                   </div>
                 )}
 
-                <div className="flex gap-2 justify-end pt-4">
+                <div className="flex gap-2 justify-end pt-4 flex-wrap sm:flex-nowrap">
                   <button
                     onClick={onClose}
-                    className="px-4 py-2 rounded-xl glass border border-border/40 hover:bg-muted/60 text-foreground text-sm font-medium transition-colors"
+                    className="flex-1 sm:flex-none px-4 py-3 sm:py-2 rounded-xl glass border border-border/40 hover:bg-muted/60 active:bg-muted/80 text-foreground text-sm font-medium transition-colors min-h-[48px] sm:min-h-auto"
                     disabled={loading}
                   >
                     Abbrechen
@@ -373,7 +373,7 @@ function PasswordModal({
                   <button
                     onClick={handleSave}
                     disabled={loading || !currentPassword || !newPassword || !confirmPassword}
-                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-cyan-400 text-white text-sm font-medium hover:from-violet-500 hover:to-cyan-300 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    className="flex-1 sm:flex-none px-4 py-3 sm:py-2 rounded-xl bg-gradient-to-r from-violet-600 to-cyan-400 text-white text-sm font-medium hover:from-violet-500 hover:to-cyan-300 active:from-violet-700 active:to-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all min-h-[48px] sm:min-h-auto"
                   >
                     {loading ? 'Speichert...' : 'Speichern'}
                   </button>
@@ -446,16 +446,17 @@ export default function UserMenu({ email, displayName, onLogout }: UserMenuProps
     <div ref={menuRef} className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="rounded-2xl glass hover:bg-muted/60 px-3 py-2 flex items-center gap-2 text-foreground transition-colors"
+        className="rounded-2xl glass hover:bg-muted/60 px-2 sm:px-3 py-2 flex items-center gap-2 text-foreground transition-colors min-h-[44px] sm:min-h-auto"
+        title={currentDisplayName || email}
       >
-        <div className="h-8 w-8 rounded-full bg-gradient-to-br from-violet-500 to-cyan-400 flex items-center justify-center text-white text-xs font-semibold shadow-[0_0_14px_oklch(0.62_0.24_290/0.4)]">
+        <div className="h-8 w-8 flex-shrink-0 rounded-full bg-gradient-to-br from-violet-500 to-cyan-400 flex items-center justify-center text-white text-xs font-semibold shadow-[0_0_14px_oklch(0.62_0.24_290/0.4)]">
           {initials}
         </div>
         <span className="text-sm font-medium hidden sm:inline max-w-[100px] truncate">
           {currentDisplayName || email.split('@')[0]}
         </span>
         <svg
-          className={`h-4 w-4 text-foreground/60 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          className={`h-4 w-4 text-foreground/60 transition-transform hidden sm:block ${isOpen ? 'rotate-180' : ''}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -471,7 +472,7 @@ export default function UserMenu({ email, displayName, onLogout }: UserMenuProps
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -10 }}
             transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-            className="absolute right-0 top-full mt-2 w-52 glass-strong border-glow rounded-2xl overflow-hidden z-[50] shadow-lg"
+            className="absolute right-0 top-full mt-2 w-48 sm:w-52 glass-strong border-glow rounded-2xl overflow-hidden z-[50] shadow-lg"
           >
             <div className="divide-y divide-border/20">
               <button
@@ -479,10 +480,10 @@ export default function UserMenu({ email, displayName, onLogout }: UserMenuProps
                   setProfileModalOpen(true);
                   setIsOpen(false);
                 }}
-                className="w-full px-4 py-3 flex items-center gap-3 text-foreground hover:bg-muted/40 transition-colors text-sm"
+                className="w-full px-4 py-3 sm:py-2.5 flex items-center gap-3 text-foreground hover:bg-muted/40 active:bg-muted/50 transition-colors text-sm sm:text-xs min-h-[48px] sm:min-h-auto"
               >
-                <User className="h-4 w-4 text-primary/70" />
-                <span>Profil bearbeiten</span>
+                <User className="h-5 w-5 sm:h-4 sm:w-4 text-primary/70 flex-shrink-0" />
+                <span className="text-left">Profil bearbeiten</span>
               </button>
 
               <button
@@ -490,18 +491,18 @@ export default function UserMenu({ email, displayName, onLogout }: UserMenuProps
                   setPasswordModalOpen(true);
                   setIsOpen(false);
                 }}
-                className="w-full px-4 py-3 flex items-center gap-3 text-foreground hover:bg-muted/40 transition-colors text-sm"
+                className="w-full px-4 py-3 sm:py-2.5 flex items-center gap-3 text-foreground hover:bg-muted/40 active:bg-muted/50 transition-colors text-sm sm:text-xs min-h-[48px] sm:min-h-auto"
               >
-                <KeyRound className="h-4 w-4 text-primary/70" />
-                <span>Passwort ändern</span>
+                <KeyRound className="h-5 w-5 sm:h-4 sm:w-4 text-primary/70 flex-shrink-0" />
+                <span className="text-left">Passwort ändern</span>
               </button>
 
               <button
                 onClick={handleLogoutClick}
-                className="w-full px-4 py-3 flex items-center gap-3 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors text-sm"
+                className="w-full px-4 py-3 sm:py-2.5 flex items-center gap-3 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 active:bg-rose-500/20 transition-colors text-sm sm:text-xs min-h-[48px] sm:min-h-auto"
               >
-                <LogOut className="h-4 w-4" />
-                <span>Abmelden</span>
+                <LogOut className="h-5 w-5 sm:h-4 sm:w-4 flex-shrink-0" />
+                <span className="text-left">Abmelden</span>
               </button>
             </div>
           </motion.div>
