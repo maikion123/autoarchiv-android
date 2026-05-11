@@ -8,6 +8,70 @@ type: project
 
 ## Changelog
 
+### [2026-05-11] CRITICAL REDESIGN: OCR Analysis - Strict Text-Only Mode
+
+**SEVERITY:** 🔴 CRITICAL (Complete Fix for Persistent Bug)
+
+**Problem (Persisting After Previous Fix):**
+User reinhardt.maik95@gmail.com STILL saw all documents as "R+V Versicherung"
+- Regex fixes alone were insufficient
+- Root issue: filename was being mixed with text analysis
+- Fallback logic was too aggressive
+
+**Root Cause (Deep Analysis):**
+`analyzeExtractedText()` was:
+1. Using BOTH filename + text for category scoring
+2. Applying filename-based fallbacks aggressively
+3. Defaulting to 'Unbekannt' when no clear match
+4. Not isolating document analysis independently
+
+**Complete Solution - Strict Text-Only Mode:**
+
+1. **Minimum Text Requirement**: < 10 chars = return empty result
+   - No analysis forced on empty/minimal documents
+   - No fallback biasing
+
+2. **Filename Ignored in Scoring**: 
+   - OLD: `scoreDocumentCategory(combined, filename)`
+   - NEW: `scoreDocumentCategory(text, '')` (empty filename)
+   - Eliminates filename-based false positives
+
+3. **Empty Fields if Not Found:**
+   - absender: '' (empty, not 'Unbekannt')
+   - dokumenttyp: '' (only if found in text)
+   - zusammenfassung: OCR text or empty
+
+4. **Strict R+V Detection:**
+   - OLD: `hasInsurance = scores.versicherung > 0 || regex`
+   - NEW: `hasInsurance = scores.versicherung >= 6 && hasExplicitRPlusV`
+   - BOTH conditions required
+
+5. **Independent Document Analysis:**
+   - Each upload: completely fresh analysis
+   - No shared defaults or pre-bias
+   - Score thresholds: 6+ for insurance, 5+ for vehicle/etc.
+
+**Files Modified:**
+- `api-server.mjs` (analyzeExtractedText completely rewritten, ~100 lines)
+
+**Build Status:** ✅ Erfolgreich
+
+**Test Results Expected:**
+- ✅ 'Kündigung der Energielieferung.pdf' → Vattenfall (from OCR), not R+V
+- ✅ 'Besenkalender.pdf' → empty absender (no sender in text)
+- ✅ 'Vattenfall Rechnung' → Vattenfall, type Rechnung, folder 02_Finanzen
+- ✅ No document forced to 'R+V Versicherung' unless text explicitly says it
+
+**Deployment Impact:**
+- Old documents stay as-is (can be manually edited)
+- New uploads will have correct analysis
+- Empty fields are normal if information not in text
+- Debug logging shows analysis for each upload
+
+**Commit:** `771ecaf`
+
+---
+
 ### [2026-05-11] CRITICAL FIX: OCR Analysis - R+V False Positive Bug
 
 **SEVERITY:** 🔴 CRITICAL
