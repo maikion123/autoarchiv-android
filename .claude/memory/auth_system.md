@@ -57,18 +57,23 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
    - If not → 401: `{ error: "Email not verified" }`
 3. Compare password with hash (bcryptjs.compare)
 4. If valid:
+   - **Create session in DB:**
+     - Generate `sessionId` (UUID)
+     - Insert into `sessions` table: `(id, user_id, last_activity, expires_at, created_at)`
+     - Set expires_at = now + 30 minutes
    - Create JWT token:
      ```javascript
      {
-       sub: user.id,
+       userId: user.id,
        email: user.email,
+       sessionId: sessionId,  // NEW: Session tracking
        iat: now,
-       exp: now + 15 days
+       exp: now + 4 hours    // CHANGED: Token expires in 4h
      }
      ```
    - Sign with HS256 (JWT_SECRET)
-   - Set httpOnly cookie: `Authorization=token; HttpOnly; SameSite=Strict; Domain=nextkm.de; Max-Age=1296000`
-   - Return: `{ email: user.email }`
+   - Set httpOnly cookie: `auth_token=token; HttpOnly; SameSite=Strict; Domain=nextkm.de; Max-Age=14400`
+   - Return: `{ email: user.email, role: user.role }`
 5. If invalid:
    - Delay response (timing attack mitigation)
    - Return 401: `{ error: "Invalid credentials" }`
@@ -76,28 +81,53 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 **Security:**
 - httpOnly flag: frontend cannot read cookie
 - SameSite=Strict: CSRF protection
-- 15-day expiry: balance between security and UX
+- **4-hour token expiry**: JWT is valid for 4 hours (fallback)
+- **30-minute idle timeout**: Session expires after 30 min inactivity (primary)
 - Timing-safe comparison (bcryptjs.compare is timing-safe)
 - Frontend waits for `GET /api/auth/me` to confirm the cookie before navigating away from `/login`
 
-### Step 4: Check Session (`GET /api/auth/me`)
+### Step 4: Check Session (`GET /api/auth/me`) - WITH INACTIVITY TIMEOUT
 **Input:** Cookie header (auto-sent by browser)
 
-1. Extract JWT from Authorization cookie
+**NEW: requireAuth Middleware:**
+1. Extract JWT from `auth_token` cookie
 2. Verify signature with JWT_SECRET
-3. Check expiry
-4. If valid:
-   - Return: `{ email: user.email }`
-5. If invalid/missing:
-   - Return 401: `{ error: "Unauthorized" }`
+3. **Load session from DB using sessionId from JWT**
+4. **Check inactivity:**
+   - If session not found → 401: `{ error: "Sitzung ungültig" }`
+   - Get `last_activity` timestamp from session
+   - Calculate time elapsed: `now - last_activity`
+   - If elapsed > 30 minutes:
+     - Delete session from DB
+     - Clear cookie
+     - Return 401: `{ error: "Sitzung abgelaufen (Inaktivität)" }`
+5. **Update last_activity** to current time
+6. Call next() to proceed to route handler
 
-**Used by:** AppShell.tsx on mount to check if user is logged in.
+**Route Handler:**
+1. Get user from DB
+2. Return: `{ email: user.email, role: user.role }`
+
+**Key Security Points:**
+- Session timeout is server-side (cannot be bypassed by client)
+- Every authenticated request resets inactivity counter
+- Inactive sessions are immediately invalidated
+- DB queries ensure authoritative session state
+
+**Used by:** AppShell.tsx on mount and before any authenticated operation
 
 ### Step 5: Logout (`POST /api/auth/logout`)
 **Input:** Cookie header
 
-1. Clear Authorization cookie
-2. Return: `{ message: "Logged out" }`
+1. Extract JWT from `auth_token` cookie
+2. If valid:
+   - Get sessionId from decoded JWT
+   - **Delete session from DB** using sessionId
+   - Log 'LOGOUT' action
+3. Clear `auth_token` cookie
+4. Return: `{ message: "Abgemeldet" }`
+
+**Note:** Even if cookie clearing fails, DB session deletion ensures user is logged out
 
 **Note:** Frontend just navigates to /login after this. Cookie is expired.
 
@@ -169,7 +199,13 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 
 ✅ Passwords: bcryptjs (cost 12), never logged  
 ✅ OTP: 6-digit, SHA-256 hashed, 10-min expiry, 5-attempt limit  
-✅ Session: JWT in httpOnly SameSite=Strict cookie, 15-day expiry  
+✅ Session: JWT in httpOnly SameSite=Strict cookie, 4-hour token expiry  
+✅ **Idle Timeout: Server-side 30-minute inactivity limit (NEW)**
+  - Sessions table tracks `last_activity` timestamp
+  - Every authenticated request resets counter
+  - Inactive sessions deleted after 30 min
+  - Cannot be bypassed by client
+  - Protects against indefinite auth on shared devices
 ✅ Transport: HTTPS only (enforced by Nginx)  
 ✅ Rate Limiting: `/api/auth/login` uses 25 req/15min per IP+email, successful logins do not count
 ✅ CSRF: SameSite=Strict cookie  

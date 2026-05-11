@@ -6,22 +6,25 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 ---
 # AutoArchiv: Privates Dokumentenarchiv
 
-## Current Status (as of 2026-05-07)
+## Current Status (as of 2026-05-11)
 **Production Live:** https://nextkm.de  
-**Git Commits Ahead:** includes recent upload/OCR work (see "Recent Changes")  
+**Git Commits Ahead:** includes session timeout security fix + OCR/upload stability improvements  
 **Auth System:** ✅ Functional (bcrypt + JWT + real SMTP OTP + logout cookie fix + Nginx cookie proxying + central AppShell auth guard + login wait for `/api/auth/me`)
 **Logo Replacement:** ✅ Complete (nextKM logo across all components + favicon)
 **Termine (Calendar):** ✅ Live (`/termine` route with payments & reminders)
 **Document Upload:** ✅ Restored and iPhone camera upload fixed (`/eingang` route, PDF/image upload, local IndexedDB archive, free local OCR/text analysis with fallback)
-**Session Management:** ✅ 30-minute inactivity timeout implemented (auto-logout on inactivity) + fixed race conditions
+**Session Management:** ✅ 30-minute inactivity timeout implemented (server-side session tracking, auto-logout on inactivity, cannot be bypassed by client)
 **Logout UI:** ✅ Enhanced logout buttons (desktop + mobile headers with improved visibility)
 **Live Agent Dashboard:** ✅ Live (`/agents` route, `/api/agents/*` API, SSE stream, CLI logging via `npm run agent:*`)
 **Folder Management:** ✅ Live (`/api/folders` API, Overview can create/rename/delete root folders and subfolders, Eingang uses the same folder source)
 **Team Workflow:** ✅ Documented so Claude Code and Codex know where to write status and how the login/session path currently behaves
 **Document AI Analysis:** ✅ Ollama integration added behind `USE_OLLAMA_ANALYSIS=true`; regex remains fallback. Current configured model is `llama3:8b`, which is the practical default for the VPS. Larger models such as `gemma4:26b` need much more RAM and are not the current target.
+**Document Storage Layout:** ✅ Readable server paths are now the source of truth for both site and filesystem. `analyzed` documents stay under `documents/analyzed/<YYYY-MM>/...`, archived documents move under `documents/archived/<haupt>/<unter>/<YYYY-MM>/...`, and the preview UI shows the visible `storageLocation` so users can trace where each file landed.
+**Auth + Upload Stability:** ✅ Android first-upload reload loop fixed. The app now keeps a short-lived auth cache in `localStorage` and `sessionStorage`, confirms the session in the background, and keeps the first upload after login stable without flashing back to the auth-loading state. Upload errors stay local to the Eingang flow instead of resetting the whole app.
 **Document Summaries:** ✅ Improved. Analysis now separates field extraction from the user-facing summary. If Ollama succeeds, a dedicated prompt writes 2-4 clear German sentences with actions, amounts, and deadlines; otherwise a stronger local fallback summary is used.
 **OCR for Phone Photos:** ✅ Improved. Image uploads are now auto-rotated and preprocessed with `sharp` before Tesseract runs. Multiple OCR passes (`psm 6/4/11`) are scored, and the pipeline now prefers the variant with real invoice/date lines instead of just the longest noisy text.
 **Invoice Amount Selection:** ✅ Hardened. `Rechnungsbetrag` / `Gesamtbetrag` lines win over VAT lines, which fixed the heating-company photo that previously misread `38,59 EUR` instead of the actual `241,69 EUR`.
+**Archived-Only Views:** ✅ Dashboard counts, folder panels, top senders, and search now only surface archived documents; analysis/review states are no longer mixed into the user-facing document counts.
 **Database:** ✅ Fixed permission issues (directory 775, file 664, cleaned WAL files)
 
 ## Tech Stack
@@ -40,7 +43,12 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 - **Database:** SQLite (better-sqlite3, WAL mode)
 - **Password:** bcryptjs (cost factor 12)
 - **OTP:** SHA-256 hashed 6-digit codes (10min expiry, 5 attempt limit)
-- **Session:** JWT as httpOnly SameSite=Strict cookie (15 days)
+- **Session:** 
+  - JWT as httpOnly SameSite=Strict cookie (4-hour token expiry)
+  - Server-side `sessions` table tracks `user_id`, `last_activity`, `expires_at`
+  - **30-minute inactivity timeout** enforced on every authenticated request
+  - JWT includes `sessionId` for session validation
+  - Prevents indefinite auth on shared devices
 - **Email:** Nodemailer → Gmail SMTP (587 + STARTTLS)
 - **Security:** Helmet, express-rate-limit (25 req/15min on `/api/auth/login`, keyed by IP + email)
 - **Document Analysis:** `POST /api/analyze-document-file` for binary uploads plus legacy `POST /api/analyze-document` JSON fallback (auth required, free local analysis: `pdfjs-dist` text extraction for digital PDFs, local Tesseract OCR for images, optional Ollama LLM analysis with regex/fallback otherwise)
@@ -83,6 +91,14 @@ id (TEXT PK) | user_id (FK) | code_hash | expires_at | attempts | consumed_at | 
 id | user_id | action | ip | detail | created_at
 ```
 
+### sessions (NEW - Session Timeout)
+```sql
+id (TEXT PK) | user_id (FK) | last_activity (DATETIME) | expires_at (DATETIME) | created_at (DATETIME)
+INDEXES: user_id, expires_at
+```
+**Purpose:** Server-side session tracking for 30-minute inactivity timeout  
+**Lifecycle:** Created at login, last_activity updated on every request, deleted on logout or timeout
+
 ### agents
 ```sql
 id | name | type | status | responsibility | current_task | current_files | next_steps | blockers | updated_at
@@ -115,6 +131,26 @@ id | agent_id | event_type | message | files | created_at
 - **Agent Workflow Docs:** `/srv/projects/autoarchiv/docs/AGENT_WORKFLOW.md`
 
 ## Recent Changes
+1. 2026-05-11 — Android First-Upload Reload Fix:
+   - Root cause was a mobile browser/app remount after the first camera/file intent, which briefly pushed the app back into the auth-loading state.
+   - Added auth cache persistence in both `localStorage` and `sessionStorage` with TTL so a confirmed login survives the Android return path.
+   - AppShell now confirms auth in the background without showing the full login spinner again when a cached session exists.
+   - Eingang upload flow now logs file selection, upload start/success/error, and page-unload events for easier diagnosis; 401/403 stay local and do not reset the app.
+   - Verified with `npm run build`, `pm2 restart tanstack-ssr`, and live health check on `https://nextkm.de/api/health`.
+
+1. 2026-05-11 — Archived-Only Document Views:
+   - Dashboard document counts, folder counts, top senders, and the folder dialog were narrowed to documents with `status === "archived"`.
+   - Search now filters only archived documents, including year/type filters and result previews.
+   - UI goal: users should only see and search archived files, not a mixed review/analyze pool.
+   - Verified with `npm run build` and `pm2 restart tanstack-ssr`.
+
+1. 2026-05-11 — Storage Visibility and Agent Status Sync:
+   - Server file paths now reflect document state and folder placement instead of hiding everything behind opaque IDs.
+   - The document preview exposes the visible server storage location so users can trace where a file ended up.
+   - Maik's false `R+V` matches were cleaned up and the analysis heuristics were tightened for the next uploads.
+   - The live agent status was written back through the CLI workflow so `/agents` matches the current work again.
+   - Verified: `npm run build`, `curl -I https://nextkm.de/api/health`, DB checks for current storage paths.
+
 1. 2026-05-10 — Two-Tier Edit UX (Hauptkategorie Dialog vs. Unterkategorie Inline):
    - Clear separation: Hauptkategorien use FolderEditDialog (Icons/Farben), Unterkategorien use inline-edit
    - Inline-Edit panel: appears directly in FolderPanel, no modal/dialog

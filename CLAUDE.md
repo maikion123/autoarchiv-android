@@ -55,6 +55,10 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
   - protected routes no longer use `beforeLoad` auth redirects
   - login waits until `/api/auth/me` confirms the cookie
   - backend login rate limit is more tolerant and successful logins do not count against the limit
+  - **NEW (2026-05-11):** 30-minute inactivity timeout via `sessions` table (server-side, auto-logout on idle)
+    - Every authenticated request resets the counter
+    - Timeout cannot be bypassed by client (session deleted server-side)
+    - See `.claude/memory/auth_system.md` "Step 4: Check Session" for details
 - Current OCR/analysis behavior:
   - image uploads are auto-rotated and preprocessed with `sharp` before Tesseract runs
   - multiple OCR passes are compared, with the best invoice/date-aware text winning

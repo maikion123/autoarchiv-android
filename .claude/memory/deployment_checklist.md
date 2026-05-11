@@ -92,6 +92,19 @@ curl -I https://nextkm.de
 2. Should redirect to /login
 3. Try accessing https://nextkm.de directly — should redirect to /login
 
+**Session Timeout Flow (NEW - 30 min idle)**
+1. Log in to account
+2. Wait 30+ minutes without any activity (or manually test):
+   ```bash
+   sqlite3 /srv/projects/autoarchiv/data/autoarchiv.db
+   UPDATE sessions SET last_activity = datetime('now', '-31 minutes') WHERE user_id = 'YOUR_USER_ID';
+   .quit
+   ```
+3. Try any authenticated endpoint (e.g., visit dashboard or call `/api/auth/me`)
+4. Should get 401: `Sitzung abgelaufen (Inaktivität)`
+5. User should be redirected to /login
+6. **Note:** Every API call resets the 30-minute timer, so normal usage never triggers timeout
+
 **Nginx Proxy**
 ```bash
 curl -s https://nextkm.de/api/auth/me | jq .

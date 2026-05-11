@@ -8,6 +8,103 @@ type: project
 
 ## Changelog
 
+### [2026-05-11] SESSION IDLE TIMEOUT - 30 MIN INACTIVITY SECURITY FIX
+
+**SEVERITY:** 🟡 HIGH (Security)
+
+**Problem:**
+Users remained logged in indefinitely on shared devices (e.g., Smartphone). Maik's device showed `reknhardt.maik95@gmail.com` still logged in after extended absence.
+
+**Solution Implemented:**
+- New `sessions` table tracks `user_id`, `last_activity`, `expires_at`
+- Login creates session with 30-minute expiration
+- `requireAuth` middleware checks session inactivity on every request
+- If > 30 minutes idle → Session deleted, cookie cleared, 401 returned
+- Auto-cleanup removes expired sessions on startup and login
+- JWT token includes `sessionId` for session validation
+
+**Why This Matters:**
+- Shared devices (public WiFi, family phones) are no longer vulnerable to indefinite auth
+- Aligns with security best practices for web apps
+- Users auto-logout after 30 min inactivity without manual action
+
+**Files Changed:**
+- `api-server.mjs` (sessions table, requireAuth update, login/logout changes)
+
+**How to Verify:**
+```bash
+# After restart:
+1. Login to any account
+2. Wait or manually simulate 31 minutes via: UPDATE sessions SET last_activity = datetime('now', '-31 minutes') WHERE user_id = ?
+3. Try any authenticated endpoint
+4. Should get 401 "Sitzung abgelaufen (Inaktivität)"
+```
+
+**Status:** ✅ Implemented, Committed (f7e1f2a, da15706), Pending restart
+
+---
+
+### [2026-05-11] ANDROID FIRST-UPLOAD RELOAD FIX
+
+**SEVERITY:** 🟡 HIGH
+
+**What Changed Today:**
+- Fixed the Android-specific first-upload refresh loop after login.
+- Added short-lived auth cache persistence in both `localStorage` and `sessionStorage` so a confirmed login survives the camera/file return path.
+- AppShell now restores a cached session immediately and verifies auth in the background instead of flashing back to the auth-loading spinner.
+- Upload flow now logs file selection, upload start, response status, and page-unload events to help detect real reloads vs. normal browser returns.
+- Upload `401/403` errors stay local to the Eingang flow instead of resetting the whole app.
+
+**Why This Matters:**
+- The first upload after login now stays on the page instead of losing the selected file.
+- Android and Chrome camera intents no longer make the app look like it is logging in again for a second.
+- Debug logs make it easier to catch any real browser reload or auth regression later.
+
+**Files Updated:**
+- `src/lib/auth.ts`
+- `src/components/AppShell.tsx`
+- `src/components/LoginForm.tsx`
+- `src/features/Eingang.tsx`
+- `.claude/memory/changelog.md`
+- `.claude/memory/project_status.md`
+- `.claude/memory/team_collaboration.md`
+
+**Build/Verification:**
+- `npm run build`
+- `pm2 restart tanstack-ssr`
+- `curl -k https://nextkm.de/api/health`
+
+### [2026-05-11] STORAGE + AGENT STATUS SYNC
+
+**SEVERITY:** 🟡 HIGH
+
+**What Changed Today:**
+- Server storage paths now mirror document state more clearly:
+  - `analyzed` for checked but not archived documents
+  - `archived/<haupt>/<unter>` for archived documents
+  - `deleted` for deleted documents
+- Nextkm document preview now shows the visible server storage path so users can trace where each file landed.
+- Existing misclassified Maik documents were corrected away from the old `R+V` false positives.
+- The live agent status was written back through the `/agents` CLI flow so the dashboard matches current work again.
+
+**Why This Matters:**
+- Users can now see which file went where on both the server and the site.
+- Fewer false sender/category matches should leak into future uploads.
+- The agent dashboard stays a real source of truth instead of drifting out of date.
+
+**Files Updated:**
+- `api-server.mjs`
+- `src/components/DocumentPreviewModal.tsx`
+- `src/lib/db.ts`
+- `.claude/memory/changelog.md`
+- `.claude/memory/project_status.md`
+- `.claude/memory/team_collaboration.md`
+
+**Build/Verification:**
+- `npm run build`
+- `curl -I https://nextkm.de/api/health`
+- Live DB checks for document paths and Maik corrections
+
 ### [2026-05-11] CRITICAL REDESIGN: OCR Analysis - Strict Text-Only Mode
 
 **SEVERITY:** 🔴 CRITICAL (Complete Fix for Persistent Bug)
@@ -1003,3 +1100,12 @@ Regex `/r\s*v/i` was matching "rv" anywhere in text with optional spaces:
 ---
 
 **Golden Rule:** Wenn du Code änderst, aktualisiere sofort die relevanten Memory-Dateien. Morgen-du wird dir danken.
+
+---
+
+## 2026-05-11 — Archived-Only Document Views
+
+- Dashboard-Kennzahlen wurden auf archivierte Dokumente eingeschränkt: sichtbare Dokument-Counts, Ordnerzähler, Top-Absender und Ordner-Dialog arbeiten jetzt nur noch mit `status === "archived"`.
+- Die Suche durchsucht ebenfalls ausschließlich archivierte Dokumente; Jahres- und Typfilter greifen nur noch auf diesen Bestand.
+- Ziel: Nutzer sehen und suchen in der Oberfläche nur das, was بالفعل archiviert ist, statt gemischter Analyse-/Review-Bestände.
+- Verifiziert mit `npm run build` und `pm2 restart tanstack-ssr`.
