@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, useRef, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Download, Trash2, FolderInput, PencilLine, Save, XCircle, Loader2, FileText } from "lucide-react";
+import { X, Download, Trash2, FolderInput, PencilLine, Save, XCircle, Loader2, FileText, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 import type { AnalysisHint, ArchivedDoc, DocumentText } from "../lib/db";
 import { getDocumentBlob, getDocumentDetails, patchDocument } from "../lib/db";
 import { fmtDate, fmtBytes, fmtEUR } from "../lib/format";
@@ -54,8 +54,19 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
   const [documentText, setDocumentText] = useState<DocumentText | null>(null);
   const [textLoading, setTextLoading] = useState(false);
   const [textLoadError, setTextLoadError] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [isMobile, setIsMobile] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
 
   const activeDoc = currentDoc ?? doc;
+
+  // Detect mobile
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
 
   useEffect(() => {
     let revoke: string | null = null;
@@ -97,6 +108,7 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
     setActiveTab("preview");
     setDocumentText(null);
     setTextLoadError(false);
+    setZoom(1);
 
     let alive = true;
     setFoldersLoading(true);
@@ -198,31 +210,85 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
               </div>
 
               {activeTab === "preview" ? (
-                <div className="grid place-items-center overflow-auto p-3 sm:p-4">
-                  {loadError ? (
-                    <div className="text-center space-y-3 text-sm text-muted-foreground">
-                      <FileText className="mx-auto h-10 w-10 opacity-30" />
-                      <p>Vorschau nicht verfügbar</p>
-                      <a
-                        href={`/api/documents/${activeDoc.id}/file`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs underline text-primary hover:text-primary/80 inline-block"
+                <div className="grid min-h-0 grid-rows-[auto_1fr_auto] gap-0">
+                  {/* Zoom Controls (nur für Bilder) */}
+                  {activeDoc.mimeType.startsWith("image/") && url && !loadError && (
+                    <div className="flex items-center justify-between border-b border-border/40 bg-black/20 px-3 py-2 sm:px-4">
+                      <button
+                        onClick={() => setZoom(z => Math.max(0.5, z - 0.25))}
+                        className="rounded-lg bg-background/40 p-1.5 hover:bg-background/60 transition"
+                        title="Verkleinern"
                       >
-                        Direkt öffnen ↗
-                      </a>
+                        <ZoomOut className="h-4 w-4" />
+                      </button>
+                      <span className="text-xs text-muted-foreground min-w-12 text-center">{Math.round(zoom * 100)}%</span>
+                      <button
+                        onClick={() => setZoom(z => Math.min(4, z + 0.25))}
+                        className="rounded-lg bg-background/40 p-1.5 hover:bg-background/60 transition"
+                        title="Vergrößern"
+                      >
+                        <ZoomIn className="h-4 w-4" />
+                      </button>
+                      <div className="mx-2 h-1 w-24 bg-border/40 rounded-full" />
+                      <button
+                        onClick={() => setZoom(1)}
+                        className="rounded-lg bg-background/40 p-1.5 hover:bg-background/60 transition"
+                        title="Zurücksetzen"
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                      </button>
                     </div>
-                  ) : url ? (
-                    activeDoc.mimeType.startsWith("image/") ? (
-                      <img src={url} alt={activeDoc.filename} className="max-h-full max-w-full rounded-lg shadow-2xl" />
-                    ) : activeDoc.mimeType === "application/pdf" ? (
-                      <iframe src={url} title={activeDoc.filename} className="h-full min-h-64 w-full rounded-lg bg-white" />
-                    ) : (
-                      <div className="text-muted-foreground">Vorschau nicht verfügbar</div>
-                    )
-                  ) : (
-                    <div className="skeleton h-full w-full" />
                   )}
+
+                  {/* Preview Content */}
+                  <div className="grid place-items-center overflow-auto p-3 sm:p-4">
+                    {loadError ? (
+                      <div className="text-center space-y-3 text-sm text-muted-foreground">
+                        <FileText className="mx-auto h-10 w-10 opacity-30" />
+                        <p>Vorschau nicht verfügbar</p>
+                        <a
+                          href={`/api/documents/${activeDoc.id}/file`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs underline text-primary hover:text-primary/80 inline-block"
+                        >
+                          Direkt öffnen ↗
+                        </a>
+                      </div>
+                    ) : url ? (
+                      activeDoc.mimeType.startsWith("image/") ? (
+                        <img
+                          ref={imgRef}
+                          src={url}
+                          alt={activeDoc.filename}
+                          style={{ transform: `scale(${zoom})` }}
+                          className="max-h-full max-w-full rounded-lg shadow-2xl transition-transform cursor-grab active:cursor-grabbing"
+                        />
+                      ) : activeDoc.mimeType === "application/pdf" ? isMobile ? (
+                        <div className="text-center space-y-4 py-8">
+                          <FileText className="mx-auto h-12 w-12 opacity-50" />
+                          <div>
+                            <p className="text-sm mb-3">PDF auf dem Smartphone</p>
+                            <a
+                              href={`/api/documents/${activeDoc.id}/file`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-cyan-400 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_0_20px_oklch(0.62_0.24_290/0.4)] transition hover:brightness-110"
+                            >
+                              Im Browser öffnen ↗
+                            </a>
+                            <p className="text-[11px] text-muted-foreground mt-3">Nativer PDF-Viewer mit Zoom + Navigation</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <iframe src={url} title={activeDoc.filename} className="h-full min-h-64 w-full rounded-lg bg-white" />
+                      ) : (
+                        <div className="text-muted-foreground">Vorschau nicht verfügbar</div>
+                      )
+                    ) : (
+                      <div className="skeleton h-full w-full" />
+                    )}
+                  </div>
                 </div>
               ) : activeTab === "text" ? (
                 <div className="min-h-0 overflow-auto p-3 sm:p-4">

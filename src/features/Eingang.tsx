@@ -254,23 +254,23 @@ export default function EingangPage() {
 
       <div className="grid gap-3 md:grid-cols-2">
         <div {...getRootProps()}
-          className={`glass border-glow relative cursor-pointer overflow-hidden rounded-2xl p-8 text-center transition ${isDragActive ? "scale-[1.01] shadow-[0_0_40px_oklch(0.62_0.24_290/0.5)]" : ""}`}>
+          className={`glass border-glow relative cursor-pointer overflow-hidden rounded-2xl p-5 text-center transition md:p-8 ${isDragActive ? "scale-[1.01] shadow-[0_0_40px_oklch(0.62_0.24_290/0.5)]" : ""}`}>
           <input {...getInputProps()} />
           <div className="pointer-events-none absolute inset-2 rounded-xl border-2 border-dashed border-primary/40 animate-breathe" />
-          <Upload className="mx-auto h-10 w-10 text-primary" />
-          <div className="mt-3 text-base font-semibold">Datei hochladen</div>
+          <Upload className="mx-auto h-9 w-9 text-primary md:h-10 md:w-10" />
+          <div className="mt-2 text-base font-semibold md:mt-3">Datei hochladen</div>
           <div className="mt-1 text-xs text-muted-foreground">PDF, JPG, PNG, HEIC · drag & drop oder klicken</div>
         </div>
 
-        <label className="glass border-glow relative cursor-pointer overflow-hidden rounded-2xl p-8 text-center transition hover:shadow-[0_0_30px_oklch(0.72_0.16_220/0.4)]">
+        <label className="glass border-glow relative cursor-pointer overflow-hidden rounded-2xl p-5 text-center transition hover:shadow-[0_0_30px_oklch(0.72_0.16_220/0.4)] md:p-8">
           <input
             type="file"
             className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
             aria-label="Foto aufnehmen"
             onChange={handleCameraChange}
           />
-          <Camera className="mx-auto h-10 w-10 text-secondary" />
-          <div className="mt-3 text-base font-semibold">Foto aufnehmen</div>
+          <Camera className="mx-auto h-9 w-9 text-secondary md:h-10 md:w-10" />
+          <div className="mt-2 text-base font-semibold md:mt-3">Foto aufnehmen</div>
           <div className="mt-1 text-xs text-muted-foreground hidden md:block">Am besten auf dem Smartphone</div>
           <div className="mt-1 text-xs text-muted-foreground md:hidden">Kamera öffnen</div>
         </label>
@@ -289,11 +289,11 @@ export default function EingangPage() {
             className="glass border-glow rounded-2xl p-5 space-y-4">
             {/* Pipeline */}
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <PipeStep done label="Datei empfangen" Icon={FileCheck2} />
-              <PipeStep done={item.stage !== "queued"} active={item.stage === "analyzing"} label="KI analysiert" Icon={item.stage==="analyzing"?Loader2:Sparkles} spin={item.stage==="analyzing"} />
-              <PipeStep done={item.stage === "ready" || item.stage === "archived"} label="Analyse fertig" Icon={Check} />
+              <PipeStep done label="Hochgeladen" Icon={FileCheck2} />
+              <PipeStep done={item.stage !== "queued"} active={item.stage === "analyzing"} label="OCR & Analyse" Icon={item.stage==="analyzing"?Loader2:Sparkles} spin={item.stage==="analyzing"} />
+              <PipeStep done={item.stage === "ready" || item.stage === "archived"} label="Prüfen" Icon={Check} />
               <PipeStep done={item.stage === "archived"} label="Archiviert" Icon={Check} />
-              <div className="ml-auto text-muted-foreground">{item.file.name} · {fmtBytes(item.file.size)}</div>
+              <div className="w-full truncate text-muted-foreground sm:ml-auto sm:w-auto">{item.file.name} · {fmtBytes(item.file.size)}</div>
             </div>
 
             {item.stage === "error" && (
@@ -361,13 +361,17 @@ function PipeStep({ done, active, label, Icon, spin }: any) {
   );
 }
 
-function ResultCard({ item, folders, folderPaths, onChange, onArchive, onDiscard, onPreview }: {
-  item: QueueItem; folders: FolderNode[]; folderPaths: string[]; onChange: (p: any) => void; onArchive: () => void; onDiscard: () => void; onPreview: () => void;
+function ResultCard({ item, folders, folderPaths, onChange, onArchive, onDiscard, onPreview, onCreateFolder }: {
+  item: QueueItem; folders: FolderNode[]; folderPaths: string[]; onChange: (p: any) => void; onArchive: () => void; onDiscard: () => void; onPreview: () => void; onCreateFolder: (parentId: string | null, name: string) => Promise<string>;
 }) {
   const r = item.result!;
   const allPaths = ["", ...folderPaths];
   const [tagInput, setTagInput] = useState("");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [folderCreateMode, setFolderCreateMode] = useState<"main" | "sub">("sub");
+  const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderParent, setNewFolderParent] = useState(r.folderPath.split("/")[0] || folders[0]?.id || "");
+  const [creatingFolder, setCreatingFolder] = useState(false);
   const mimeType = mimeTypeFor(item.file);
 
   // Create unique URL for this specific item
@@ -381,8 +385,36 @@ function ResultCard({ item, folders, folderPaths, onChange, onArchive, onDiscard
     };
   }, [item.id, item.file]);
 
+  const handleCreateFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name) {
+      toast.error("Bitte einen Ordnernamen eingeben");
+      return;
+    }
+    if (name.includes("/")) {
+      toast.error("Ordnername darf keinen / enthalten");
+      return;
+    }
+    const parentId = folderCreateMode === "sub" ? newFolderParent || folders[0]?.id || null : null;
+    if (folderCreateMode === "sub" && !parentId) {
+      toast.error("Bitte einen Hauptordner wählen");
+      return;
+    }
+    setCreatingFolder(true);
+    try {
+      const folderId = await onCreateFolder(parentId, name);
+      onChange({ folderPath: folderId });
+      setNewFolderName("");
+      if (folderCreateMode === "main") setNewFolderParent(folderId);
+    } catch (err: any) {
+      toast.error(err?.message || "Ordner konnte nicht angelegt werden");
+    } finally {
+      setCreatingFolder(false);
+    }
+  };
+
   return (
-    <div className="grid gap-4 md:grid-cols-[1fr_280px]">
+    <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_300px]">
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className={`inline-flex items-center rounded-full px-2.5 py-1 ${
@@ -441,6 +473,58 @@ function ResultCard({ item, folders, folderPaths, onChange, onArchive, onDiscard
             {allPaths.length === 0 && <option value="07_Sonstiges">07_Sonstiges</option>}
           </select>
         </Field>
+        <div className="rounded-xl border border-border/40 bg-background/30 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Neuer Ordner</div>
+              <div className="text-xs text-muted-foreground">Direkt anlegen und als Ziel wählen.</div>
+            </div>
+            <div className="grid grid-cols-2 rounded-lg glass p-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setFolderCreateMode("main")}
+                className={`rounded-md px-2.5 py-1.5 ${folderCreateMode === "main" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+              >
+                Haupt
+              </button>
+              <button
+                type="button"
+                onClick={() => setFolderCreateMode("sub")}
+                className={`rounded-md px-2.5 py-1.5 ${folderCreateMode === "sub" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+              >
+                Unter
+              </button>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+            {folderCreateMode === "sub" && (
+              <select value={newFolderParent} onChange={(e) => setNewFolderParent(e.target.value)} className={inputCls}>
+                {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+            )}
+            <input
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              placeholder={folderCreateMode === "main" ? "Neuer Hauptordner" : "Neuer Unterordner"}
+              className={`${inputCls} ${folderCreateMode === "main" ? "sm:col-span-2" : ""}`}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void handleCreateFolder();
+                }
+              }}
+            />
+            <button
+              type="button"
+              onClick={handleCreateFolder}
+              disabled={creatingFolder}
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-primary/10 px-3 text-sm font-medium text-primary transition hover:bg-primary/20 disabled:opacity-60"
+            >
+              {creatingFolder ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderPlus className="h-4 w-4" />}
+              Anlegen
+            </button>
+          </div>
+        </div>
         <div className="grid gap-3 sm:grid-cols-2">
           {r.zahlungsbetrag != null && (
             <Field label="Erkannter Betrag">
@@ -521,7 +605,14 @@ function ResultCard({ item, folders, folderPaths, onChange, onArchive, onDiscard
           </div>
         </Field>
 
-        <div className="grid gap-2 pt-1">
+        <div className="sticky bottom-3 z-10 grid gap-2 rounded-2xl border border-border/40 bg-background/90 p-2 shadow-2xl backdrop-blur md:static md:border-0 md:bg-transparent md:p-0 md:shadow-none md:backdrop-blur-0">
+          <button
+            type="button"
+            onClick={onPreview}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl glass px-4 py-2.5 text-sm font-medium transition hover:bg-muted"
+          >
+            <Eye className="h-4 w-4" /> Vorschau öffnen
+          </button>
           <button onClick={onArchive} className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-cyan-400 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_0_20px_oklch(0.62_0.24_290/0.4)] transition hover:brightness-110">
             <Check className="h-4 w-4" /> Archivieren
           </button>

@@ -121,6 +121,19 @@ db.exec(`
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS document_learning_rules (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    field       TEXT NOT NULL,
+    pattern     TEXT NOT NULL,
+    value       TEXT NOT NULL,
+    source      TEXT NOT NULL DEFAULT 'correction',
+    hit_count   INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, field, pattern, value)
+  );
+
   CREATE TABLE IF NOT EXISTS payments (
     id            TEXT PRIMARY KEY,
     user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -151,6 +164,7 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_documents_user_created ON documents(user_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_documents_user_status ON documents(user_id, status);
+  CREATE INDEX IF NOT EXISTS idx_learning_rules_user_field ON document_learning_rules(user_id, field, updated_at DESC);
   CREATE INDEX IF NOT EXISTS idx_payments_user_due ON payments(user_id, faelligkeit);
   CREATE INDEX IF NOT EXISTS idx_appointments_user_date ON appointments(user_id, datum);
 
@@ -1203,6 +1217,120 @@ function makeAnalysisHint(value, ruleId, sourceText, confidence = 0.7) {
   };
 }
 
+function deriveLearningPattern({ text = '', filename = '', absender = '' }) {
+  const combined = normalizeAnalysisText(`${absender}\n${filename}\n${text}`);
+  const sender = normalizeAnalysisText(absender).replace(/\s+/g, ' ').trim();
+  if (sender && sender !== 'unbekannt' && sender.length >= 3 && combined.includes(sender)) return sender.slice(0, 80);
+
+  const candidates = [
+    'r plus v',
+    'r und v',
+    'ruv',
+    'allianz',
+    'hdi',
+    'axa',
+    'huk',
+    'ergo',
+    'devk',
+    'finanzamt',
+    'gemeinde',
+    'stadt',
+    'telekom',
+    'vodafone',
+    'sparkasse',
+    'volksbank',
+  ];
+  const keyword = candidates.find((candidate) => combined.includes(candidate));
+  if (keyword) return keyword;
+
+  const firstUsefulLine = String(text || '')
+    .split(/\r?\n/)
+    .map((line) => normalizeAnalysisText(line).replace(/\s+/g, ' ').trim())
+    .find((line) =>
+      line.length >= 4
+      && line.length <= 80
+      && /[a-z]/.test(line)
+      && !/^(rechnung|datum|seite|tel|fax|email|e-mail|kundennummer|versicherungsnummer)\b/.test(line)
+    );
+  if (firstUsefulLine) return firstUsefulLine.slice(0, 80);
+
+  return normalizeAnalysisText(filename).replace(/\s+/g, ' ').trim().slice(0, 80);
+}
+
+function saveLearningRule({ userId, field, value, pattern }) {
+  if (!userId || !field || value == null || value === '' || !pattern || pattern.length < 3) return;
+  const id = uid();
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO document_learning_rules (id, user_id, field, pattern, value, source, hit_count, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 'correction', 0, ?, ?)
+    ON CONFLICT(user_id, field, pattern, value) DO UPDATE SET
+      updated_at = excluded.updated_at
+  `).run(id, userId, field, pattern, String(value), now, now);
+}
+
+function learnFromDocumentCorrection({ userId, existing, patch }) {
+  const textRow = db.prepare('SELECT extracted_text FROM document_texts WHERE document_id = ?').get(existing.id);
+  const text = textRow?.extracted_text || '';
+  const finalSender = patch.absender ?? existing.absender;
+  const pattern = deriveLearningPattern({ text, filename: existing.filename, absender: finalSender });
+  if (!pattern) return;
+
+  if (patch.folder_path && patch.folder_path !== existing.folder_path) {
+    saveLearningRule({ userId, field: 'folderPath', value: patch.folder_path, pattern });
+  }
+  if (patch.absender && patch.absender !== existing.absender && patch.absender !== 'Unbekannt') {
+    saveLearningRule({ userId, field: 'absender', value: patch.absender, pattern });
+  }
+  if (patch.dokumenttyp && patch.dokumenttyp !== existing.dokumenttyp && patch.dokumenttyp !== 'Sonstiges') {
+    saveLearningRule({ userId, field: 'dokumenttyp', value: patch.dokumenttyp, pattern });
+  }
+}
+
+function applyLearningRules(userId, analysis, { filename = '', text = '' } = {}) {
+  if (!userId) return analysis;
+  const combined = normalizeAnalysisText(`${filename}\n${text}\n${analysis.absender || ''}`);
+  const rules = db.prepare(`
+    SELECT id, field, pattern, value, hit_count
+    FROM document_learning_rules
+    WHERE user_id = ?
+    ORDER BY updated_at DESC
+    LIMIT 100
+  `).all(userId);
+  if (!rules.length) return analysis;
+
+  const next = { ...analysis, analysisHints: { ...(analysis.analysisHints || {}) } };
+  const used = [];
+  for (const rule of rules) {
+    const pattern = normalizeAnalysisText(rule.pattern).replace(/\s+/g, ' ').trim();
+    if (!pattern || !combined.includes(pattern)) continue;
+
+    if (rule.field === 'folderPath') {
+      next.vorgeschlagenerOrdner = rule.value;
+      next.vorgeschlagenerUnterordner = '';
+      next.analysisHints.folderPath = makeAnalysisHint(rule.value, `learned:${rule.id}`, `Gelernte Regel: ${rule.pattern}`, 0.92);
+      used.push(rule.id);
+    } else if (rule.field === 'absender') {
+      next.absender = rule.value;
+      next.analysisHints.absender = makeAnalysisHint(rule.value, `learned:${rule.id}`, `Gelernte Regel: ${rule.pattern}`, 0.9);
+      used.push(rule.id);
+    } else if (rule.field === 'dokumenttyp') {
+      next.dokumenttyp = rule.value;
+      next.analysisHints.dokumenttyp = makeAnalysisHint(rule.value, `learned:${rule.id}`, `Gelernte Regel: ${rule.pattern}`, 0.88);
+      used.push(rule.id);
+    }
+  }
+
+  if (used.length) {
+    const bump = db.prepare('UPDATE document_learning_rules SET hit_count = hit_count + 1, updated_at = ? WHERE id = ?');
+    const now = new Date().toISOString();
+    for (const id of used) bump.run(now, id);
+    next.tags = Array.from(new Set([...(Array.isArray(next.tags) ? next.tags : []), 'gelernt'])).slice(0, 8);
+  }
+
+  return next;
+}
+
 function inferSender(text, filename) {
   const normalized = normalizeAnalysisText(text);
   const branded = [
@@ -1858,18 +1986,20 @@ async function addUserFriendlySummary({ analysis, filename, mimeType, text }) {
   };
 }
 
-async function analyzeTextWithFallback({ filename, mimeType, text }) {
+async function analyzeTextWithFallback({ filename, mimeType, text, userId = null }) {
   const regexResult = analyzeExtractedText({ filename, mimeType, text });
   let merged;
 
   if (!hasMeaningfulText(text)) {
     merged = mergeAnalyses(regexResult, null, text ? 'regex' : 'regex');
+    merged = applyLearningRules(userId, merged, { filename, text });
     return addUserFriendlySummary({ analysis: merged, filename, mimeType, text });
   }
 
   // Use fast regex analysis (free, no tokens, instant)
   // Ollama disabled - regex provides good results and is instant
   merged = mergeAnalyses(regexResult, null, 'regex');
+  merged = applyLearningRules(userId, merged, { filename, text });
   return addUserFriendlySummary({ analysis: merged, filename, mimeType, text });
 }
 
@@ -2073,9 +2203,9 @@ async function extractImageText(buffer, mimeType) {
   return best;
 }
 
-async function analyzeBuffer({ filename, mimeType, buffer }) {
+async function analyzeBuffer({ filename, mimeType, buffer, userId = null }) {
   const { text } = await extractTextFromBuffer({ mimeType, buffer });
-  return analyzeTextWithFallback({ filename, mimeType, text });
+  return analyzeTextWithFallback({ filename, mimeType, text, userId });
 }
 
 async function extractTextFromBuffer({ mimeType, buffer }) {
@@ -2110,7 +2240,7 @@ app.post('/api/analyze-document-file', requireAuth, express.raw({
   }
 
   try {
-    const result = await analyzeBuffer({ filename, mimeType, buffer });
+    const result = await analyzeBuffer({ filename, mimeType, buffer, userId: currentUserId(req) });
     return res.status(200).json(result);
   } catch (err) {
     console.error('analyze-document-file local OCR fallback', errorSummary(err));
@@ -2190,7 +2320,7 @@ app.post('/api/documents/upload', requireAuth, express.raw({
       const extracted = await extractTextFromBuffer({ mimeType, buffer });
       text = extracted.text;
       ocrEngine = extracted.engine || ocrEngine;
-      analysis = await analyzeTextWithFallback({ filename: originalFilename, mimeType, text });
+      analysis = await analyzeTextWithFallback({ filename: originalFilename, mimeType, text, userId });
     } catch (err) {
       console.error('documents/upload analysis fallback', errorSummary(err));
       analysis = { ...inferDocument(originalFilename, mimeType), analysisMode: 'regex' };
@@ -2318,6 +2448,8 @@ app.patch('/api/documents/:id', requireAuth, (req, res) => {
   const tx = db.transaction(() => {
     db.prepare(`UPDATE documents SET ${assignments} WHERE id = ? AND user_id = ?`)
       .run(...entries.map(([, value]) => value), req.params.id, userId);
+
+    learnFromDocumentCorrection({ userId, existing, patch });
 
     if (patch.folder_path && patch.folder_path !== existing.folder_path) {
       const paymentFolder = topFolder || '07_Sonstiges';
