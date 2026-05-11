@@ -422,30 +422,53 @@ export default function UserMenu({ email, displayName, onLogout }: UserMenuProps
   }, [isOpen]);
 
   const handleProfileSave = async (name: string) => {
-    const response = await fetch('/api/auth/profile', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ displayName: name }),
-    });
+    try {
+      const response = await fetch('/api/auth/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: name }),
+        credentials: 'include',
+      });
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Fehler beim Speichern');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+
+        // Session timeout - user needs to re-login
+        if (response.status === 401 && errorData.error?.includes('Sitzung')) {
+          throw new Error('Sitzung abgelaufen. Bitte melden Sie sich erneut an.');
+        }
+
+        throw new Error(errorData.error || 'Fehler beim Speichern');
+      }
+
+      const data = await response.json();
+      setCurrentDisplayName(data.displayName || name);
+    } catch (err: any) {
+      throw err;
     }
-
-    setCurrentDisplayName(name);
   };
 
   const handlePasswordChange = async (currentPassword: string, newPassword: string) => {
-    const response = await fetch('/api/auth/change-password', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ currentPassword, newPassword }),
-    });
+    try {
+      const response = await fetch('/api/auth/change-password', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword }),
+        credentials: 'include',
+      });
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Fehler beim Ändern des Passworts');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+
+        // Session timeout - user needs to re-login
+        if (response.status === 401 && errorData.error?.includes('Sitzung')) {
+          throw new Error('Sitzung abgelaufen. Bitte melden Sie sich erneut an.');
+        }
+
+        throw new Error(errorData.error || 'Fehler beim Ändern des Passworts');
+      }
+    } catch (err: any) {
+      throw err;
     }
   };
 
@@ -465,9 +488,11 @@ export default function UserMenu({ email, displayName, onLogout }: UserMenuProps
         <div className="h-8 w-8 flex-shrink-0 rounded-full bg-gradient-to-br from-violet-500 to-cyan-400 flex items-center justify-center text-white text-xs font-semibold shadow-[0_0_14px_oklch(0.62_0.24_290/0.4)]">
           {initials}
         </div>
-        <span className="text-sm font-medium hidden sm:inline max-w-[100px] truncate">
+        {/* Desktop: Show full display name or email prefix */}
+        <span className="text-sm font-medium hidden sm:inline max-w-[120px] truncate">
           {currentDisplayName || email.split('@')[0]}
         </span>
+        {/* Mobile: Show initials as tooltip text via title attribute */}
         <svg
           className={`h-4 w-4 text-foreground/60 transition-transform hidden sm:block ${isOpen ? 'rotate-180' : ''}`}
           fill="none"
