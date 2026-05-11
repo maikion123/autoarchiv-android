@@ -18,8 +18,9 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import sharp from 'sharp';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { reviewWithAI as reviewDocumentWithAI, decideFinalAnalysis, createRegexFallback } from './src/server/analysis/documentPipeline.mjs';
-import { prepareLayoutAnalysisInput } from './src/server/analysis/layoutPipeline.mjs';
+// TODO: Import analysis modules when available
+// import { reviewWithAI as reviewDocumentWithAI, decideFinalAnalysis, createRegexFallback } from './src/server/analysis/documentPipeline.mjs';
+// import { prepareLayoutAnalysisInput } from './src/server/analysis/layoutPipeline.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
