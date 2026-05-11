@@ -2,6 +2,13 @@ import { openDB, type IDBPDatabase } from "idb";
 
 export type Importance = "hoch" | "mittel" | "niedrig";
 
+export interface AnalysisHint {
+  value: string | number | null;
+  ruleId: string;
+  sourceText: string;
+  confidence: number;
+}
+
 export interface ArchivedDoc {
   id: string;
   filename: string;
@@ -17,11 +24,22 @@ export interface ArchivedDoc {
   ablaufdatum: string | null;
   wichtigkeit: Importance;
   tags: string[];
+  analysisHints?: Record<string, AnalysisHint | null>;
   analysisMode?: "llm" | "regex" | "fallback";
   confidence?: number | null;
   wichtigkeitsgrund?: string | null;
   status?: "uploaded" | "analyzed" | "archived" | "failed" | "deleted";
   // file blob stored separately
+}
+
+export interface DocumentText {
+  extracted_text: string;
+  ocr_engine: string;
+}
+
+export interface DocumentDetails {
+  document: ArchivedDoc;
+  text: DocumentText | null;
 }
 
 export interface PaymentEntry {
@@ -108,6 +126,25 @@ export async function getDocumentBlob(id: string): Promise<Blob | undefined> {
   }
   const db = await getDB();
   return (await db.get("blobs", id)) as Blob | undefined;
+}
+export async function getDocumentDetails(id: string): Promise<DocumentDetails | null> {
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch(`/api/documents/${encodeURIComponent(id)}`, { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        return {
+          document: data.document as ArchivedDoc,
+          text: data.text || null,
+        };
+      }
+    } catch {
+      // Fallback to legacy browser archive below.
+    }
+  }
+  const db = await getDB();
+  const document = (await db.get("documents", id)) as ArchivedDoc | undefined;
+  return document ? { document, text: null } : null;
 }
 export async function deleteDocument(id: string) {
   if (typeof window !== "undefined") {

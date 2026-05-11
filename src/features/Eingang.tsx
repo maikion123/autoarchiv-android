@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, Camera, FileCheck2, Sparkles, Loader2, Check, X, Tag, Eye } from "lucide-react";
+import { Upload, Camera, FileCheck2, Sparkles, Loader2, Check, X, Tag, Eye, FolderPlus } from "lucide-react";
 import { useArchive } from "../lib/store";
 import { savePayment, uid, type Importance, type ArchivedDoc } from "../lib/db";
-import { DEFAULT_FOLDER_TREE, flattenFolderTree, loadFolderTree, type FolderNode } from "../lib/folders";
+import { createFolder, DEFAULT_FOLDER_TREE, flattenFolderTree, loadFolderTree, type FolderNode } from "../lib/folders";
 import { fmtBytes, fmtEUR, fmtDate } from "../lib/format";
 import { toast } from "sonner";
 import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
@@ -82,6 +82,13 @@ export default function EingangPage() {
   const [folderPaths, setFolderPaths] = useState<string[]>([]);
   const [previewingDoc, setPreviewingDoc] = useState<ArchivedDoc | null>(null);
 
+  const reloadFolders = useCallback(async () => {
+      const tree = await loadFolderTree();
+      setFolders(tree);
+      setFolderPaths(flattenFolderTree(tree).map((node) => node.id));
+      return tree;
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     const loadFolders = async () => {
@@ -99,6 +106,13 @@ export default function EingangPage() {
       mounted = false;
     };
   }, []);
+
+  const createFolderFromInbox = useCallback(async (parentId: string | null, name: string) => {
+    const folder = await createFolder(parentId, name, parentId ? undefined : "#3b82f6", "Folder");
+    await reloadFolders();
+    toast.success(parentId ? "Unterordner angelegt" : "Hauptordner angelegt");
+    return folder.id;
+  }, [reloadFolders]);
 
   const analyze = useCallback(async (item: QueueItem) => {
     setQueue((q) => q.map((x) => x.id === item.id ? { ...x, stage: "analyzing" } : x));
@@ -298,6 +312,7 @@ export default function EingangPage() {
                 onChange={(p) => updateResult(item.id, p)}
                 onArchive={() => archive(item)}
                 onDiscard={() => discard(item.id)}
+                onCreateFolder={createFolderFromInbox}
                 onPreview={() => item.documentId && setPreviewingDoc({
                   id: item.documentId,
                   filename: item.file.name,
@@ -454,7 +469,12 @@ function ResultCard({ item, folders, folderPaths, onChange, onArchive, onDiscard
       </div>
 
       <div className="space-y-3">
-        <div className="rounded-xl border border-border/40 overflow-hidden bg-black/20 relative group" style={{ height: 140 }}>
+        <button
+          type="button"
+          onClick={onPreview}
+          className="relative h-40 w-full overflow-hidden rounded-xl border border-border/40 bg-black/20 text-left transition hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/60 sm:h-36"
+          aria-label="Dokumentvorschau öffnen"
+        >
           {previewUrl && (
             mimeType.startsWith("image/") ? (
               <img src={previewUrl} alt="Dokumentvorschau" className="h-full w-full object-contain" />
@@ -464,14 +484,19 @@ function ResultCard({ item, folders, folderPaths, onChange, onArchive, onDiscard
               <div className="h-full w-full flex items-center justify-center text-xs text-muted-foreground">Vorschau nicht verfügbar</div>
             )
           )}
-          <button
-            onClick={onPreview}
-            className="absolute top-2 right-2 p-2 rounded-lg bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity text-white hover:bg-black/70"
-            title="Vollbild öffnen"
-          >
+          <span className="absolute right-2 top-2 grid h-10 w-10 place-items-center rounded-lg bg-black/60 text-white shadow-lg sm:h-9 sm:w-9">
             <Eye className="h-4 w-4" />
-          </button>
-        </div>
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onPreview}
+          className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl glass px-4 py-2.5 text-sm font-medium transition hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary/60"
+        >
+          <Eye className="h-4 w-4" />
+          Vorschau öffnen
+        </button>
 
         <Field label="Wichtigkeit">
           <div className="grid grid-cols-3 gap-1 rounded-lg glass p-1 text-xs">

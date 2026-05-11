@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Download, Trash2, FolderInput, PencilLine, Save, XCircle, Loader2, FileText } from "lucide-react";
-import type { ArchivedDoc } from "../lib/db";
-import { getDocumentBlob, patchDocument } from "../lib/db";
+import type { AnalysisHint, ArchivedDoc, DocumentText } from "../lib/db";
+import { getDocumentBlob, getDocumentDetails, patchDocument } from "../lib/db";
 import { fmtDate, fmtBytes, fmtEUR } from "../lib/format";
 import { DEFAULT_FOLDER_TREE, loadFolderTree, type FolderNode } from "../lib/folders";
 import { toast } from "sonner";
@@ -26,6 +26,8 @@ type EditForm = {
   wichtigkeit: ArchivedDoc["wichtigkeit"];
 };
 
+type PreviewTab = "preview" | "text" | "analysis";
+
 function makeEditForm(doc: ArchivedDoc): EditForm {
   return {
     folderPath: doc.folderPath || "",
@@ -48,6 +50,10 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
   const [folders, setFolders] = useState<FolderNode[]>(DEFAULT_FOLDER_TREE);
   const [foldersLoading, setFoldersLoading] = useState(false);
   const [form, setForm] = useState<EditForm | null>(null);
+  const [activeTab, setActiveTab] = useState<PreviewTab>("preview");
+  const [documentText, setDocumentText] = useState<DocumentText | null>(null);
+  const [textLoading, setTextLoading] = useState(false);
+  const [textLoadError, setTextLoadError] = useState(false);
 
   const activeDoc = currentDoc ?? doc;
 
@@ -78,12 +84,19 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
       setEditMode(false);
       setForm(null);
       setFolders(DEFAULT_FOLDER_TREE);
+      setActiveTab("preview");
+      setDocumentText(null);
+      setTextLoading(false);
+      setTextLoadError(false);
       return;
     }
 
     setCurrentDoc(doc);
     setEditMode(false);
     setForm(makeEditForm(doc));
+    setActiveTab("preview");
+    setDocumentText(null);
+    setTextLoadError(false);
 
     let alive = true;
     setFoldersLoading(true);
@@ -91,6 +104,21 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
       .then((tree) => { if (alive) setFolders(tree); })
       .catch(() => { if (alive) setFolders(DEFAULT_FOLDER_TREE); })
       .finally(() => { if (alive) setFoldersLoading(false); });
+
+    setTextLoading(true);
+    getDocumentDetails(doc.id)
+      .then((details) => {
+        if (!alive || !details) return;
+        setCurrentDoc(details.document);
+        setForm(makeEditForm(details.document));
+        setDocumentText(details.text);
+      })
+      .catch(() => {
+        if (alive) setTextLoadError(true);
+      })
+      .finally(() => {
+        if (alive) setTextLoading(false);
+      });
 
     return () => { alive = false; };
   }, [doc?.id]);
@@ -138,47 +166,86 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
       {activeDoc && (
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[80] grid place-items-center bg-black/60 backdrop-blur-md p-4"
+          className="fixed inset-0 z-[80] grid place-items-center bg-black/60 p-0 backdrop-blur-md sm:p-4"
           onClick={onClose}
         >
           <motion.div
             initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }}
             transition={{ type: "spring", damping: 22 }}
-            className="glass-strong relative grid h-[90vh] w-full max-w-6xl grid-rows-[auto_1fr] overflow-hidden rounded-2xl border-glow md:grid-cols-[1fr_380px] md:grid-rows-1"
+            className="glass-strong relative grid h-[100dvh] w-full max-w-6xl grid-rows-[minmax(0,46dvh)_minmax(0,1fr)] overflow-hidden rounded-none border-glow sm:h-[92vh] sm:rounded-2xl md:grid-cols-[minmax(0,1fr)_380px] md:grid-rows-1"
             onClick={(e) => e.stopPropagation()}
           >
-            <button onClick={onClose} className="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center rounded-full glass hover:bg-muted">
+            <button onClick={onClose} className="absolute right-3 top-3 z-10 grid h-10 w-10 place-items-center rounded-full glass hover:bg-muted">
               <X className="h-4 w-4" />
             </button>
 
-            <div className="overflow-auto bg-black/30 p-4 grid place-items-center">
-              {loadError ? (
-                <div className="text-center space-y-3 text-sm text-muted-foreground">
-                  <FileText className="mx-auto h-10 w-10 opacity-30" />
-                  <p>Vorschau nicht verfügbar</p>
-                  <a
-                    href={`/api/documents/${activeDoc.id}/file`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs underline text-primary hover:text-primary/80 inline-block"
-                  >
-                    Direkt öffnen ↗
-                  </a>
+            <div className="grid min-h-0 grid-rows-[auto_1fr] bg-black/30">
+              <div className="grid gap-2 border-b border-border/40 px-3 py-3 pr-14 sm:flex sm:items-center sm:justify-between sm:gap-3 sm:px-4">
+                <div className="flex max-w-full overflow-x-auto rounded-xl border border-border/50 bg-background/30 p-1 text-xs scrollbar-thin">
+                  <TabButton active={activeTab === "preview"} onClick={() => setActiveTab("preview")}>
+                    Vorschau
+                  </TabButton>
+                  <TabButton active={activeTab === "text"} onClick={() => setActiveTab("text")}>
+                    Erkannter Text
+                  </TabButton>
+                  <TabButton active={activeTab === "analysis"} onClick={() => setActiveTab("analysis")}>
+                    Analyse
+                  </TabButton>
                 </div>
-              ) : url ? (
-                activeDoc.mimeType.startsWith("image/") ? (
-                  <img src={url} alt={activeDoc.filename} className="max-h-full max-w-full rounded-lg shadow-2xl" />
-                ) : activeDoc.mimeType === "application/pdf" ? (
-                  <iframe src={url} title={activeDoc.filename} className="h-full w-full rounded-lg bg-white" />
-                ) : (
-                  <div className="text-muted-foreground">Vorschau nicht verfügbar</div>
-                )
+                {documentText?.ocr_engine && (
+                  <span className="min-w-0 truncate text-xs text-muted-foreground sm:max-w-48">OCR: {documentText.ocr_engine}</span>
+                )}
+              </div>
+
+              {activeTab === "preview" ? (
+                <div className="grid place-items-center overflow-auto p-3 sm:p-4">
+                  {loadError ? (
+                    <div className="text-center space-y-3 text-sm text-muted-foreground">
+                      <FileText className="mx-auto h-10 w-10 opacity-30" />
+                      <p>Vorschau nicht verfügbar</p>
+                      <a
+                        href={`/api/documents/${activeDoc.id}/file`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs underline text-primary hover:text-primary/80 inline-block"
+                      >
+                        Direkt öffnen ↗
+                      </a>
+                    </div>
+                  ) : url ? (
+                    activeDoc.mimeType.startsWith("image/") ? (
+                      <img src={url} alt={activeDoc.filename} className="max-h-full max-w-full rounded-lg shadow-2xl" />
+                    ) : activeDoc.mimeType === "application/pdf" ? (
+                      <iframe src={url} title={activeDoc.filename} className="h-full min-h-64 w-full rounded-lg bg-white" />
+                    ) : (
+                      <div className="text-muted-foreground">Vorschau nicht verfügbar</div>
+                    )
+                  ) : (
+                    <div className="skeleton h-full w-full" />
+                  )}
+                </div>
+              ) : activeTab === "text" ? (
+                <div className="min-h-0 overflow-auto p-3 sm:p-4">
+                  {textLoading ? (
+                    <div className="skeleton h-full min-h-64 w-full" />
+                  ) : textLoadError ? (
+                    <TextEmptyState title="Text konnte nicht geladen werden" />
+                  ) : documentText?.extracted_text?.trim() ? (
+                    <pre className="min-h-full whitespace-pre-wrap break-words rounded-xl border border-border/40 bg-background/70 p-3 font-mono text-[11px] leading-relaxed text-foreground/90 sm:p-4 sm:text-xs">
+                      {documentText.extracted_text}
+                    </pre>
+                  ) : (
+                    <TextEmptyState title="Kein OCR-Text gespeichert" />
+                  )}
+                </div>
               ) : (
-                <div className="skeleton h-full w-full" />
+                <div className="min-h-0 overflow-auto p-3 sm:p-4">
+                  <AnalysisHintsPanel hints={activeDoc.analysisHints} />
+                </div>
               )}
             </div>
 
-            <aside className="overflow-y-auto border-t border-border/40 p-5 md:border-l md:border-t-0 scrollbar-thin">
+            <aside className="min-h-0 overflow-y-auto border-t border-border/40 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] md:border-l md:border-t-0 md:p-5 scrollbar-thin">
               <h3 className="text-base font-semibold leading-tight">{activeDoc.filename}</h3>
               <p className="mt-0.5 text-xs text-muted-foreground">{fmtBytes(activeDoc.size)} · {activeDoc.mimeType}</p>
 
@@ -359,6 +426,76 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
       <div className={`text-right text-sm ${mono ? "font-mono text-xs" : ""}`}>{value}</div>
     </div>
   );
+}
+
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-lg px-3 py-1.5 transition ${
+        active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+      }`}
+    >
+      <span className="block whitespace-nowrap">{children}</span>
+    </button>
+  );
+}
+
+function TextEmptyState({ title }: { title: string }) {
+  return (
+    <div className="grid h-full min-h-64 place-items-center rounded-xl border border-dashed border-border/50 bg-background/30 text-center text-sm text-muted-foreground">
+      <div className="space-y-2">
+        <FileText className="mx-auto h-10 w-10 opacity-30" />
+        <p>{title}</p>
+      </div>
+    </div>
+  );
+}
+
+function AnalysisHintsPanel({ hints }: { hints?: Record<string, AnalysisHint | null> }) {
+  const rows = [
+    ["absender", "Absender"],
+    ["dokumenttyp", "Dokumenttyp"],
+    ["folderPath", "Ordner"],
+    ["zahlungsbetrag", "Betrag"],
+    ["faelligkeitsdatum", "Fälligkeit"],
+    ["ablaufdatum", "Ablaufdatum"],
+  ] as const;
+  const visible = rows
+    .map(([key, label]) => ({ key, label, hint: hints?.[key] }))
+    .filter((row): row is { key: string; label: string; hint: AnalysisHint } => Boolean(row.hint));
+
+  if (!visible.length) return <TextEmptyState title="Keine Analyse-Hinweise gespeichert" />;
+
+  return (
+    <div className="space-y-3">
+      {visible.map(({ key, label, hint }) => (
+        <div key={key} className="rounded-xl border border-border/40 bg-background/60 p-3 sm:p-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</div>
+              <div className="mt-1 break-words text-sm font-medium">{formatHintValue(hint.value)}</div>
+            </div>
+            <div className="rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">
+              {Math.round((hint.confidence ?? 0) * 100)}%
+            </div>
+          </div>
+          {hint.sourceText && (
+            <blockquote className="mt-3 break-words rounded-lg border-l-2 border-primary/50 bg-black/20 px-3 py-2 font-mono text-[11px] leading-relaxed text-foreground/80 sm:text-xs">
+              {hint.sourceText}
+            </blockquote>
+          )}
+          <div className="mt-2 break-all font-mono text-[11px] text-muted-foreground">{hint.ruleId}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function formatHintValue(value: AnalysisHint["value"]) {
+  if (value == null || value === "") return "—";
+  return typeof value === "number" ? fmtEUR(value) : String(value);
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {

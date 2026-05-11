@@ -105,6 +105,7 @@ db.exec(`
     ablaufdatum         TEXT,
     wichtigkeit         TEXT NOT NULL DEFAULT 'mittel',
     tags_json           TEXT NOT NULL DEFAULT '[]',
+    analysis_hints_json TEXT NOT NULL DEFAULT '{}',
     analysis_mode       TEXT NOT NULL DEFAULT 'regex',
     confidence          REAL,
     wichtigkeitsgrund   TEXT,
@@ -191,6 +192,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_agents_updated ON agents(updated_at DESC);
   CREATE INDEX IF NOT EXISTS idx_agent_events_created ON agent_events(created_at DESC);
 `);
+
+try {
+  db.exec("ALTER TABLE documents ADD COLUMN analysis_hints_json TEXT NOT NULL DEFAULT '{}'");
+} catch {
+  // Column already exists.
+}
 
 const DEFAULT_AGENTS = [
   ['claude-code', 'Claude Code', 'ai', 'idle', 'Backend, Auth, Deployment und komplexe Refactors'],
@@ -354,6 +361,15 @@ function parseJsonArray(value) {
   }
 }
 
+function parseJsonObject(value) {
+  try {
+    const parsed = JSON.parse(value || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function documentResponse(row) {
   if (!row) return null;
   return {
@@ -374,6 +390,7 @@ function documentResponse(row) {
     ablaufdatum: row.ablaufdatum,
     wichtigkeit: row.wichtigkeit,
     tags: parseJsonArray(row.tags_json),
+    analysisHints: parseJsonObject(row.analysis_hints_json),
     analysisMode: row.analysis_mode,
     confidence: row.confidence,
     wichtigkeitsgrund: row.wichtigkeitsgrund,
@@ -1102,6 +1119,10 @@ function extractFirstAmountFromLine(line) {
 }
 
 function pickPrimaryAmount(text) {
+  return pickPrimaryAmountCandidate(text)?.value ?? null;
+}
+
+function pickPrimaryAmountCandidate(text) {
   const lines = String(text || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const labelOrder = [
     /rechnungsbetrag/i,
@@ -1118,11 +1139,26 @@ function pickPrimaryAmount(text) {
     for (const line of lines) {
       if (!labelRx.test(line)) continue;
       const amount = extractFirstAmountFromLine(line);
-      if (amount != null) return amount;
+      if (amount != null) {
+        return {
+          value: amount,
+          ruleId: `amount:${labelRx.source}`,
+          sourceText: line.slice(0, 220),
+          confidence: 0.88,
+        };
+      }
     }
   }
 
-  return parseGermanAmount(text);
+  const candidate = findMoneyCandidates(text)[0];
+  return candidate
+    ? {
+        value: candidate.value,
+        ruleId: 'amount:context-score',
+        sourceText: candidate.context.slice(0, 220),
+        confidence: Math.min(0.84, 0.45 + candidate.score / 35),
+      }
+    : null;
 }
 
 function toIsoDate(day, month, year) {
@@ -1135,12 +1171,36 @@ function toIsoDate(day, month, year) {
 }
 
 function parseDateNear(text, labels) {
+  return parseDateNearWithHint(text, labels)?.value ?? null;
+}
+
+function parseDateNearWithHint(text, labels) {
   for (const label of labels) {
     const rx = new RegExp(`${label}[^\\d]{0,40}(\\d{1,2})[.\\-/](\\d{1,2})[.\\-/](\\d{2,4})`, 'i');
     const match = text.match(rx);
-    if (match) return toIsoDate(match[1], match[2], match[3]);
+    if (match) {
+      const value = toIsoDate(match[1], match[2], match[3]);
+      if (value) {
+        return {
+          value,
+          ruleId: `date:${normalizeAnalysisText(label).replace(/\s+/g, '-')}`,
+          sourceText: match[0].replace(/\s+/g, ' ').trim().slice(0, 220),
+          confidence: 0.82,
+        };
+      }
+    }
   }
   return null;
+}
+
+function makeAnalysisHint(value, ruleId, sourceText, confidence = 0.7) {
+  if (value == null || value === '') return null;
+  return {
+    value,
+    ruleId,
+    sourceText: sourceText ? String(sourceText).replace(/\s+/g, ' ').trim().slice(0, 240) : '',
+    confidence,
+  };
 }
 
 function inferSender(text, filename) {
@@ -1351,13 +1411,16 @@ function analyzeExtractedText({ filename, mimeType, text }) {
   const sender = text ? inferSender(text, filename) : fallback.absender;
   const docType = pickDocumentType(combined, fallback.dokumenttyp);
   const subject = extractLabelValue(text, ['betreff', 'leistung', 'gegenstand', 'verwendungszweck']);
-  const amountCandidates = findMoneyCandidates(combined);
-  const bestAmount = pickPrimaryAmount(combined);
+  const amountHint = pickPrimaryAmountCandidate(combined);
+  const bestAmount = amountHint?.value ?? null;
   const hasInsurance = scores.versicherung > 0 || /r\s*(?:plus|und)?\s*v|ruv|r\s*v/i.test(combined);
   const hasVehicle = scores.fahrzeug > 0 || /kfz|fahrzeug|kennzeichen|zulassung/i.test(combined);
   const isVehicleInsurance = hasInsurance && hasVehicle;
-  const documentDate = parseDateNear(text, ['datum', 'rechnungsdatum', 'belegdatum', 'rechnung vom']);
-  const displayDocumentDate = documentDate ? documentDate.split('-').reverse().join('.') : null;
+  const documentDateHint = parseDateNearWithHint(text, ['datum', 'rechnungsdatum', 'belegdatum', 'rechnung vom']);
+  const dueDateHint = parseDateNearWithHint(text, ['fällig', 'faellig', 'zahlbar bis', 'bis zum', 'zahlung bis', 'abbuchung am', 'einzug am', 'fällig am', 'faellig am', 'zu zahlen bis']);
+  const expiryDateHint = parseDateNearWithHint(text, ['gültig bis', 'gueltig bis', 'ablauf', 'läuft ab', 'endet am']);
+  const displayDocumentDate = documentDateHint?.value ? documentDateHint.value.split('-').reverse().join('.') : null;
+  let folderHint = null;
 
   result.dokumenttyp = (docType === 'Rechnung' || textHas(combined, 'rechnung', 'jahresbeitrag', 'zahlung', 'lastschrift'))
     ? 'Rechnung'
@@ -1365,35 +1428,50 @@ function analyzeExtractedText({ filename, mimeType, text }) {
 
   if (isVehicleInsurance) {
     result.vorgeschlagenerOrdner = '01_Fahrzeug/KFZ-Versicherung';
+    folderHint = makeAnalysisHint(result.vorgeschlagenerOrdner, 'folder:vehicle-insurance', 'KFZ/Fahrzeug und Versicherung erkannt', 0.9);
     tags.add('fahrzeug');
     tags.add('versicherung');
     tags.add('kfz');
   } else if (bestCategory?.[0] === 'versicherung') {
     result.vorgeschlagenerOrdner = FOLDERS.versicherung;
+    folderHint = makeAnalysisHint(result.vorgeschlagenerOrdner, 'folder:versicherung-score', 'Versicherungsbegriffe im Dokument erkannt', 0.78);
     tags.add('versicherung');
   } else if (bestCategory?.[0] === 'fahrzeug') {
     result.vorgeschlagenerOrdner = FOLDERS.fahrzeug;
+    folderHint = makeAnalysisHint(result.vorgeschlagenerOrdner, 'folder:fahrzeug-score', 'Fahrzeugbegriffe im Dokument erkannt', 0.78);
     tags.add('fahrzeug');
   } else if (bestCategory?.[0] === 'behoerde') {
     result.vorgeschlagenerOrdner = FOLDERS.behoerde;
     result.wichtigkeit = 'hoch';
+    folderHint = makeAnalysisHint(result.vorgeschlagenerOrdner, 'folder:behoerde-score', 'Behörden- oder Bescheidbegriffe erkannt', 0.78);
     tags.add('behoerde');
   } else if (bestCategory?.[0] === 'vertrag') {
     result.vorgeschlagenerOrdner = FOLDERS.vertrag;
+    folderHint = makeAnalysisHint(result.vorgeschlagenerOrdner, 'folder:vertrag-score', 'Vertragsbegriffe im Dokument erkannt', 0.78);
     tags.add('vertrag');
   } else if (bestCategory?.[0] === 'gesundheit') {
     result.vorgeschlagenerOrdner = FOLDERS.gesundheit;
+    folderHint = makeAnalysisHint(result.vorgeschlagenerOrdner, 'folder:gesundheit-score', 'Gesundheitsbegriffe im Dokument erkannt', 0.78);
     tags.add('gesundheit');
   } else if (textHas(combined, 'rechnung', 'rechnungsnummer', 'gesamtbetrag', 'zu zahlen', 'lastschrift', 'abbuchung')) {
     result.vorgeschlagenerOrdner = FOLDERS.finanzen;
+    folderHint = makeAnalysisHint(result.vorgeschlagenerOrdner, 'folder:rechnung-finance', 'Rechnungs- oder Zahlungsbegriffe erkannt', 0.76);
     tags.add('rechnung');
     tags.add('zahlung');
   }
 
   result.absender = sender;
   result.zahlungsbetrag = bestAmount;
-  result.faelligkeitsdatum = parseDateNear(text, ['fällig', 'faellig', 'zahlbar bis', 'bis zum', 'zahlung bis', 'abbuchung am', 'einzug am', 'fällig am', 'faellig am', 'zu zahlen bis']);
-  result.ablaufdatum = parseDateNear(text, ['gültig bis', 'gueltig bis', 'ablauf', 'läuft ab', 'endet am']);
+  result.faelligkeitsdatum = dueDateHint?.value ?? null;
+  result.ablaufdatum = expiryDateHint?.value ?? null;
+  result.analysisHints = {
+    absender: makeAnalysisHint(sender, text ? 'sender:text-line-or-brand' : 'sender:filename-fallback', sender, text && sender !== 'Unbekannt' ? 0.72 : 0.35),
+    dokumenttyp: makeAnalysisHint(result.dokumenttyp, `document-type:${normalizeAnalysisText(result.dokumenttyp)}`, result.dokumenttyp, result.dokumenttyp !== fallback.dokumenttyp ? 0.78 : 0.52),
+    folderPath: folderHint,
+    zahlungsbetrag: amountHint ? makeAnalysisHint(amountHint.value, amountHint.ruleId, amountHint.sourceText, amountHint.confidence) : null,
+    faelligkeitsdatum: dueDateHint ? makeAnalysisHint(dueDateHint.value, dueDateHint.ruleId, dueDateHint.sourceText, dueDateHint.confidence) : null,
+    ablaufdatum: expiryDateHint ? makeAnalysisHint(expiryDateHint.value, expiryDateHint.ruleId, expiryDateHint.sourceText, expiryDateHint.confidence) : null,
+  };
 
   const summaryBits = [];
   if (sender && sender !== 'Unbekannt') summaryBits.push(sender);
@@ -2120,6 +2198,9 @@ app.post('/api/documents/upload', requireAuth, express.raw({
     const benchmark = evaluateBenchmark(analysis, originalFilename, text);
 
     const tagsJson = JSON.stringify(Array.isArray(analysis.tags) ? analysis.tags.slice(0, 20) : []);
+    const analysisHintsJson = JSON.stringify(
+      analysis.analysisHints && typeof analysis.analysisHints === 'object' ? analysis.analysisHints : {},
+    );
     db.prepare(`
       UPDATE documents SET
         folder_path = ?,
@@ -2131,6 +2212,7 @@ app.post('/api/documents/upload', requireAuth, express.raw({
         ablaufdatum = ?,
         wichtigkeit = ?,
         tags_json = ?,
+        analysis_hints_json = ?,
         analysis_mode = ?,
         confidence = ?,
         wichtigkeitsgrund = ?,
@@ -2149,6 +2231,7 @@ app.post('/api/documents/upload', requireAuth, express.raw({
       analysis.ablaufdatum ?? null,
       analysis.wichtigkeit || 'mittel',
       tagsJson,
+      analysisHintsJson,
       analysis.analysisMode || 'regex',
       analysis.confidence ?? null,
       analysis.wichtigkeitsgrund ?? null,

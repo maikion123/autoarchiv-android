@@ -939,7 +939,7 @@ function DocRow({ doc, onPreview, onDelete }: { doc: ArchivedDoc; onPreview: () 
   };
 
   return (
-    <motion.div whileHover={{ x: 2 }} className="glass flex items-center gap-3 rounded-xl p-2.5">
+    <motion.div whileHover={{ x: 2 }} className="glass flex flex-wrap items-center gap-3 rounded-xl p-2.5 sm:flex-nowrap">
       <div className="grid h-12 w-10 shrink-0 place-items-center overflow-hidden rounded-md bg-muted/60">
         {thumb ? <img src={thumb} alt="" className="h-full w-full object-cover" /> : <FileText className="h-4 w-4 text-muted-foreground" />}
       </div>
@@ -956,10 +956,10 @@ function DocRow({ doc, onPreview, onDelete }: { doc: ArchivedDoc; onPreview: () 
           )}
         </div>
       </div>
-      <div className="flex items-center gap-1">
-        <button onClick={onPreview} className="grid h-8 w-8 place-items-center rounded-lg hover:bg-muted" title="Vorschau"><Eye className="h-4 w-4" /></button>
-        <button onClick={downloadIt} className="grid h-8 w-8 place-items-center rounded-lg hover:bg-muted" title="Download"><Download className="h-4 w-4" /></button>
-        <button onClick={onDelete} className="grid h-8 w-8 place-items-center rounded-lg text-rose-300 hover:bg-rose-500/20" title="Löschen"><Trash2 className="h-4 w-4" /></button>
+      <div className="ml-[3.25rem] grid w-full grid-cols-3 gap-1.5 sm:ml-0 sm:w-auto sm:flex sm:items-center sm:gap-1">
+        <button onClick={onPreview} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg bg-primary/10 px-2 text-xs text-primary hover:bg-primary/20 sm:grid sm:h-8 sm:w-8 sm:px-0 sm:text-foreground sm:hover:bg-muted" title="Vorschau"><Eye className="h-4 w-4" /><span className="sm:hidden">Vorschau</span></button>
+        <button onClick={downloadIt} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg px-2 text-xs hover:bg-muted sm:grid sm:h-8 sm:w-8 sm:px-0" title="Download"><Download className="h-4 w-4" /><span className="sm:hidden">Download</span></button>
+        <button onClick={onDelete} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg px-2 text-xs text-rose-300 hover:bg-rose-500/20 sm:grid sm:h-8 sm:w-8 sm:px-0" title="Löschen"><Trash2 className="h-4 w-4" /><span className="sm:hidden">Löschen</span></button>
       </div>
     </motion.div>
   );
