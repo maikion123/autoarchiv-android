@@ -42,6 +42,25 @@ const DB_PATH      = process.env.DB_PATH || join(__dirname, 'data/autoarchiv.db'
 const STORAGE_PATH = process.env.STORAGE_PATH || join(__dirname, 'storage');
 const API_PORT     = parseInt(process.env.API_PORT || '3001', 10);
 const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || undefined;
+
+// Helper function to get appropriate cookie domain based on request
+function getCookieDomain(req) {
+  // Only set domain for production (nextkm.de)
+  // On localhost or during development, don't set domain to allow proper cookie handling
+  const host = req.get('x-forwarded-host') || req.get('host') || '';
+
+  // If the request is to localhost or an IP, don't set domain (for development)
+  const isLocalhost = host.includes('localhost') || host.includes('127.0.0.1') || host.includes('::1');
+  const isIP = /^\d+\.\d+\.\d+\.\d+/.test(host);
+
+  if (isLocalhost || isIP) {
+    // For development: let Express use the current host automatically
+    return undefined;
+  }
+
+  // For production nextkm.de: use the configured domain
+  return COOKIE_DOMAIN;
+}
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434/api/generate';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3:8b';
 const OLLAMA_TIMEOUT_MS = parseInt(process.env.OLLAMA_TIMEOUT_MS || '10000', 10);
@@ -1435,11 +1454,16 @@ function requireAuth(req, res, next) {
     const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(req.user.sessionId);
     if (!session) {
       console.warn('[Auth] Session not found:', req.user.sessionId);
-      res.clearCookie('auth_token', {
+      const clearDomain = getCookieDomain(req);
+      const clearOptions = {
         httpOnly: true,
         secure: true,
         sameSite: 'strict',
-      });
+      };
+      if (clearDomain) {
+        clearOptions.domain = clearDomain;
+      }
+      res.clearCookie('auth_token', clearOptions);
       return res.status(401).json({ error: 'Sitzung ungültig' });
     }
 
@@ -1452,11 +1476,16 @@ function requireAuth(req, res, next) {
       // Session expired, delete it and clear cookie
       console.warn('[Auth] Session timeout:', req.user.userId);
       db.prepare('DELETE FROM sessions WHERE id = ?').run(session.id);
-      res.clearCookie('auth_token', {
+      const clearDomain = getCookieDomain(req);
+      const clearOptions = {
         httpOnly: true,
         secure: true,
         sameSite: 'strict',
-      });
+      };
+      if (clearDomain) {
+        clearOptions.domain = clearDomain;
+      }
+      res.clearCookie('auth_token', clearOptions);
       return res.status(401).json({ error: 'Sitzung abgelaufen (Inaktivität)' });
     }
 
@@ -1467,11 +1496,16 @@ function requireAuth(req, res, next) {
     next();
   } catch (err) {
     console.error('[Auth] JWT verification error:', err.name, err.message);
-    res.clearCookie('auth_token', {
+    const clearDomain = getCookieDomain(req);
+    const clearOptions = {
       httpOnly: true,
       secure: true,
       sameSite: 'strict',
-    });
+    };
+    if (clearDomain) {
+      clearOptions.domain = clearDomain;
+    }
+    res.clearCookie('auth_token', clearOptions);
     return res.status(401).json({ error: 'Authentifizierung erforderlich' });
   }
 }
@@ -4027,6 +4061,7 @@ app.post('/api/auth/resend-otp', authLimiter, async (req, res) => {
 
 // ── POST /api/auth/login ──────────────────────────────────────────────────────
 app.post('/api/auth/login', authLimiter, async (req, res) => {
+  console.log('[Login] Handler called');
   const ip = getClientIp(req);
   const { email, password } = req.body ?? {};
 
@@ -4073,13 +4108,17 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     { expiresIn: '4h' }
   );
 
-  res.cookie('auth_token', token, {
+  const cookieDomain = getCookieDomain(req);
+  const cookieOptions = {
     httpOnly: true,
     secure: true,
     sameSite: 'strict',
     maxAge: 4 * 60 * 60 * 1000,
-    domain: COOKIE_DOMAIN,
-  });
+  };
+  if (cookieDomain) {
+    cookieOptions.domain = cookieDomain;
+  }
+  res.cookie('auth_token', token, cookieOptions);
 
   log('LOGIN_SUCCESS', { userId: user.id, ip });
   return res.status(200).json({ email: user.email, role: String(user.role || 'user'), displayName: user.display_name || null });
@@ -4099,12 +4138,16 @@ app.post('/api/auth/logout', (req, res) => {
       }
     } catch { /* abgelaufener Token – trotzdem löschen */ }
   }
-  res.clearCookie('auth_token', {
+  const clearDomain = getCookieDomain(req);
+  const clearOptions = {
     httpOnly: true,
     secure: true,
     sameSite: 'strict',
-    domain: COOKIE_DOMAIN,
-  });
+  };
+  if (clearDomain) {
+    clearOptions.domain = clearDomain;
+  }
+  res.clearCookie('auth_token', clearOptions);
   return res.status(200).json({ message: 'Abgemeldet' });
 });
 
