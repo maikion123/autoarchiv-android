@@ -21,17 +21,20 @@ function NtfySetupPage() {
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [calendarToken, setCalendarToken] = useState(initialCalendarToken);
   const [tokenLoaded, setTokenLoaded] = useState(!!initialCalendarToken);
+  const [mounted, setMounted] = useState(false);
   const safeTopic = useMemo(() => topic.trim(), [topic]);
   const isCalendarMode = kind === "calendar";
-  const calendarIcsUrl = useMemo(
-    () => (isCalendarMode && calendarToken ? `/calendar/${encodeURIComponent(calendarToken)}.ics` : ""),
-    [calendarToken, isCalendarMode],
-  );
-  const calendarWebcalUrl = useMemo(
-    () => (calendarIcsUrl ? `webcal://${typeof window !== "undefined" ? window.location.host : "nextkm.de"}${calendarIcsUrl}` : ""),
-    [calendarIcsUrl],
-  );
+  const calendarIcsUrl = isCalendarMode && calendarToken
+    ? `/calendar/${encodeURIComponent(calendarToken)}.ics`
+    : "";
+  const calendarWebcalUrl = mounted && calendarIcsUrl
+    ? `webcal://${window.location.host}${calendarIcsUrl}`
+    : "";
   const isConnected = saveState === "saved";
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     setCopyOk(false);

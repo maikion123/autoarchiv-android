@@ -489,7 +489,7 @@ function ProfilePage() {
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Link
                       to="/ntfy-setup"
-                      search={{ kind: "calendar", calendarToken: calendarToken || "", source: "profil" }}
+                      search={{ topic: "", kind: "calendar", calendarToken: calendarToken || "", source: "profil" }}
                       className="inline-flex min-h-[40px] items-center gap-2 rounded-lg bg-gradient-to-r from-violet-600 to-cyan-400 px-3 py-2 text-sm font-medium text-white"
                     >
                       Kalender verbinden
