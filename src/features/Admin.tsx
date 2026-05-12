@@ -48,6 +48,11 @@ interface AdminDocumentRow {
   filename: string;
   folderPath: string;
   status: string;
+  dueDate: string | null;
+  reminderEnabled: boolean;
+  reminderSentAt: string | null;
+  reminderChannel: string | null;
+  reminderNote: string | null;
   reviewStatus: string | null;
   reviewReason: string | null;
   shouldAutoArchive: boolean;
@@ -99,10 +104,13 @@ export default function AdminPage() {
   const [documentDraft, setDocumentDraft] = useState({
     folderPath: "",
     status: "analyzed",
+    dueDate: "",
     reviewStatus: "review_required",
     reviewReason: "",
     confidence: "",
     shouldAutoArchive: false,
+    reminderEnabled: false,
+    reminderNote: "",
   });
   const [savingUser, setSavingUser] = useState(false);
   const [savingDocument, setSavingDocument] = useState(false);
@@ -249,10 +257,13 @@ export default function AdminPage() {
     setDocumentDraft({
       folderPath: selectedDocument.folderPath || "",
       status: selectedDocument.status || "analyzed",
+      dueDate: selectedDocument.dueDate ? selectedDocument.dueDate.slice(0, 10) : "",
       reviewStatus: selectedDocument.reviewStatus || "review_required",
       reviewReason: selectedDocument.reviewReason || "",
       confidence: selectedDocument.confidence == null ? "" : String(selectedDocument.confidence),
       shouldAutoArchive: Boolean(selectedDocument.shouldAutoArchive),
+      reminderEnabled: Boolean(selectedDocument.reminderEnabled),
+      reminderNote: selectedDocument.reminderNote || "",
     });
   }, [selectedDocument]);
 
@@ -313,10 +324,13 @@ export default function AdminPage() {
       const payload = {
         folderPath: overrides.folderPath ?? documentDraft.folderPath,
         status: overrides.status ?? documentDraft.status,
+        dueDate: overrides.dueDate ?? documentDraft.dueDate,
         reviewStatus: overrides.reviewStatus ?? documentDraft.reviewStatus,
         reviewReason: overrides.reviewReason ?? documentDraft.reviewReason,
         confidence: overrides.confidence ?? documentDraft.confidence,
         shouldAutoArchive: overrides.shouldAutoArchive ?? documentDraft.shouldAutoArchive,
+        reminderEnabled: overrides.reminderEnabled ?? documentDraft.reminderEnabled,
+        reminderNote: overrides.reminderNote ?? documentDraft.reminderNote,
       };
       const res = await fetch(`/api/admin/documents/${documentId}`, {
         method: "PATCH",
@@ -752,6 +766,10 @@ export default function AdminPage() {
                     <input value={documentDraft.folderPath} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, folderPath: e.target.value }))} className="w-full rounded-xl border border-border/40 bg-background/60 px-3 py-2.5 font-mono text-sm" />
                   </label>
                   <label className="space-y-2 text-sm">
+                    <span className="text-muted-foreground">Fälligkeit</span>
+                    <input type="date" value={documentDraft.dueDate} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, dueDate: e.target.value }))} className="w-full rounded-xl border border-border/40 bg-background/60 px-3 py-2.5" />
+                  </label>
+                  <label className="space-y-2 text-sm">
                     <span className="text-muted-foreground">Status</span>
                     <select value={documentDraft.status} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, status: e.target.value }))} className="w-full rounded-xl border border-border/40 bg-background/60 px-3 py-2.5">
                       <option value="uploaded">uploaded</option>
@@ -774,10 +792,23 @@ export default function AdminPage() {
                     <span className="text-muted-foreground">Confidence</span>
                     <input value={documentDraft.confidence} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, confidence: e.target.value }))} className="w-full rounded-xl border border-border/40 bg-background/60 px-3 py-2.5" inputMode="decimal" />
                   </label>
+                  <label className="flex items-center gap-3 rounded-xl border border-border/40 bg-background/40 px-3 py-2.5 text-sm">
+                    <input type="checkbox" checked={documentDraft.reminderEnabled} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, reminderEnabled: e.target.checked }))} />
+                    Erinnerung aktiv
+                  </label>
                   <label className="sm:col-span-2 space-y-2 text-sm">
                     <span className="text-muted-foreground">Begründung</span>
                     <textarea value={documentDraft.reviewReason} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, reviewReason: e.target.value }))} className="min-h-24 w-full rounded-xl border border-border/40 bg-background/60 px-3 py-2.5" />
                   </label>
+                  <label className="sm:col-span-2 space-y-2 text-sm">
+                    <span className="text-muted-foreground">Hinweistext</span>
+                    <textarea value={documentDraft.reminderNote} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, reminderNote: e.target.value }))} className="min-h-20 w-full rounded-xl border border-border/40 bg-background/60 px-3 py-2.5" />
+                  </label>
+                  {selectedDocument?.reminderSentAt && (
+                    <div className="sm:col-span-2 rounded-xl border border-border/40 bg-background/35 px-3 py-2.5 text-sm text-muted-foreground">
+                      Erinnerung gesendet: {fmtDateTime(selectedDocument.reminderSentAt)}{selectedDocument.reminderChannel ? ` · ${selectedDocument.reminderChannel}` : ""}
+                    </div>
+                  )}
                   <label className="flex items-center gap-3 rounded-xl border border-border/40 bg-background/40 px-3 py-2.5 text-sm">
                     <input type="checkbox" checked={documentDraft.shouldAutoArchive} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, shouldAutoArchive: e.target.checked }))} />
                     Auto-Archivieren aktiv

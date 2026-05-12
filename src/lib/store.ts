@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
 import {
-  listDocuments, listPayments, listAppointments,
   type ArchivedDoc, type PaymentEntry, type Appointment,
 } from "./db";
 
@@ -14,12 +13,56 @@ let cache = {
 const subs = new Set<() => void>();
 const notify = () => subs.forEach((f) => f());
 
+async function fetchServerCollection<T>(path: string, key: string): Promise<T[]> {
+  const res = await fetch(path, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`${key} konnte nicht geladen werden`);
+  }
+  const data = await res.json().catch(() => ({}));
+  return Array.isArray(data?.[key]) ? (data[key] as T[]) : [];
+}
+
 export async function refreshAll() {
   if (typeof window === "undefined") return;
-  const [documents, payments, appointments] = await Promise.all([
-    listDocuments(), listPayments(), listAppointments(),
+  const [documentsResult, paymentsResult, appointmentsResult] = await Promise.allSettled([
+    fetchServerCollection<ArchivedDoc>("/api/documents", "documents"),
+    fetchServerCollection<PaymentEntry>("/api/payments", "payments"),
+    fetchServerCollection<Appointment>("/api/appointments", "appointments"),
   ]);
-  cache = { documents, payments, appointments, loaded: true };
+
+  const next = { ...cache };
+  let changed = false;
+
+  if (documentsResult.status === "fulfilled") {
+    next.documents = documentsResult.value;
+    changed = true;
+  }
+  if (paymentsResult.status === "fulfilled") {
+    next.payments = paymentsResult.value;
+    changed = true;
+  }
+  if (appointmentsResult.status === "fulfilled") {
+    next.appointments = appointmentsResult.value;
+    changed = true;
+  }
+
+  if (changed) {
+    next.loaded = true;
+    cache = next;
+    notify();
+  }
+}
+
+export function resetArchiveCache() {
+  cache = {
+    documents: [],
+    payments: [],
+    appointments: [],
+    loaded: false,
+  };
   notify();
 }
 

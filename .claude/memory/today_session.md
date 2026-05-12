@@ -6,6 +6,17 @@ type: project
 
 # Session: 2026-05-10 - Maik + Claude Code
 
+## Session: 2026-05-12 - Codex docs sync for payment reminders
+
+- Updated the payment reminder onboarding to remove the separate `Testen` step.
+- Aligned the ntfy/topic docs, Maik/Claude coordination notes, and project memory with the shorter flow.
+- Synced the live agent dashboard so Codex status reflects the documentation work.
+- Captured the current per-user reminder state: backfilled ntfy topics, stable personal topic suggestions for new accounts, profile/setup status text, and the 1-minute reminder worker.
+- Noted the dashboard/store fix that keeps archived-document totals from flashing back to `0` when a partial fetch fails.
+- Documented that reminder saves are server-first and no longer silently fall back to local-only storage.
+- Removed the separate archive-status card from the dashboard overview so only the primary KPIs remain visible.
+- Added a private per-user iPhone calendar feed for payment reminders with default 2-day lead time and profile-level selection of 1/2/7 days.
+
 ## Completed Features & Fixes
 
 ### 1. Smart Folder Deletion with Document Handling

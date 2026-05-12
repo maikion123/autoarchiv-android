@@ -1,11 +1,44 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { User, KeyRound, LogOut, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
+import { useNavigate } from "@tanstack/react-router";
+import { User, KeyRound, LogOut, Eye, EyeOff, AlertCircle, CheckCircle, Copy, Check } from 'lucide-react';
 
 interface UserMenuProps {
   email: string;
   displayName?: string | null;
+  ntfyTopic?: string | null;
   onLogout: () => void;
+}
+
+function slugifyTopicPart(value: string, fallback = "konto") {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "");
+  const slug = normalized
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 24);
+  return slug || fallback;
+}
+
+function hashTopicSeed(value: string) {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36).slice(0, 8);
+}
+
+function makeUserNtfyTopic(email?: string, displayName?: string | null) {
+  const emailValue = (email || "").trim().toLowerCase();
+  const localPart = emailValue.includes("@") ? emailValue.split("@")[0] : "";
+  const namePart = slugifyTopicPart(displayName || localPart || emailValue || "konto");
+  const userPart = slugifyTopicPart(emailValue || localPart || displayName || "konto");
+  const seed = hashTopicSeed(`${emailValue}:${displayName || ""}`);
+  return `autoarchiv-${namePart}-${userPart}-${seed}`;
 }
 
 function getInitials(displayName?: string | null, email?: string): string {
@@ -33,23 +66,52 @@ function checkPasswordStrength(password: string): number {
   return strength;
 }
 
+function formatStatusTime(iso: string | null): string {
+  if (!iso) return "Noch nicht bestätigt";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "Unbekannt";
+  return date.toLocaleString("de-DE", {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+}
+
 function ProfileModal({
   email,
   displayName,
+  ntfyTopic,
   isOpen,
   onClose,
   onSave,
 }: {
   email: string;
   displayName?: string | null;
+  ntfyTopic?: string | null;
   isOpen: boolean;
   onClose: () => void;
-  onSave: (displayName: string) => Promise<void>;
+  onSave: (displayName: string, ntfyTopic: string | null) => Promise<void>;
 }) {
   const [name, setName] = useState(displayName || '');
+  const [topic, setTopic] = useState(ntfyTopic || makeUserNtfyTopic(email, displayName));
+  const [topicDeleted, setTopicDeleted] = useState(false);
+  const [topicDeleteArmed, setTopicDeleteArmed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [copyOk, setCopyOk] = useState(false);
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(ntfyTopic ? new Date().toISOString() : null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setName(displayName || '');
+    setTopic(ntfyTopic || makeUserNtfyTopic(email, displayName));
+    setTopicDeleted(false);
+    setTopicDeleteArmed(false);
+    setError('');
+    setSuccess(false);
+    setCopyOk(false);
+    setLastSyncAt(ntfyTopic ? new Date().toISOString() : null);
+  }, [displayName, email, isOpen, ntfyTopic]);
 
   const handleSave = async () => {
     setError('');
@@ -65,9 +127,15 @@ function ProfileModal({
       return;
     }
 
+    if (!topic.trim() && !topicDeleted) {
+      setError('ntfy-Topic ist erforderlich');
+      return;
+    }
+
     setLoading(true);
     try {
-      await onSave(name.trim());
+      await onSave(name.trim(), topic.trim() || null);
+      setLastSyncAt(new Date().toISOString());
       setSuccess(true);
       setTimeout(() => {
         onClose();
@@ -79,11 +147,31 @@ function ProfileModal({
     }
   };
 
+  const onCopyTopic = async () => {
+    try {
+      await navigator.clipboard.writeText(topic.trim());
+      setCopyOk(true);
+      setTimeout(() => setCopyOk(false), 1500);
+    } catch {
+      setError('Topic konnte nicht kopiert werden');
+    }
+  };
+
+  const hasSavedTopic = Boolean(ntfyTopic);
+  const canGenerateTopic = topicDeleted || !hasSavedTopic;
+  const isLocked = hasSavedTopic && !topicDeleted;
+  const onGenerateTopic = () => {
+    setTopic(makeUserNtfyTopic(email, displayName));
+    setTopicDeleted(false);
+    setCopyOk(false);
+    setError('');
+  };
+
   return (
     <AnimatePresence>
       {isOpen && (
         <>
-          <motion.div
+      <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -96,15 +184,34 @@ function ProfileModal({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
             transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-            className="fixed top-0 left-0 right-0 z-[90] flex items-start justify-center pointer-events-none p-4 pt-20 sm:pt-[50vh] sm:translate-y-[-50%]"
+            className="fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-black/60 backdrop-blur-md px-4 pt-24 pb-6 sm:px-6 sm:pt-24"
           >
-            <div className="glass-strong border-glow rounded-2xl p-6 max-w-md w-full sm:w-[90vw] pointer-events-auto max-h-[70vh] overflow-y-auto">
-              <h2 className="text-lg font-semibold text-foreground mb-4">Profil bearbeiten</h2>
+            <div className="glass-strong w-full max-w-md rounded-2xl p-5 sm:p-6 pointer-events-auto max-h-[calc(100vh-7rem)] overflow-y-auto overflow-x-hidden box-border shadow-2xl">
+              <div className="mb-5">
+                <h2 className="text-lg font-semibold text-foreground">Profil bearbeiten</h2>
+                <p className="mt-1 text-sm text-foreground/60">
+                  Hier änderst du deinen Anzeigenamen und siehst, ob dein persönliches ntfy-Topic im Konto gespeichert ist.
+                </p>
+              </div>
 
-              <div className="space-y-4">
+              <div className="space-y-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+                <div className="rounded-2xl border border-border/40 bg-background/35 p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 flex-shrink-0 rounded-full bg-gradient-to-br from-violet-500 to-cyan-400 flex items-center justify-center text-white text-sm font-semibold">
+                      {getInitials(name.trim() || displayName, email)}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">
+                        {name.trim() || displayName || email.split('@')[0]}
+                      </p>
+                      <p className="text-xs text-foreground/55 truncate">{email}</p>
+                    </div>
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium text-foreground/80 mb-2">
-                    Anzeigename
+                    Anzeigename in AutoArchiv
                   </label>
                   <div className="relative">
                     <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary/50 pointer-events-none" />
@@ -112,11 +219,128 @@ function ProfileModal({
                       type="text"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      placeholder="Ihr Name"
+                      maxLength={50}
+                      autoComplete="name"
+                      placeholder="Zum Beispiel Kevin"
                       className="w-full rounded-xl glass border border-border/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 bg-background/50 pl-10 pr-4 py-3 sm:py-2 text-foreground placeholder:text-foreground/50 text-base sm:text-sm"
                     />
                   </div>
-                  <p className="text-xs text-foreground/50 mt-1">{name.length}/50 Zeichen</p>
+                  <div className="mt-1 flex items-center justify-between gap-2 text-xs text-foreground/50">
+                    <span>Dieser Name erscheint im Konto und in der Oberfläche.</span>
+                    <span>{name.length}/50</span>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <label className="block min-w-0 text-sm font-medium text-foreground/80">
+                      Persönlicher Benachrichtigungskanal
+                    </label>
+                    <span className={`inline-flex w-fit items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${hasSavedTopic && !topicDeleted ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}`}>
+                      <CheckCircle className="h-3 w-3" />
+                      {hasSavedTopic && !topicDeleted ? 'Verbunden' : 'Noch nicht verbunden'}
+                    </span>
+                  </div>
+                  <div className="rounded-2xl border border-border/40 bg-background/35 p-3 overflow-x-hidden">
+                    <div className="flex items-start gap-3">
+                      <div className="min-w-0 flex-1">
+                        <textarea
+                          value={topic}
+                          onChange={(e) => setTopic(e.target.value)}
+                          readOnly={isLocked}
+                          placeholder={makeUserNtfyTopic(email, displayName)}
+                          rows={2}
+                          className="w-full resize-none rounded-xl border border-border/40 bg-background/55 px-3 py-3 font-mono text-sm leading-5 text-foreground placeholder:text-foreground/45 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 break-all"
+                          aria-label="ntfy-Topic"
+                        />
+                        <p className="mt-2 text-xs text-foreground/50">
+                          {hasSavedTopic && !topicDeleted
+                            ? 'Dein AutoArchiv-Konto ist mit diesem Topic verbunden. Wenn du es ändern willst, löse zuerst die aktuelle Verbindung.'
+                            : 'Dieses Topic ist dein persönlicher Kanal. Es wird nur für dein Konto verwendet und sollte nicht geteilt werden.'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2 overflow-x-hidden">
+                      {topic.trim() && (
+                        <button
+                          type="button"
+                          onClick={onCopyTopic}
+                          className="inline-flex max-w-full items-center gap-1 rounded-lg glass px-3 py-2 text-sm text-foreground/80 min-h-[40px]"
+                        >
+                          {copyOk ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                          {copyOk ? 'Kopiert' : 'Kopieren'}
+                        </button>
+                      )}
+                      {hasSavedTopic && !topicDeleted ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setTopicDeleteArmed(true)}
+                            className="inline-flex max-w-full items-center gap-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-300 min-h-[40px]"
+                          >
+                            Verbindung lösen
+                          </button>
+                          <span className="flex min-w-0 items-center px-1 text-xs text-foreground/45">
+                            Neues Topic erst danach
+                          </span>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={onGenerateTopic}
+                          className="inline-flex max-w-full items-center gap-1 rounded-lg glass px-3 py-2 text-sm text-foreground/80 min-h-[40px]"
+                          disabled={!canGenerateTopic}
+                        >
+                          Topic erzeugen
+                        </button>
+                      )}
+                    </div>
+                    {topicDeleteArmed && hasSavedTopic && !topicDeleted && (
+                      <div className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-amber-100 overflow-x-hidden">
+                        <p className="font-medium">Verbindung lösen?</p>
+                        <p className="mt-1 text-xs text-amber-100/80">
+                          AutoArchiv sendet dann keine Erinnerungen mehr, bis du ein neues Topic speicherst.
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setTopicDeleteArmed(false)}
+                            className="rounded-lg glass px-3 py-2 text-xs text-foreground/80 min-h-[40px]"
+                          >
+                            Abbrechen
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTopic('');
+                              setTopicDeleted(true);
+                              setTopicDeleteArmed(false);
+                              setCopyOk(false);
+                              setError('');
+                            }}
+                            className="rounded-lg bg-amber-500 px-3 py-2 text-xs font-medium text-black min-h-[40px]"
+                          >
+                            Verbindung jetzt lösen
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="mt-3 grid gap-2 rounded-xl border border-border/40 bg-background/40 p-3 text-xs overflow-x-hidden">
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                      <span className="text-foreground/60">Topic-Status</span>
+                      <span className={`inline-flex w-fit items-center gap-1 rounded-full px-2 py-0.5 font-medium ${hasSavedTopic && !topicDeleted ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}`}>
+                        <CheckCircle className="h-3 w-3" />
+                        {hasSavedTopic && !topicDeleted ? 'Topic im Konto gespeichert' : 'Topic noch nicht gespeichert'}
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                      <span className="text-foreground/60">Letzter Sync</span>
+                      <span className="font-medium text-foreground/80 break-words">
+                        {lastSyncAt ? `erfolgreich am ${formatStatusTime(lastSyncAt)}` : 'Noch nicht bestätigt'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
                 {error && (
@@ -133,10 +357,10 @@ function ProfileModal({
                   </div>
                 )}
 
-                <div className="flex gap-2 justify-end pt-4 flex-wrap sm:flex-nowrap">
+                <div className="flex flex-col gap-2 justify-end pt-4 sm:flex-row sm:flex-nowrap">
                   <button
                     onClick={onClose}
-                    className="flex-1 sm:flex-none px-4 py-3 sm:py-2 rounded-xl glass border border-border/40 hover:bg-muted/60 active:bg-muted/80 text-foreground text-sm font-medium transition-colors min-h-[48px] sm:min-h-auto"
+                    className="w-full sm:w-0 sm:flex-1 sm:min-w-0 px-4 py-3 sm:py-2 rounded-xl glass border border-border/40 hover:bg-muted/60 active:bg-muted/80 text-foreground text-sm font-medium transition-colors min-h-[48px] sm:min-h-auto"
                     disabled={loading}
                   >
                     Abbrechen
@@ -144,7 +368,7 @@ function ProfileModal({
                   <button
                     onClick={handleSave}
                     disabled={loading || !name.trim()}
-                    className="flex-1 sm:flex-none px-4 py-3 sm:py-2 rounded-xl bg-gradient-to-r from-violet-600 to-cyan-400 text-white text-sm font-medium hover:from-violet-500 hover:to-cyan-300 active:from-violet-700 active:to-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all min-h-[48px] sm:min-h-auto"
+                    className="w-full sm:w-0 sm:flex-1 sm:min-w-0 px-4 py-3 sm:py-2 rounded-xl bg-gradient-to-r from-violet-600 to-cyan-400 text-white text-sm font-medium hover:from-violet-500 hover:to-cyan-300 active:from-violet-700 active:to-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all min-h-[48px] sm:min-h-auto"
                   >
                     {loading ? 'Speichert...' : 'Speichern'}
                   </button>
@@ -238,9 +462,9 @@ function PasswordModal({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
             transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-            className="fixed top-0 left-0 right-0 z-[90] flex items-start justify-center pointer-events-none p-4 pt-20 sm:pt-[50vh] sm:translate-y-[-50%]"
+            className="fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-black/60 backdrop-blur-md px-4 pt-24 pb-6 sm:px-6 sm:pt-24"
           >
-            <div className="glass-strong border-glow rounded-2xl p-6 max-w-md w-full sm:w-[90vw] pointer-events-auto max-h-[70vh] overflow-y-auto">
+            <div className="glass-strong w-full max-w-md rounded-2xl p-5 sm:p-6 pointer-events-auto max-h-[calc(100vh-7rem)] overflow-y-auto overflow-x-hidden box-border shadow-2xl">
               <h2 className="text-lg font-semibold text-foreground mb-4">Passwort ändern</h2>
 
               <div className="space-y-4">
@@ -362,10 +586,10 @@ function PasswordModal({
                   </div>
                 )}
 
-                <div className="flex gap-2 justify-end pt-4 flex-wrap sm:flex-nowrap">
+                <div className="flex flex-col gap-2 justify-end pt-4 sm:flex-row sm:flex-nowrap">
                   <button
                     onClick={onClose}
-                    className="flex-1 sm:flex-none px-4 py-3 sm:py-2 rounded-xl glass border border-border/40 hover:bg-muted/60 active:bg-muted/80 text-foreground text-sm font-medium transition-colors min-h-[48px] sm:min-h-auto"
+                    className="w-full sm:w-0 sm:flex-1 sm:min-w-0 px-4 py-3 sm:py-2 rounded-xl glass border border-border/40 hover:bg-muted/60 active:bg-muted/80 text-foreground text-sm font-medium transition-colors min-h-[48px] sm:min-h-auto"
                     disabled={loading}
                   >
                     Abbrechen
@@ -373,7 +597,7 @@ function PasswordModal({
                   <button
                     onClick={handleSave}
                     disabled={loading || !currentPassword || !newPassword || !confirmPassword}
-                    className="flex-1 sm:flex-none px-4 py-3 sm:py-2 rounded-xl bg-gradient-to-r from-violet-600 to-cyan-400 text-white text-sm font-medium hover:from-violet-500 hover:to-cyan-300 active:from-violet-700 active:to-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all min-h-[48px] sm:min-h-auto"
+                    className="w-full sm:w-0 sm:flex-1 sm:min-w-0 px-4 py-3 sm:py-2 rounded-xl bg-gradient-to-r from-violet-600 to-cyan-400 text-white text-sm font-medium hover:from-violet-500 hover:to-cyan-300 active:from-violet-700 active:to-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all min-h-[48px] sm:min-h-auto"
                   >
                     {loading ? 'Speichert...' : 'Speichern'}
                   </button>
@@ -387,11 +611,13 @@ function PasswordModal({
   );
 }
 
-export default function UserMenu({ email, displayName, onLogout }: UserMenuProps) {
+export default function UserMenu({ email, displayName, ntfyTopic, onLogout }: UserMenuProps) {
+  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [currentDisplayName, setCurrentDisplayName] = useState(displayName);
+  const [currentNtfyTopic, setCurrentNtfyTopic] = useState<string | null>(ntfyTopic || null);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, right: 0 });
@@ -421,12 +647,48 @@ export default function UserMenu({ email, displayName, onLogout }: UserMenuProps
     }
   }, [isOpen]);
 
-  const handleProfileSave = async (name: string) => {
+  useEffect(() => {
+    setCurrentDisplayName(displayName);
+  }, [displayName]);
+
+  useEffect(() => {
+    setCurrentNtfyTopic(ntfyTopic || null);
+  }, [ntfyTopic]);
+
+  const syncCurrentProfile = async () => {
+    try {
+      const response = await fetch('/api/auth/me', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      if (!response.ok) return;
+      const data = await response.json().catch(() => ({}));
+      setCurrentDisplayName(data.displayName || displayName || null);
+      setCurrentNtfyTopic(data.ntfyTopic ?? null);
+    } catch {
+      // Keep the cached state if the server check fails.
+    }
+  };
+
+  useEffect(() => {
+    void syncCurrentProfile();
+  }, []);
+
+  useEffect(() => {
+    const handleProfileUpdated = () => {
+      void syncCurrentProfile();
+    };
+
+    window.addEventListener("autoarchiv:profile-updated", handleProfileUpdated);
+    return () => window.removeEventListener("autoarchiv:profile-updated", handleProfileUpdated);
+  }, [displayName]);
+
+  const handleProfileSave = async (name: string, ntfyTopic: string | null) => {
     try {
       const response = await fetch('/api/auth/profile', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ displayName: name }),
+        body: JSON.stringify({ displayName: name, ntfyTopic }),
         credentials: 'include',
       });
 
@@ -443,6 +705,7 @@ export default function UserMenu({ email, displayName, onLogout }: UserMenuProps
 
       const data = await response.json();
       setCurrentDisplayName(data.displayName || name);
+      setCurrentNtfyTopic(data.ntfyTopic ?? null);
     } catch (err: any) {
       throw err;
     }
@@ -519,9 +782,9 @@ export default function UserMenu({ email, displayName, onLogout }: UserMenuProps
           >
             <div className="divide-y divide-border/20">
               <button
-                onClick={() => {
-                  setProfileModalOpen(true);
+                onClick={async () => {
                   setIsOpen(false);
+                  navigate({ to: "/profil" });
                 }}
                 className="w-full px-4 py-3 sm:py-2.5 flex items-center gap-3 text-foreground hover:bg-muted/40 active:bg-muted/50 transition-colors text-sm sm:text-xs min-h-[48px] sm:min-h-auto"
               >
@@ -551,14 +814,6 @@ export default function UserMenu({ email, displayName, onLogout }: UserMenuProps
           </motion.div>
         )}
       </AnimatePresence>
-
-      <ProfileModal
-        email={email}
-        displayName={currentDisplayName}
-        isOpen={profileModalOpen}
-        onClose={() => setProfileModalOpen(false)}
-        onSave={handleProfileSave}
-      />
 
       <PasswordModal
         isOpen={passwordModalOpen}

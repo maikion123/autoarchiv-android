@@ -8,6 +8,159 @@ type: project
 
 ## Changelog
 
+### [2026-05-12] Dashboard Cleanup: removed archive-status card from overview
+
+**Description:**
+- Removed the separate `Archiv-Status` section from the dashboard overview.
+- The overview now stays on the main KPIs, the latest archived document banner, the folder view, and the payment/document insights.
+- Updated the project memory so future changes do not reintroduce the old `Archiviert` vs `Noch offen` widget.
+
+**Files:**
+- Modified: `src/features/Dashboard.tsx`
+- Modified: `.claude/memory/project_status.md`
+- Modified: `.claude/memory/changelog.md`
+- Modified: `.claude/memory/today_session.md`
+- Modified: `CLAUDE.md`
+
+**Build Status:** Pending
+
+**Verification:**
+- Dashboard overview now no longer renders the archive-status card
+- Main overview KPIs remain unchanged
+
+### [2026-05-12] Payment Reminders: iPhone calendar feed + optional ntfy
+
+**Description:**
+- Added a per-user private calendar subscription feed for payment reminders.
+- The profile page now exposes the feed URL and lets the user choose a default reminder lead time of 1, 2, or 7 days, with 2 days as the default.
+- The feed contains only the signed-in user's open payment reminders and is intended as the primary iPhone reminder path.
+- ntfy remains in the app as an optional push channel, but the calendar feed now covers the iPhone reminder use case directly.
+- The profile page now routes the user to an internal nextKM calendar setup page instead of linking straight to the raw `.ics` file, which makes the first click more reliable on mobile.
+
+**Files:**
+- Modified: `api-server.mjs`
+- Modified: `src/routes/profil.tsx`
+- Modified: `src/features/Zahlungen.tsx`
+- Modified: `src/lib/auth.ts`
+- Modified: `docs/ntfy-push.md`
+- Modified: `docs/AGENT_WORKFLOW.md`
+- Modified: `docs/maik-claude-doku.md`
+- Modified: `.claude/memory/project_status.md`
+- Modified: `CLAUDE.md`
+
+**Build Status:** ✅ Success
+
+**Verification:**
+- `npm run build`
+- Calendar feed route returns a per-user `.ics` subscription URL
+- Profile page exposes the feed URL and reminder lead-time selector
+
+### [2026-05-12] Termine Tab Rebuild: combined calendar for appointments, payments, and documents
+
+**Description:**
+- Rebuilt `/termine` as a combined calendar workspace instead of the previous dot-only month view.
+- The new page shows appointments, payments, and document fristen in one month grid plus a selected-day agenda and a "bald anstehend" list.
+- Added click-through rows and add/edit/delete flows for appointments, payments, and documents directly from the calendar.
+- Paid payments remain visible in the calendar and can be reopened, edited, or deleted like open ones.
+- Hardened appointment writes to be server-first like payments so calendar changes do not silently fall back to local browser storage.
+
+**Files:**
+- Modified: `src/features/Termine.tsx`
+- Modified: `src/lib/db.ts`
+- Modified: `src/features/Zahlungen.tsx`
+- Modified: `.claude/memory/project_status.md`
+- Modified: `.claude/memory/changelog.md`
+
+**Build Status:** ✅ Success
+
+**Verification:**
+- `npm run build`
+- Combined month calendar renders appointments, payments, and documents together
+- Edit/delete/add flows compile with the existing payment, reminder, and document code paths
+
+### [2026-05-12] Profile Rebuild: dedicated settings page instead of modal
+
+**Description:**
+- Rebuilt the profile settings as a dedicated `/profil` page so the desktop layout no longer depends on a cramped modal/flyout.
+- Kept the full feature set: display name editing, per-user ntfy topic status, copy/generate/release actions, and saved/synced status feedback.
+- Wired the page back into the AppShell so header state updates immediately after saving.
+
+**Files:**
+- Added: `src/routes/profil.tsx`
+- Modified: `src/components/UserMenu.tsx`
+- Modified: `src/components/AppShell.tsx`
+- Modified: `.claude/memory/project_status.md`
+- Modified: `.claude/memory/changelog.md`
+
+**Build Status:** ✅ Success
+
+**Verification:**
+- `npm run build`
+- Route registered and included in the production build output
+
+### [2026-05-12] Profile Modal Usability: clearer name and ntfy controls
+
+**Description:**
+- Refined the user profile modal so it feels less technical and easier to understand on desktop and mobile.
+- Added a small identity preview, clearer labels for the display name, a more readable ntfy-topic block, and an inline confirmation step for disconnecting a topic instead of a browser confirm dialog.
+- Kept the account-bound topic rule intact: new topics are only generated again after the current connection is explicitly released.
+
+**Files:**
+- Modified: `src/components/UserMenu.tsx`
+- Modified: `.claude/memory/project_status.md`
+- Modified: `.claude/memory/changelog.md`
+
+**Build Status:** Pending
+
+**Verification:**
+- UI wording and flow were updated for clarity
+- No backend behavior changed
+
+### [2026-05-12] Memory + Workflow Sync: per-user ntfy and dashboard stability
+
+**Description:**
+- Updated the shared memory and workflow docs so Codex and Claude keep the current reminder flow, auth responses, and dashboard behavior in sync.
+- Captured that ntfy topics are per user account, existing users were backfilled, new users get a personal topic suggestion, and profile/setup screens show saved-topic sync state.
+- Documented the reminder worker's current 1-minute cadence, the server-first reminder save path, and the dashboard's last-known-good store behavior so document counts do not flash back to `0`.
+
+**Files:**
+- Modified: `.claude/memory/project_status.md`
+- Modified: `.claude/memory/team_collaboration.md`
+- Modified: `.claude/memory/today_session.md`
+- Modified: `.claude/memory/auth_system.md`
+- Modified: `.claude/memory/working_approach.md`
+- Modified: `docs/AGENT_WORKFLOW.md`
+- Modified: `docs/maik-claude-doku.md`
+
+**Build Status:** Not run for docs-only sync
+
+**Verification:**
+- Existing ntfy and reminder code paths were already validated in the live app
+- Documentation now reflects the current live behavior instead of the older shared-topic assumptions
+
+### [2026-05-12] Docs + Onboarding Cleanup: Payment reminder flow streamlined
+
+**Description:**
+- Removed the separate `Testen` tab from the payment reminder onboarding in `src/features/Zahlungen.tsx`.
+- The `Topic abonnieren` step now handles topic copy, topic generation, and the QR link to the actual ntfy topic.
+- Synchronized the project docs and memory notes so Claude Code and Maik see the same shorter flow.
+
+**Files:**
+- Modified: `src/features/Zahlungen.tsx`
+- Modified: `docs/ntfy-push.md`
+- Modified: `docs/AGENT_WORKFLOW.md`
+- Modified: `docs/maik-claude-doku.md`
+- Modified: `CLAUDE.md`
+- Modified: `.claude/memory/project_status.md`
+- Modified: `.claude/memory/team_collaboration.md`
+- Modified: `.claude/memory/today_session.md`
+
+**Build Status:** Not run for this doc sync
+
+**Verification:**
+- Live agent dashboard status updated for the docs sync session
+- UI and docs were cross-checked for the same onboarding flow
+
 ### [2026-05-12] CRITICAL BUGFIX - SESSION COOKIE SAMESITE ISSUE
 
 **SEVERITY:** 🔴 CRITICAL (User-blocking bug)

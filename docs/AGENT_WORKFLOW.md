@@ -33,6 +33,15 @@ AGENT_FILES="src/features/Agents.tsx" AGENT_NEXT="Browser testen" npm run agent:
 
 Bei jedem Abschluss muss der Agentenstatus vor dem Handoff aktualisiert werden.
 
+Bei Payment-Reminder- oder ntfy-Updates gehoeren diese Dateien zusammen ins gleiche Status-/Dokumentationspaket:
+
+- `src/features/Zahlungen.tsx`
+- `docs/ntfy-push.md`
+- `src/components/UserMenu.tsx`
+- `src/routes/ntfy-setup.tsx`
+- `.claude/memory/changelog.md`
+- `.claude/memory/project_status.md`
+
 Optional koennen betroffene Dateien als Umgebungsvariable mitgegeben werden:
 
 ```bash
@@ -92,3 +101,7 @@ Damit ist der manuelle Status im selben System sichtbar wie die CLI-Updates der 
 - Wenn der Login oder die Session betroffen ist, immer `auth_system.md` und `working_approach.md` lesen.
 - Wenn etwas im Dashboard fehlt, in `project_status.md` nachsehen, ob der Status schon dokumentiert ist.
 - Wenn Codex schon an einer Datei arbeitet, nicht dieselbe Datei parallel anfassen.
+- Das Zahlungserinnerung-Onboarding hat keinen separaten `Testen`-Tab mehr; der `Topic abonnieren`-Schritt deckt Topic-Copy, Topic-Generierung und den QR-Zugang ab.
+- Reminder-Topics sind pro Benutzer getrennt. Alte Konten wurden backfilled, neue Konten bekommen eine persönliche ntfy-Empfehlung, und die Statusanzeige in Profil/Setup muss mit dem gespeicherten Konto-Topic synchron bleiben.
+- Der iPhone-Kalender-Feed für Zahlungserinnerungen liegt zusätzlich auf der Profilseite. Dort sind Feed-URL und Vorlauf (Standard 2 Tage) zu pflegen; `ntfy` bleibt optional.
+- Die Dashboard-Zahlen sollen nicht auf `0` springen, wenn nur ein Teil-Request fehlschlaegt; Cache-/Store-Aenderungen muessen last-known-good respektieren.

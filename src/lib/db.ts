@@ -32,14 +32,20 @@ export interface ArchivedDoc {
   size: number;
   folderPath: string;     // e.g. "01_Fahrzeug/TÜV & HU"
   uploadedAt: string;     // ISO
+  updatedAt?: string;
   absender: string;
   dokumenttyp: string;
   zusammenfassung: string;
   zahlungsbetrag: number | null;
+  dueDate?: string | null;
   faelligkeitsdatum: string | null;
   ablaufdatum: string | null;
   wichtigkeit: Importance;
   tags: string[];
+  reminderEnabled?: boolean;
+  reminderSentAt?: string | null;
+  reminderChannel?: string | null;
+  reminderNote?: string | null;
   analysisHints?: Record<string, AnalysisHint | null>;
   regexAnalysis?: Record<string, unknown>;
   aiAnalysis?: Record<string, unknown> | null;
@@ -87,6 +93,10 @@ export interface PaymentEntry {
   paid: { date: string; amount: number; note?: string }[];
   createdAt: string;
   kategorie?: string;
+  reminderEnabled?: boolean;
+  reminder1dSentAt?: string | null;
+  reminderSameDaySentAt?: string | null;
+  reminderChannel?: string | null;
 }
 
 export interface Appointment {
@@ -267,17 +277,17 @@ export async function listPayments(): Promise<PaymentEntry[]> {
 }
 export async function savePayment(p: PaymentEntry) {
   if (typeof window !== "undefined") {
-    try {
-      const res = await fetch("/api/payments", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(p),
-      });
-      if (res.ok) return;
-    } catch {
-      // Fallback to legacy browser payments below.
-    }
+    const res = await fetch("/api/payments", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(p),
+    }).catch((err) => {
+      throw new Error(err instanceof Error ? err.message : "Zahlung konnte nicht gespeichert werden");
+    });
+    if (res.ok) return;
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.error || "Zahlung konnte nicht gespeichert werden");
   }
   const db = await getDB();
   await db.put("payments", p);
@@ -290,8 +300,10 @@ export async function deletePayment(id: string) {
         credentials: "include",
       });
       if (res.ok) return;
-    } catch {
-      // Fallback to legacy browser payments below.
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data?.error || "Zahlung konnte nicht gelöscht werden");
+    } catch (err) {
+      throw new Error(err instanceof Error ? err.message : "Zahlung konnte nicht gelöscht werden");
     }
   }
   const db = await getDB();
@@ -316,32 +328,32 @@ export async function listAppointments(): Promise<Appointment[]> {
 }
 export async function saveAppointment(a: Appointment) {
   if (typeof window !== "undefined") {
-    try {
-      const res = await fetch("/api/appointments", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(a),
-      });
-      if (res.ok) return;
-    } catch {
-      // Fallback to legacy browser appointments below.
-    }
+    const res = await fetch("/api/appointments", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(a),
+    }).catch((err) => {
+      throw new Error(err instanceof Error ? err.message : "Termin konnte nicht gespeichert werden");
+    });
+    if (res.ok) return;
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.error || "Termin konnte nicht gespeichert werden");
   }
   const db = await getDB();
   await db.put("appointments", a);
 }
 export async function deleteAppointment(id: string) {
   if (typeof window !== "undefined") {
-    try {
-      const res = await fetch(`/api/appointments/${encodeURIComponent(id)}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      if (res.ok) return;
-    } catch {
-      // Fallback to legacy browser appointments below.
-    }
+    const res = await fetch(`/api/appointments/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      credentials: "include",
+    }).catch((err) => {
+      throw new Error(err instanceof Error ? err.message : "Termin konnte nicht gelöscht werden");
+    });
+    if (res.ok) return;
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.error || "Termin konnte nicht gelöscht werden");
   }
   const db = await getDB();
   await db.delete("appointments", id);

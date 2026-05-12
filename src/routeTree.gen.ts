@@ -13,6 +13,8 @@ import { Route as ZahlungenRouteImport } from './routes/zahlungen'
 import { Route as TermineRouteImport } from './routes/termine'
 import { Route as SucheRouteImport } from './routes/suche'
 import { Route as RegisterRouteImport } from './routes/register'
+import { Route as ProfilRouteImport } from './routes/profil'
+import { Route as NtfySetupRouteImport } from './routes/ntfy-setup'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as EingangRouteImport } from './routes/eingang'
 import { Route as AgentsRouteImport } from './routes/agents'
@@ -37,6 +39,16 @@ const SucheRoute = SucheRouteImport.update({
 const RegisterRoute = RegisterRouteImport.update({
   id: '/register',
   path: '/register',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProfilRoute = ProfilRouteImport.update({
+  id: '/profil',
+  path: '/profil',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NtfySetupRoute = NtfySetupRouteImport.update({
+  id: '/ntfy-setup',
+  path: '/ntfy-setup',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -71,6 +83,8 @@ export interface FileRoutesByFullPath {
   '/agents': typeof AgentsRoute
   '/eingang': typeof EingangRoute
   '/login': typeof LoginRoute
+  '/ntfy-setup': typeof NtfySetupRoute
+  '/profil': typeof ProfilRoute
   '/register': typeof RegisterRoute
   '/suche': typeof SucheRoute
   '/termine': typeof TermineRoute
@@ -82,6 +96,8 @@ export interface FileRoutesByTo {
   '/agents': typeof AgentsRoute
   '/eingang': typeof EingangRoute
   '/login': typeof LoginRoute
+  '/ntfy-setup': typeof NtfySetupRoute
+  '/profil': typeof ProfilRoute
   '/register': typeof RegisterRoute
   '/suche': typeof SucheRoute
   '/termine': typeof TermineRoute
@@ -94,6 +110,8 @@ export interface FileRoutesById {
   '/agents': typeof AgentsRoute
   '/eingang': typeof EingangRoute
   '/login': typeof LoginRoute
+  '/ntfy-setup': typeof NtfySetupRoute
+  '/profil': typeof ProfilRoute
   '/register': typeof RegisterRoute
   '/suche': typeof SucheRoute
   '/termine': typeof TermineRoute
@@ -107,6 +125,8 @@ export interface FileRouteTypes {
     | '/agents'
     | '/eingang'
     | '/login'
+    | '/ntfy-setup'
+    | '/profil'
     | '/register'
     | '/suche'
     | '/termine'
@@ -118,6 +138,8 @@ export interface FileRouteTypes {
     | '/agents'
     | '/eingang'
     | '/login'
+    | '/ntfy-setup'
+    | '/profil'
     | '/register'
     | '/suche'
     | '/termine'
@@ -129,6 +151,8 @@ export interface FileRouteTypes {
     | '/agents'
     | '/eingang'
     | '/login'
+    | '/ntfy-setup'
+    | '/profil'
     | '/register'
     | '/suche'
     | '/termine'
@@ -141,6 +165,8 @@ export interface RootRouteChildren {
   AgentsRoute: typeof AgentsRoute
   EingangRoute: typeof EingangRoute
   LoginRoute: typeof LoginRoute
+  NtfySetupRoute: typeof NtfySetupRoute
+  ProfilRoute: typeof ProfilRoute
   RegisterRoute: typeof RegisterRoute
   SucheRoute: typeof SucheRoute
   TermineRoute: typeof TermineRoute
@@ -175,6 +201,20 @@ declare module '@tanstack/react-router' {
       path: '/register'
       fullPath: '/register'
       preLoaderRoute: typeof RegisterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/profil': {
+      id: '/profil'
+      path: '/profil'
+      fullPath: '/profil'
+      preLoaderRoute: typeof ProfilRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ntfy-setup': {
+      id: '/ntfy-setup'
+      path: '/ntfy-setup'
+      fullPath: '/ntfy-setup'
+      preLoaderRoute: typeof NtfySetupRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -221,6 +261,8 @@ const rootRouteChildren: RootRouteChildren = {
   AgentsRoute: AgentsRoute,
   EingangRoute: EingangRoute,
   LoginRoute: LoginRoute,
+  NtfySetupRoute: NtfySetupRoute,
+  ProfilRoute: ProfilRoute,
   RegisterRoute: RegisterRoute,
   SucheRoute: SucheRoute,
   TermineRoute: TermineRoute,

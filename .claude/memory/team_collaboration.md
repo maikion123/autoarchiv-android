@@ -75,6 +75,7 @@ Each agent:
 - Deployment & infrastructure issues
 - Major refactors
 - Current shared focus: keep the login/session path stable and document every change so Claude Code can continue without guessing
+- Current payment-reminder focus: keep `src/features/Zahlungen.tsx`, `src/components/UserMenu.tsx`, `src/routes/ntfy-setup.tsx`, `src/routes/profil.tsx`, `docs/ntfy-push.md`, and the memory/changelog notes aligned when the reminder flow changes
 
 ### Codex
 **Strengths:** Frontend features, UI/UX, rapid iteration  
@@ -84,6 +85,7 @@ Each agent:
 - Frontend tests
 - Accessibility improvements
 - Current shared focus: keep the `/agents` dashboard and login UI aligned with the backend state, especially around session confirmation after login and the mobile first-upload path after login
+- Payment reminder note: the onboarding flow no longer has a dedicated `Testen` tab; the `Topic abonnieren` step now handles copying or generating the topic, every account gets its own ntfy topic, the profile page also exposes the personal iPhone calendar feed with a default 2-day lead time, and the setup/profile screens must show whether the topic is saved in the account.
 
 ### Communication Protocol
 
@@ -223,12 +225,15 @@ Current agents:
 - The Android first-upload reload loop has been fixed with auth cache persistence and quieter background auth checks.
 - The live front-end was restarted after the fix and the health endpoint stayed OK.
 - Upload diagnostics are now in the Eingang flow so any future reload or auth reset is easier to spot.
+- The payment reminder onboarding now exposes topic copy/generate directly in the topic step, and the docs were aligned to match the shorter flow.
+- The reminder stack is now per-user end to end: existing users were backfilled with their own `ntfy_topic`, new accounts get a personal suggestion, and the worker runs every minute for quick verification.
 
 ## Current Work Agreement
 
 - The login/session path is documented in `auth_system.md` and `working_approach.md`.
 - The dashboard should show Claude Code activity only when `claude-code` logs events or status changes.
 - If Claude Code has no visible activity in `/agents`, it usually means no `agent:*` command was logged yet, not that the docs are missing.
+- Payment reminder / ntfy / calendar-feed changes should update the UI, `docs/ntfy-push.md`, the profile/setup status text, and the changelog together.
 
 ## Rules for Merge Conflicts
 

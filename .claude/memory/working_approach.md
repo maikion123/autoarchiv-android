@@ -108,6 +108,31 @@ npm run build
 
 **Do not reintroduce paid APIs by default:** OpenAI-based analysis was implemented temporarily and then replaced by free local OCR in commit `809b059`.
 
+### Live Store Must Not Overwrite Good Data With Empty Fetches
+**Problem:** Dashboard counters briefly flashed back to `0` even though documents still existed.
+**Why:** A partial fetch failure returned an empty list and that empty list replaced already loaded cache state.
+**Fix:** Keep the last known good data when only some requests fail. Use settled fetches / per-collection updates and render loading placeholders until real data is available.
+
+### Server-First Reminder Saves
+**Problem:** A payment reminder could appear saved in the browser but still never reach the worker.
+**Why:** Local-only fallback storage is invisible to the backend reminder worker.
+**Fix:** The reminder save path must fail visibly when the server is unavailable. Do not silently persist reminder-critical data only in IndexedDB or another local cache.
+
+### Per-User ntfy Topics
+**Problem:** Reminder notifications were accidentally treated like a shared channel.
+**Why:** A global topic mixes users and can leak reminders across accounts.
+**Fix:** Every account must use its own `users.ntfy_topic` or deterministic server-generated personal fallback. Never send reminder pushes to a shared/global topic.
+
+### Per-User Calendar Feeds
+**Problem:** iPhone payment reminders need to stay account-bound and user-friendly.
+**Why:** A shared subscription would mix reminders and make the calendar path unusable for real users.
+**Fix:** Expose a private per-user `.ics` feed with a secret token, and keep the default reminder lead time stored on the account (default 2 days, selectable 1/2/7). The feed must only contain that account's open payment reminders.
+
+### Reminder Worker Timing
+**Current behavior:** The reminder worker is run every minute during testing.
+**Why it matters:** This makes reminder changes observable quickly and prevents waiting 5+ minutes while debugging topic/storage issues.
+**Note:** Production timing can be changed later, but docs and UI text must match the active schedule.
+
 ### Nginx Upload Size for Mobile Photos
 **Problem:** iPhone/Chrome camera uploads failed after taking a photo. Browser-side errors included `The string did not match the expected pattern` and later `Serverantwort konnte nicht gelesen werden`.
 **Why:** Nginx rejected 2.6-3.6 MB camera uploads before Express saw them (`client intended to send too large body`). The default Nginx body limit is too small for phone photos.

@@ -72,15 +72,16 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
      }
      ```
    - Sign with HS256 (JWT_SECRET)
-   - Set httpOnly cookie: `auth_token=token; HttpOnly; SameSite=Strict; Domain=nextkm.de; Max-Age=14400`
-   - Return: `{ email: user.email, role: user.role, displayName: user.display_name || null }`
+   - Set httpOnly cookie: `auth_token=token; HttpOnly; SameSite=Lax; Domain=nextkm.de; Path=/; Max-Age=14400`
+   - Ensure the account has a personal ntfy topic suggestion / stored topic available
+   - Return: `{ email: user.email, role: user.role, displayName: user.display_name || null, ntfyTopic, ntfySuggestedTopic, calendarFeedUrl, calendarLeadDays }`
 5. If invalid:
    - Delay response (timing attack mitigation)
    - Return 401: `{ error: "Invalid credentials" }`
 
 **Security:**
 - httpOnly flag: frontend cannot read cookie
-- SameSite=Strict: CSRF protection
+- SameSite=Lax: allows same-site fetch() requests while still blocking most cross-site CSRF cases
 - **4-hour token expiry**: JWT is valid for 4 hours (fallback)
 - **30-minute idle timeout**: Session expires after 30 min inactivity (primary)
 - Timing-safe comparison (bcryptjs.compare is timing-safe)
@@ -106,13 +107,16 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 
 **Route Handler:**
 1. Get user from DB
-2. Return: `{ email: user.email, role: user.role, displayName: user.display_name || null }`
+2. Ensure / refresh the account's personal ntfy topic state
+3. Ensure / refresh the account's personal calendar feed token and reminder lead time
+4. Return: `{ email: user.email, role: user.role, displayName: user.display_name || null, ntfyTopic, ntfySuggestedTopic, calendarFeedUrl, calendarLeadDays }`
 
 **Key Security Points:**
 - Session timeout is server-side (cannot be bypassed by client)
 - Every authenticated request resets inactivity counter
 - Inactive sessions are immediately invalidated
 - DB queries ensure authoritative session state
+- Cookie clearing must use the same domain/path/sameSite shape as login so logout and timeout cleanup work reliably
 
 **Used by:** AppShell.tsx on mount and before any authenticated operation
 
@@ -140,10 +144,10 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 | POST | /api/auth/register | No | 10/15min | `{message: "OTP sent"}` |
 | POST | /api/auth/verify-otp | No | 10/15min | `{message: "Verified"}` |
 | POST | /api/auth/resend-otp | No | 10/15min | `{message: "Code sent"}` |
-| POST | /api/auth/login | No | 25/15min per IP+email | `{email: "...", role: "user", displayName: "..."}` + cookie |
+| POST | /api/auth/login | No | 25/15min per IP+email | `{email: "...", role: "user", displayName: "...", ntfyTopic: "...", ntfySuggestedTopic: "...", calendarFeedUrl: "...", calendarLeadDays: 2}` + cookie |
 | POST | /api/auth/logout | Cookie | 10/15min | `{message: "Logged out"}` |
-| GET | /api/auth/me | Cookie | 10/15min | `{email: "...", role: "user", displayName: "..."}` |
-| **PATCH** | **/api/auth/profile** | **Cookie** | **10/15min** | **`{message: "Profil aktualisiert", displayName: "..."}`** |
+| GET | /api/auth/me | Cookie | 10/15min | `{email: "...", role: "user", displayName: "...", ntfyTopic: "...", ntfySuggestedTopic: "...", calendarFeedUrl: "...", calendarLeadDays: 2}` |
+| **PATCH** | **/api/auth/profile** | **Cookie** | **10/15min** | **`{message: "Profil aktualisiert", displayName: "...", calendarLeadDays: 2, calendarFeedUrl: "..."}`** |
 | **PATCH** | **/api/auth/change-password** | **Cookie** | **10/15min** | **`{message: "Passwort geändert"}`** |
 | POST | /api/analyze-document | Cookie | No | Free local PDF text extraction / Tesseract image OCR metadata for uploads; filename fallback |
 | GET | /api/health | No | No | `{status: "ok"}` |
@@ -153,7 +157,7 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 ## Profile Management Endpoints (NEW - 2026-05-11)
 
 ### `PATCH /api/auth/profile` — Update Display Name
-**Input:** `{ displayName: "Max Mustermann" }`
+**Input:** `{ displayName: "Max Mustermann", calendarLeadDays?: 1|2|7 }`
 
 **Validation:**
 - displayName must be 1-50 characters
@@ -167,6 +171,8 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
   "displayName": "Max Mustermann"
 }
 ```
+
+If the request also carries `ntfyTopic`, the saved topic for the account is updated as well. If it carries `calendarLeadDays`, the default reminder lead time for the private calendar feed is updated too. The profile flow is used to persist the personal ntfy topic after the user has copied it into the app and to expose the iPhone calendar feed URL.
 
 **Error Responses:**
 - 400: `{ error: "Anzeigename erforderlich" }`

@@ -4,6 +4,7 @@ import { LogOut, ShieldCheck, ArrowRight } from "lucide-react";
 import { useCallback, useState, useEffect, useRef } from "react";
 import logoImg from "../assets/logo.png";
 import { checkAuthStatus, clearAuthCache, readAuthCache, writeAuthCache } from "../lib/auth";
+import { refreshAll, resetArchiveCache } from "../lib/store";
 import { getIconComponent } from "../lib/iconHelper";
 import { PublicEntry } from "./PublicEntry";
 import UserMenu from "./UserMenu";
@@ -27,10 +28,11 @@ export function AppShell() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<"admin" | "user" | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
+  const [ntfyTopic, setNtfyTopic] = useState<string | null>(null);
   const [authState, setAuthState] = useState<"checking" | "authenticated" | "unauthenticated">("checking");
   const [authFailure, setAuthFailure] = useState<"unauthorized" | "error" | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const isPublicPage = path === "/login" || path === "/register";
+  const isPublicPage = path === "/login" || path === "/register" || path === "/ntfy-setup";
   const authCheckedRef = useRef(false);
   const authCheckInFlightRef = useRef(false);
 
@@ -53,6 +55,7 @@ export function AppShell() {
       setUserRole(null);
       setAuthState("unauthenticated");
       setAuthFailure(null);
+      setNtfyTopic(null);
       authCheckedRef.current = false;
       authCheckInFlightRef.current = false;
       hasCachedAuthRef.current = false;
@@ -93,11 +96,12 @@ export function AppShell() {
         authCheckedRef.current = true;
 
         if (!auth.authenticated) {
-          setUserEmail(null);
-          setUserRole(null);
-          setDisplayName(null);
-          setAuthState("unauthenticated");
-          if (auth.status === "unauthorized") {
+        setUserEmail(null);
+        setUserRole(null);
+        setDisplayName(null);
+        setNtfyTopic(null);
+        setAuthState("unauthenticated");
+        if (auth.status === "unauthorized") {
             setAuthFailure("unauthorized");
             if (path !== "/" && path !== "/admin") {
               navigate({ to: "/login", replace: true });
@@ -112,9 +116,12 @@ export function AppShell() {
         setUserEmail(auth.email || null);
         setUserRole(auth.role || "user");
         setDisplayName(auth.displayName || null);
+        setNtfyTopic(auth.ntfyTopic || null);
         setAuthState("authenticated");
         setAuthFailure(null);
-        writeAuthCache(auth.email || null, auth.role || "user");
+        resetArchiveCache();
+        writeAuthCache(auth.email || null, auth.role || "user", auth.displayName || null, auth.ntfyTopic || null);
+        void refreshAll();
         hasCachedAuthRef.current = true;
         console.debug("[AppShell] Authenticated session confirmed");
       } catch (err) {
@@ -126,6 +133,7 @@ export function AppShell() {
         setUserEmail(null);
         setUserRole(null);
         setDisplayName(null);
+        setNtfyTopic(null);
         setAuthState("unauthenticated");
         setAuthFailure("error");
         if (!hasCachedAuthRef.current) {
@@ -156,9 +164,11 @@ export function AppShell() {
     setUserEmail(null);
     setUserRole(null);
     setDisplayName(null);
+    setNtfyTopic(null);
     setAuthState("unauthenticated");
     setAuthFailure(null);
     clearAuthCache();
+    resetArchiveCache();
     authCheckedRef.current = false;
     hasCachedAuthRef.current = false;
     navigate({ to: "/login", replace: true });
@@ -199,6 +209,66 @@ export function AppShell() {
       clearInterval(interval);
     };
   }, [isPublicPage, authState]);
+
+  useEffect(() => {
+    if (isPublicPage || authState !== "authenticated") {
+      return;
+    }
+
+    let alive = true;
+    const triggerRefresh = () => {
+      if (alive) {
+        void refreshAll();
+      }
+    };
+
+    const interval = window.setInterval(triggerRefresh, 60_000);
+    const onFocus = () => triggerRefresh();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        triggerRefresh();
+      }
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      alive = false;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [isPublicPage, authState]);
+
+  useEffect(() => {
+    const handleProfileUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ displayName?: string | null; ntfyTopic?: string | null }>).detail;
+      if (!detail || (detail.displayName === undefined && detail.ntfyTopic === undefined)) {
+        return;
+      }
+
+      if (detail.displayName !== undefined) {
+        setDisplayName(detail.displayName || null);
+      }
+
+      if (detail.ntfyTopic !== undefined) {
+        setNtfyTopic(detail.ntfyTopic || null);
+      }
+
+      if (userEmail) {
+        writeAuthCache(
+          userEmail,
+          userRole || "user",
+          detail.displayName !== undefined ? detail.displayName || null : displayName,
+          detail.ntfyTopic !== undefined ? detail.ntfyTopic || null : ntfyTopic,
+        );
+      }
+    };
+
+    window.addEventListener("autoarchiv:profile-updated", handleProfileUpdated);
+    return () => window.removeEventListener("autoarchiv:profile-updated", handleProfileUpdated);
+  }, [displayName, ntfyTopic, userEmail, userRole]);
 
   // Monitor .modal-open class for proper nav hiding
   useEffect(() => {
@@ -313,6 +383,7 @@ export function AppShell() {
                   <UserMenu
                     email={userEmail}
                     displayName={displayName}
+                    ntfyTopic={ntfyTopic}
                     onLogout={handleLogout}
                   />
                 )}
@@ -341,6 +412,7 @@ export function AppShell() {
                 <UserMenu
                   email={userEmail}
                   displayName={displayName}
+                  ntfyTopic={ntfyTopic}
                   onLogout={handleLogout}
                 />
               )}

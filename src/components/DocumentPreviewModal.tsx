@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Download, Trash2, FolderInput, PencilLine, Save, XCircle, Loader2, FileText, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 import type { AnalysisHint, ArchivedDoc, DocumentText } from "../lib/db";
 import { getDocumentBlob, getDocumentDetails, patchDocument } from "../lib/db";
-import { fmtDate, fmtBytes, fmtEUR } from "../lib/format";
+import { fmtDate, fmtDateTime, fmtBytes, fmtEUR } from "../lib/format";
 import { DEFAULT_FOLDER_TREE, loadFolderTree, type FolderNode } from "../lib/folders";
 import { toast } from "sonner";
 
@@ -21,23 +21,28 @@ type EditForm = {
   dokumenttyp: string;
   zusammenfassung: string;
   zahlungsbetrag: string;
-  faelligkeitsdatum: string;
+  dueDate: string;
   ablaufdatum: string;
   wichtigkeit: ArchivedDoc["wichtigkeit"];
+  reminderEnabled: boolean;
+  reminderNote: string;
 };
 
 type PreviewTab = "preview" | "text" | "analysis";
 
 function makeEditForm(doc: ArchivedDoc): EditForm {
+  const dueDate = doc.dueDate || doc.faelligkeitsdatum || "";
   return {
     folderPath: doc.folderPath || "",
     absender: doc.absender || "",
     dokumenttyp: doc.dokumenttyp || "",
     zusammenfassung: doc.zusammenfassung || "",
     zahlungsbetrag: doc.zahlungsbetrag == null ? "" : String(doc.zahlungsbetrag),
-    faelligkeitsdatum: doc.faelligkeitsdatum ? doc.faelligkeitsdatum.slice(0, 10) : "",
+    dueDate: dueDate ? dueDate.slice(0, 10) : "",
     ablaufdatum: doc.ablaufdatum ? doc.ablaufdatum.slice(0, 10) : "",
     wichtigkeit: doc.wichtigkeit || "mittel",
+    reminderEnabled: Boolean(doc.reminderEnabled),
+    reminderNote: doc.reminderNote || "",
   };
 }
 
@@ -156,9 +161,11 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
         dokumenttyp: form.dokumenttyp.trim(),
         zusammenfassung: form.zusammenfassung.trim(),
         zahlungsbetrag: form.zahlungsbetrag === "" ? null : Number(form.zahlungsbetrag),
-        faelligkeitsdatum: form.faelligkeitsdatum || null,
+        dueDate: form.dueDate || null,
         ablaufdatum: form.ablaufdatum || null,
         wichtigkeit: form.wichtigkeit,
+        reminderEnabled: form.reminderEnabled,
+        reminderNote: form.reminderNote.trim() || null,
       });
       if (!updated) throw new Error("Dokument konnte nicht gespeichert werden");
       setCurrentDoc(updated);
@@ -325,9 +332,19 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
                     <Row label="Ordner" value={activeDoc.folderPath} mono />
                     {activeDoc.storageLocation && <Row label="Server-Ablage" value={activeDoc.storageLocation} mono />}
                     <Row label="Hochgeladen" value={fmtDate(activeDoc.uploadedAt)} />
-                    {activeDoc.faelligkeitsdatum && <Row label="Fälligkeit" value={fmtDate(activeDoc.faelligkeitsdatum)} />}
+                    {(activeDoc.dueDate || activeDoc.faelligkeitsdatum) && <Row label="Fälligkeit" value={fmtDate(activeDoc.dueDate || activeDoc.faelligkeitsdatum)} />}
                     {activeDoc.ablaufdatum && <Row label="Ablauf" value={fmtDate(activeDoc.ablaufdatum)} />}
                     {activeDoc.zahlungsbetrag != null && <Row label="Betrag" value={fmtEUR(activeDoc.zahlungsbetrag)} />}
+                    <Row
+                      label="Erinnerung"
+                      value={activeDoc.reminderEnabled
+                        ? activeDoc.reminderSentAt
+                          ? `aktiv, gesendet ${fmtDateTime(activeDoc.reminderSentAt)}`
+                          : "aktiv"
+                        : "aus"}
+                    />
+                    {activeDoc.reminderChannel && <Row label="Kanal" value={activeDoc.reminderChannel} />}
+                    {activeDoc.reminderNote && <Row label="Hinweis" value={activeDoc.reminderNote} />}
                     <div>
                       <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Zusammenfassung</div>
                       <p className="mt-1 text-sm leading-relaxed text-foreground/90">{activeDoc.zusammenfassung || "—"}</p>
@@ -442,8 +459,8 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
                     <Field label="Fälligkeit">
                       <input
                         type="date"
-                        value={form.faelligkeitsdatum}
-                        onChange={(e) => setForm((prev) => prev ? { ...prev, faelligkeitsdatum: e.target.value } : prev)}
+                        value={form.dueDate}
+                        onChange={(e) => setForm((prev) => prev ? { ...prev, dueDate: e.target.value } : prev)}
                         className="w-full rounded-xl border border-border bg-input/50 px-3 py-2 text-sm"
                       />
                     </Field>
@@ -453,6 +470,25 @@ export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }
                         value={form.ablaufdatum}
                         onChange={(e) => setForm((prev) => prev ? { ...prev, ablaufdatum: e.target.value } : prev)}
                         className="w-full rounded-xl border border-border bg-input/50 px-3 py-2 text-sm"
+                      />
+                    </Field>
+                  </div>
+
+                  <div className="space-y-3 rounded-2xl border border-border/50 bg-background/30 p-3">
+                    <label className="flex items-center gap-3 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={form.reminderEnabled}
+                        onChange={(e) => setForm((prev) => prev ? { ...prev, reminderEnabled: e.target.checked } : prev)}
+                      />
+                      Erinnerung aktivieren
+                    </label>
+                    <Field label="Hinweistext">
+                      <textarea
+                        value={form.reminderNote}
+                        onChange={(e) => setForm((prev) => prev ? { ...prev, reminderNote: e.target.value } : prev)}
+                        className="min-h-20 w-full rounded-xl border border-border bg-input/50 px-3 py-2 text-sm"
+                        placeholder="Optionaler Hinweis für die Push-Nachricht"
                       />
                     </Field>
                   </div>

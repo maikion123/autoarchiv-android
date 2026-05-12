@@ -18,6 +18,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import sharp from 'sharp';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { notifyNtfy, normalizeTopic, resolveNtfyConfig } from './lib/notifyNtfy.mjs';
 // TODO: Import analysis modules when available
 // import { reviewWithAI as reviewDocumentWithAI, decideFinalAnalysis, createRegexFallback } from './src/server/analysis/documentPipeline.mjs';
 // import { prepareLayoutAnalysisInput } from './src/server/analysis/layoutPipeline.mjs';
@@ -42,6 +43,8 @@ const DB_PATH      = process.env.DB_PATH || join(__dirname, 'data/autoarchiv.db'
 const STORAGE_PATH = process.env.STORAGE_PATH || join(__dirname, 'storage');
 const API_PORT     = parseInt(process.env.API_PORT || '3001', 10);
 const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || undefined;
+const PUBLIC_APP_URL = process.env.PUBLIC_APP_URL || 'https://nextkm.de';
+const ADMIN_MAIK_CLAUDE_DOCX = join(STORAGE_PATH, 'admin', 'autoarchiv-maik-claude-doku.docx');
 
 // Helper function to get appropriate cookie domain based on request
 function getCookieDomain(req) {
@@ -137,6 +140,7 @@ db.exec(`
     zusammenfassung     TEXT NOT NULL DEFAULT '',
     zahlungsbetrag      REAL,
     faelligkeitsdatum   TEXT,
+    due_date            TEXT,
     ablaufdatum         TEXT,
     wichtigkeit         TEXT NOT NULL DEFAULT 'mittel',
     tags_json           TEXT NOT NULL DEFAULT '[]',
@@ -150,6 +154,10 @@ db.exec(`
     review_status       TEXT NOT NULL DEFAULT 'review_required',
     review_reason       TEXT NOT NULL DEFAULT '',
     should_auto_archive INTEGER NOT NULL DEFAULT 0,
+    reminder_enabled    INTEGER NOT NULL DEFAULT 0,
+    reminder_sent_at    TEXT,
+    reminder_channel    TEXT NOT NULL DEFAULT 'ntfy',
+    reminder_note       TEXT NOT NULL DEFAULT '',
     confidence          REAL,
     wichtigkeitsgrund   TEXT,
     status              TEXT NOT NULL DEFAULT 'uploaded',
@@ -188,6 +196,10 @@ db.exec(`
     status        TEXT NOT NULL DEFAULT 'offen',
     paid_json     TEXT NOT NULL DEFAULT '[]',
     kategorie     TEXT,
+    reminder_enabled        INTEGER NOT NULL DEFAULT 1,
+    reminder_1d_sent_at     TEXT,
+    reminder_same_day_sent_at TEXT,
+    reminder_channel        TEXT NOT NULL DEFAULT 'ntfy',
     created_at    TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -278,7 +290,7 @@ db.exec(`
 `);
 
 // Clean up old sessions
-db.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
+db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(new Date().toISOString());
 
 try {
   db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
@@ -290,6 +302,54 @@ try {
   db.exec("ALTER TABLE users ADD COLUMN display_name TEXT");
 } catch {
   // Column already exists.
+}
+
+try {
+  db.exec("ALTER TABLE users ADD COLUMN ntfy_topic TEXT");
+} catch {
+  // Column already exists.
+}
+
+try {
+  db.exec("ALTER TABLE users ADD COLUMN calendar_token TEXT");
+} catch {
+  // Column already exists.
+}
+
+try {
+  db.exec("ALTER TABLE users ADD COLUMN calendar_lead_days INTEGER NOT NULL DEFAULT 2");
+} catch {
+  // Column already exists.
+}
+
+try {
+  const usersWithoutTopic = db.prepare(`
+    SELECT id, email, display_name, ntfy_topic
+    FROM users
+    WHERE ntfy_topic IS NULL OR TRIM(ntfy_topic) = ''
+  `).all();
+  for (const user of usersWithoutTopic) {
+    const topic = buildSuggestedNtfyTopic(user);
+    db.prepare("UPDATE users SET ntfy_topic = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(topic, user.id);
+  }
+} catch (err) {
+  console.warn('[ntfy] user topic backfill skipped:', errorSummary(err));
+}
+
+try {
+  const usersWithoutCalendar = db.prepare(`
+    SELECT id, email, display_name, calendar_token
+    FROM users
+    WHERE calendar_token IS NULL OR TRIM(calendar_token) = ''
+  `).all();
+  for (const user of usersWithoutCalendar) {
+    const token = buildSuggestedCalendarToken(user);
+    db.prepare("UPDATE users SET calendar_token = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(token, user.id);
+  }
+} catch (err) {
+  console.warn('[calendar] user token backfill skipped:', errorSummary(err));
 }
 
 if (ADMIN_EMAILS.size > 0) {
@@ -311,12 +371,40 @@ for (const sql of [
   "ALTER TABLE documents ADD COLUMN review_status TEXT NOT NULL DEFAULT 'review_required'",
   "ALTER TABLE documents ADD COLUMN review_reason TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE documents ADD COLUMN should_auto_archive INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE documents ADD COLUMN due_date TEXT",
+  "ALTER TABLE documents ADD COLUMN reminder_enabled INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE documents ADD COLUMN reminder_sent_at TEXT",
+  "ALTER TABLE documents ADD COLUMN reminder_channel TEXT NOT NULL DEFAULT 'ntfy'",
+  "ALTER TABLE documents ADD COLUMN reminder_note TEXT NOT NULL DEFAULT ''",
 ]) {
   try {
     db.exec(sql);
   } catch {
     // Column already exists.
   }
+}
+
+for (const sql of [
+  "ALTER TABLE payments ADD COLUMN reminder_enabled INTEGER NOT NULL DEFAULT 1",
+  "ALTER TABLE payments ADD COLUMN reminder_1d_sent_at TEXT",
+  "ALTER TABLE payments ADD COLUMN reminder_same_day_sent_at TEXT",
+  "ALTER TABLE payments ADD COLUMN reminder_channel TEXT NOT NULL DEFAULT 'ntfy'",
+]) {
+  try {
+    db.exec(sql);
+  } catch {
+    // Column already exists.
+  }
+}
+
+try {
+  db.prepare(`
+    UPDATE documents
+    SET due_date = faelligkeitsdatum
+    WHERE due_date IS NULL AND faelligkeitsdatum IS NOT NULL
+  `).run();
+} catch {
+  // Backfill is best-effort only.
 }
 
 const DEFAULT_NAVIGATION_ITEMS = [
@@ -535,9 +623,217 @@ function currentUserId(req) {
   return req.user?.userId;
 }
 
+function slugifyTopicPart(value, fallback = 'konto') {
+  const raw = String(value || '').trim().toLowerCase();
+  const normalized = raw.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+  const slug = normalized
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 24);
+  return slug || fallback;
+}
+
+function hashTopicSeed(value) {
+  let hash = 2166136261;
+  const input = String(value || '');
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36).slice(0, 8);
+}
+
+function buildSuggestedNtfyTopic(user) {
+  const email = String(user?.email || '').trim().toLowerCase();
+  const displayName = String(user?.display_name || '').trim();
+  const localPart = email.includes('@') ? email.split('@')[0] : '';
+  const namePart = slugifyTopicPart(displayName || localPart || user?.id || email || 'konto');
+  const userPart = slugifyTopicPart(email || user?.id || displayName || localPart || 'konto');
+  const seed = hashTopicSeed(`${user?.id || ''}:${email}:${displayName}`);
+  return normalizeTopic(`autoarchiv-${namePart}-${userPart}-${seed}`);
+}
+
+function buildSuggestedCalendarToken() {
+  return `cal_${crypto.randomBytes(16).toString('hex')}`;
+}
+
+function normalizeCalendarLeadDays(value) {
+  const leadDays = Number.parseInt(String(value ?? '').trim(), 10);
+  return [1, 2, 7].includes(leadDays) ? leadDays : 2;
+}
+
+function buildCalendarFeedUrl(userOrToken) {
+  const token = typeof userOrToken === 'string'
+    ? String(userOrToken || '').trim()
+    : String(userOrToken?.calendar_token || '').trim();
+  if (!token) return '';
+  return `${PUBLIC_APP_URL.replace(/\/+$/, '')}/calendar/${encodeURIComponent(token)}.ics`;
+}
+
 function getUserById(userId) {
   if (!userId) return null;
-  return db.prepare('SELECT id, email, email_verified, role, display_name, password_hash, created_at, updated_at FROM users WHERE id = ?').get(userId) || null;
+  try {
+    return db.prepare('SELECT id, email, email_verified, role, display_name, ntfy_topic, calendar_token, calendar_lead_days, password_hash, created_at, updated_at FROM users WHERE id = ?').get(userId) || null;
+  } catch (err) {
+    const message = String(err?.message || '');
+    if (message.includes('no such column: ntfy_topic') || message.includes('no such column: calendar_token') || message.includes('no such column: calendar_lead_days')) {
+      return db.prepare('SELECT id, email, email_verified, role, display_name, password_hash, created_at, updated_at FROM users WHERE id = ?').get(userId) || null;
+    }
+    throw err;
+  }
+}
+
+function ensureUserCalendarSettings(userId) {
+  const user = getUserById(userId);
+  if (!user) return null;
+
+  const updates = {};
+  const token = String(user.calendar_token || '').trim();
+  if (!token) {
+    updates.calendar_token = buildSuggestedCalendarToken();
+  }
+
+  const normalizedLeadDays = normalizeCalendarLeadDays(user.calendar_lead_days);
+  if (normalizedLeadDays !== Number(user.calendar_lead_days)) {
+    updates.calendar_lead_days = normalizedLeadDays;
+  }
+
+  if (Object.keys(updates).length > 0) {
+    try {
+      const assignments = Object.keys(updates).map((column) => `${column} = ?`).join(', ');
+      db.prepare(`UPDATE users SET ${assignments}, updated_at = datetime('now') WHERE id = ?`)
+        .run(...Object.values(updates), user.id);
+    } catch (err) {
+      console.warn('[calendar] ensure settings failed:', errorSummary(err));
+      return user;
+    }
+    return getUserById(userId);
+  }
+
+  return user;
+}
+
+function ensureUserNtfyTopic(userId) {
+  const user = getUserById(userId);
+  if (!user) return null;
+  const current = normalizeTopic(user.ntfy_topic || '');
+  if (current) return user;
+  const topic = buildSuggestedNtfyTopic(user);
+  try {
+    db.prepare("UPDATE users SET ntfy_topic = ?, updated_at = datetime('now') WHERE id = ?").run(topic, user.id);
+  } catch (err) {
+    console.warn('[ntfy] ensure topic failed:', errorSummary(err));
+    return user;
+  }
+  return getUserById(userId);
+}
+
+function ensureUserNotificationSettings(userId) {
+  const withTopic = ensureUserNtfyTopic(userId);
+  const withCalendar = ensureUserCalendarSettings(userId);
+  return withCalendar || withTopic;
+}
+
+function escapeIcsText(value) {
+  return String(value ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/\r\n|\r|\n/g, '\\n')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;');
+}
+
+function foldIcsLine(line) {
+  const text = String(line ?? '');
+  if (text.length <= 75) return text;
+  const parts = [];
+  let remaining = text;
+  while (remaining.length > 75) {
+    parts.push(remaining.slice(0, 75));
+    remaining = ` ${remaining.slice(75)}`;
+  }
+  parts.push(remaining);
+  return parts.join('\r\n');
+}
+
+function formatIcsDateTime(isoValue) {
+  const date = new Date(isoValue || Date.now());
+  if (Number.isNaN(date.getTime())) {
+    return new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  }
+  return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+}
+
+function formatIcsDate(value) {
+  const normalized = localDateKey(value);
+  return normalized ? normalized.replace(/-/g, '') : '';
+}
+
+function addDaysToIcsDate(value, days) {
+  const normalized = localDateKey(value);
+  if (!normalized) return '';
+  const [year, month, day] = normalized.split('-').map((part) => Number.parseInt(part, 10));
+  if (![year, month, day].every((part) => Number.isFinite(part))) return '';
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + Number(days || 0));
+  return date.toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+function buildPaymentCalendarIcs(user, payments) {
+  const leadDays = normalizeCalendarLeadDays(user?.calendar_lead_days);
+  const calendarName = `${user?.display_name || user?.email || 'AutoArchiv'} - Zahlungen`;
+  const events = [];
+
+  for (const payment of payments) {
+    const dueDate = formatIcsDate(payment.faelligkeit);
+    if (!dueDate) continue;
+
+    const startDate = dueDate;
+    const endDate = addDaysToIcsDate(payment.faelligkeit, 1);
+    const title = payment.absender
+      ? `Zahlung fällig: ${payment.absender}`
+      : 'Zahlung fällig';
+    const descriptionLines = [
+      `Absender: ${payment.absender || 'Unbekannt'}`,
+      payment.beschreibung ? `Beschreibung: ${payment.beschreibung}` : null,
+      `Betrag: ${paymentDisplayAmount(payment.betrag)}`,
+      `Status: ${payment.status || 'offen'}`,
+      `Fällig am: ${localDateKey(payment.faelligkeit) || '—'}`,
+    ].filter(Boolean);
+
+    events.push([
+      'BEGIN:VEVENT',
+      `UID:payment-${escapeIcsText(payment.id)}@nextkm`,
+      `DTSTAMP:${formatIcsDateTime(payment.updated_at || payment.created_at || new Date().toISOString())}`,
+      `SUMMARY:${escapeIcsText(title)}`,
+      `DESCRIPTION:${escapeIcsText(descriptionLines.join('\n'))}`,
+      `DTSTART;VALUE=DATE:${startDate}`,
+      `DTEND;VALUE=DATE:${endDate || startDate}`,
+      'STATUS:CONFIRMED',
+      'TRANSP:TRANSPARENT',
+      'SEQUENCE:0',
+      'BEGIN:VALARM',
+      'ACTION:DISPLAY',
+      `DESCRIPTION:${escapeIcsText(title)}`,
+      `TRIGGER:-P${leadDays}D`,
+      'END:VALARM',
+      'END:VEVENT',
+    ]);
+  }
+
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//AutoArchiv//nextKM Payment Reminders//DE',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    `X-WR-CALNAME:${escapeIcsText(calendarName)}`,
+    'X-WR-CALDESC:Automatisch erzeugte Zahlungserinnerungen aus AutoArchiv',
+    'X-WR-TIMEZONE:Europe/Berlin',
+    ...events.flat(),
+    'END:VCALENDAR',
+  ];
+
+  return lines.map(foldIcsLine).join('\r\n') + '\r\n';
 }
 
 function getDocumentById(documentId) {
@@ -809,6 +1105,7 @@ function documentResponse(row) {
   const storageLocation = row.storage_path?.startsWith(STORAGE_PATH)
     ? row.storage_path.slice(STORAGE_PATH.length + 1)
     : null;
+  const dueDate = row.due_date || row.faelligkeitsdatum || null;
   return {
     id: row.id,
     filename: row.filename,
@@ -823,6 +1120,7 @@ function documentResponse(row) {
     dokumenttyp: row.dokumenttyp,
     zusammenfassung: row.zusammenfassung,
     zahlungsbetrag: row.zahlungsbetrag,
+    dueDate,
     faelligkeitsdatum: row.faelligkeitsdatum,
     ablaufdatum: row.ablaufdatum,
     wichtigkeit: row.wichtigkeit,
@@ -837,6 +1135,10 @@ function documentResponse(row) {
     reviewStatus: row.review_status,
     reviewReason: row.review_reason,
     shouldAutoArchive: Boolean(row.should_auto_archive),
+    reminderEnabled: Boolean(row.reminder_enabled),
+    reminderSentAt: row.reminder_sent_at || null,
+    reminderChannel: row.reminder_channel || 'ntfy',
+    reminderNote: row.reminder_note || '',
     confidence: row.confidence,
     wichtigkeitsgrund: row.wichtigkeitsgrund,
     status: row.status,
@@ -925,6 +1227,7 @@ async function persistAnalyzedDocument({
       zusammenfassung = ?,
       zahlungsbetrag = ?,
       faelligkeitsdatum = ?,
+      due_date = ?,
       ablaufdatum = ?,
       wichtigkeit = ?,
       tags_json = ?,
@@ -949,6 +1252,7 @@ async function persistAnalyzedDocument({
     normalized.dokumenttyp || 'Sonstiges',
     normalized.zusammenfassung || '',
     normalized.zahlungsbetrag ?? null,
+    normalized.faelligkeitsdatum ?? null,
     normalized.faelligkeitsdatum ?? null,
     normalized.ablaufdatum ?? null,
     normalized.wichtigkeit || 'mittel',
@@ -1004,6 +1308,10 @@ function paymentResponse(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     kategorie: row.kategorie,
+    reminderEnabled: Boolean(row.reminder_enabled ?? 1),
+    reminder1dSentAt: row.reminder_1d_sent_at || null,
+    reminderSameDaySentAt: row.reminder_same_day_sent_at || null,
+    reminderChannel: row.reminder_channel || 'ntfy',
   };
 }
 
@@ -1110,6 +1418,20 @@ function listFolderDescendants(folderId) {
   `).all(folderId, folderId);
 }
 
+function normalizeDateField(value) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const text = String(value).trim();
+  return text || null;
+}
+
+function normalizeBooleanField(value) {
+  if (typeof value === 'string') {
+    return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+  }
+  return Boolean(value);
+}
+
 function cleanDocumentPatch(body = {}) {
   const out = {};
   const stringFields = {
@@ -1128,6 +1450,22 @@ function cleanDocumentPatch(body = {}) {
   for (const [input, column] of Object.entries(stringFields)) {
     if (body[input] === undefined) continue;
     out[column] = body[input] === null ? null : String(body[input]).trim();
+  }
+
+  const dueDate = normalizeDateField(body.dueDate !== undefined ? body.dueDate : body.faelligkeitsdatum);
+  if (dueDate !== undefined) {
+    out.due_date = dueDate;
+    out.faelligkeitsdatum = dueDate;
+  }
+
+  if (body.reminderEnabled !== undefined) {
+    out.reminder_enabled = normalizeBooleanField(body.reminderEnabled) ? 1 : 0;
+  }
+  if (body.reminderNote !== undefined) {
+    out.reminder_note = body.reminderNote === null ? '' : String(body.reminderNote).trim();
+  }
+  if (body.reminderChannel !== undefined) {
+    out.reminder_channel = body.reminderChannel === null ? 'ntfy' : String(body.reminderChannel).trim() || 'ntfy';
   }
 
   if (body.zahlungsbetrag !== undefined) {
@@ -1155,6 +1493,10 @@ function cleanDocumentPatch(body = {}) {
   }
   if (out.status && !['uploaded', 'analyzed', 'review', 'archived', 'failed', 'deleted'].includes(out.status)) {
     delete out.status;
+  }
+
+  if ((body.dueDate !== undefined || body.faelligkeitsdatum !== undefined || body.reminderEnabled !== undefined) && body.reminderSentAt === undefined) {
+    out.reminder_sent_at = null;
   }
 
   out.updated_at = new Date().toISOString();
@@ -1207,6 +1549,22 @@ function cleanAdminDocumentPatch(body = {}) {
     out[column] = body[input] === null ? null : String(body[input]).trim();
   }
 
+  const dueDate = normalizeDateField(body.dueDate !== undefined ? body.dueDate : body.faelligkeitsdatum);
+  if (dueDate !== undefined) {
+    out.due_date = dueDate;
+    out.faelligkeitsdatum = dueDate;
+  }
+
+  if (body.reminderEnabled !== undefined) {
+    out.reminder_enabled = normalizeBooleanField(body.reminderEnabled) ? 1 : 0;
+  }
+  if (body.reminderNote !== undefined) {
+    out.reminder_note = body.reminderNote === null ? '' : String(body.reminderNote).trim();
+  }
+  if (body.reminderChannel !== undefined) {
+    out.reminder_channel = body.reminderChannel === null ? 'ntfy' : String(body.reminderChannel).trim() || 'ntfy';
+  }
+
   if (body.zahlungsbetrag !== undefined) {
     const amount = body.zahlungsbetrag === null || body.zahlungsbetrag === ''
       ? null
@@ -1257,6 +1615,10 @@ function cleanAdminDocumentPatch(body = {}) {
     delete out.status;
   }
 
+  if ((body.dueDate !== undefined || body.faelligkeitsdatum !== undefined || body.reminderEnabled !== undefined) && body.reminderSentAt === undefined) {
+    out.reminder_sent_at = null;
+  }
+
   if (Object.keys(out).length === 0) {
     throw new Error('Keine gültigen Änderungen übergeben');
   }
@@ -1294,6 +1656,10 @@ function cleanPaymentInput(body = {}) {
         })).filter((entry) => entry.amount > 0)
       : []),
     kategorie: body.kategorie ? String(body.kategorie).trim() : null,
+    reminder_enabled: body.reminderEnabled === undefined ? undefined : normalizeBooleanField(body.reminderEnabled) ? 1 : 0,
+    reminder_1d_sent_at: body.reminder1dSentAt === undefined ? undefined : normalizeDateField(body.reminder1dSentAt),
+    reminder_same_day_sent_at: body.reminderSameDaySentAt === undefined ? undefined : normalizeDateField(body.reminderSameDaySentAt),
+    reminder_channel: body.reminderChannel === undefined ? undefined : (String(body.reminderChannel || '').trim() || 'ntfy'),
   };
 }
 
@@ -1474,7 +1840,15 @@ function requireAuth(req, res, next) {
     }
 
     const now = new Date();
-    const lastActivity = new Date(session.last_activity);
+    const parseSessionTime = (value) => {
+      if (!value) return new Date(0);
+      const raw = String(value).trim();
+      if (!raw) return new Date(0);
+      const normalized = raw.includes('T') ? raw : `${raw.replace(' ', 'T')}Z`;
+      const parsed = new Date(normalized);
+      return Number.isNaN(parsed.getTime()) ? new Date(raw) : parsed;
+    };
+    const lastActivity = parseSessionTime(session.last_activity);
     const inactiveMs = now - lastActivity;
     const TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -1499,7 +1873,7 @@ function requireAuth(req, res, next) {
     }
 
     // Update last activity
-    db.prepare("UPDATE sessions SET last_activity = datetime('now') WHERE id = ?").run(session.id);
+    db.prepare('UPDATE sessions SET last_activity = ? WHERE id = ?').run(new Date().toISOString(), session.id);
     debugLog(`[Auth] ✓ Session valid, updated last_activity`);
 
     next();
@@ -1509,7 +1883,8 @@ function requireAuth(req, res, next) {
     const clearOptions = {
       httpOnly: true,
       secure: true,
-      sameSite: 'strict',
+      sameSite: 'lax',
+      path: '/',
     };
     if (clearDomain) {
       clearOptions.domain = clearDomain;
@@ -1538,6 +1913,127 @@ app.use(cookieParser());
 
 // Health
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+
+function servePaymentCalendarFeed(req, res) {
+  const token = String(req.params.token || '').trim();
+  if (!token) {
+    return res.status(404).send('Kalender nicht gefunden');
+  }
+
+  const user = db.prepare(`
+    SELECT id, email, display_name, calendar_token, calendar_lead_days
+    FROM users
+    WHERE calendar_token = ?
+  `).get(token);
+
+  if (!user) {
+    return res.status(404).send('Kalender nicht gefunden');
+  }
+
+  const payments = db.prepare(`
+    SELECT id, absender, beschreibung, betrag, faelligkeit, status, created_at, updated_at
+    FROM payments
+    WHERE user_id = ?
+      AND COALESCE(reminder_enabled, 1) = 1
+      AND status != 'bezahlt'
+      AND faelligkeit IS NOT NULL
+    ORDER BY faelligkeit ASC, created_at ASC
+  `).all(user.id);
+
+  const ics = buildPaymentCalendarIcs(user, payments);
+  res.status(200);
+  res.setHeader('Content-Type', 'text/calendar; charset=utf-8; method=PUBLISH');
+  res.setHeader('Content-Disposition', `inline; filename="nextkm-zahlungen.ics"`);
+  res.setHeader('Cache-Control', 'private, max-age=300, must-revalidate');
+  return res.send(ics);
+}
+
+app.get('/calendar/:token.ics', servePaymentCalendarFeed);
+app.get('/api/calendar/:token.ics', servePaymentCalendarFeed);
+
+app.post('/api/notifications/test-ntfy', requireAdmin, async (_req, res) => {
+  const result = await notifyNtfy({
+    title: 'AutoArchiv Test',
+    message: 'Push-Benachrichtigung vom VPS funktioniert.',
+    priority: 'default',
+    tags: ['test', 'autoarchiv'],
+    clickUrl: PUBLIC_APP_URL,
+  });
+
+  if (!result.ok) {
+    return res.status(500).json({ ok: false, error: result.error || 'NTFY-Notiz konnte nicht gesendet werden' });
+  }
+
+  return res.status(200).json({ ok: true });
+});
+
+app.post('/api/notifications/test-ntfy-personal', requireAuth, async (req, res) => {
+  const user = getUserById(currentUserId(req));
+  if (!user) {
+    return res.status(401).json({ ok: false, error: 'Authentifizierung erforderlich' });
+  }
+
+  const savedTopic = normalizeTopic(user.ntfy_topic || '');
+  const suggestedTopic = buildSuggestedNtfyTopic(user);
+  const targetTopic = savedTopic || suggestedTopic;
+
+  if (!targetTopic) {
+    return res.status(400).json({ ok: false, error: 'Kein ntfy-Topic verfügbar' });
+  }
+
+  const result = await notifyNtfy({
+    title: 'AutoArchiv Verbindungstest',
+    message: `Push-Benachrichtigung für ${user.display_name || user.email} funktioniert.`,
+    priority: 'default',
+    tags: ['test', 'autoarchiv'],
+    clickUrl: PUBLIC_APP_URL,
+    topic: targetTopic,
+  });
+
+  if (!result.ok) {
+    return res.status(500).json({ ok: false, error: result.error || 'NTFY-Notiz konnte nicht gesendet werden' });
+  }
+
+  if (normalizeTopic(user.ntfy_topic || '') !== targetTopic) {
+    try {
+      db.prepare("UPDATE users SET ntfy_topic = ?, updated_at = datetime('now') WHERE id = ?")
+        .run(targetTopic, user.id);
+    } catch (err) {
+      console.warn('[ntfy] personal topic save failed after successful test:', errorSummary(err));
+    }
+  }
+
+  return res.status(200).json({ ok: true, topic: targetTopic });
+});
+
+app.get('/api/notifications/ntfy-config', requireAuth, (_req, res) => {
+  const user = getUserById(currentUserId(_req));
+  const ntfyConfig = resolveNtfyConfig();
+  return res.status(200).json({
+    enabled: ntfyConfig.enabled,
+    baseUrl: ntfyConfig.baseUrl,
+    topic: user?.ntfy_topic || '',
+    suggestedTopic: buildSuggestedNtfyTopic(user),
+    publicAppUrl: PUBLIC_APP_URL,
+  });
+});
+
+app.get('/api/admin/docs/maik-claude-doku.docx', requireAdmin, (req, res) => {
+  res.download(ADMIN_MAIK_CLAUDE_DOCX, 'AutoArchiv-Maik-Claude-Doku.docx', (err) => {
+    if (!err) return;
+    if (err.code === 'ENOENT') {
+      console.warn('[AdminDoc] DOCX not found:', ADMIN_MAIK_CLAUDE_DOCX);
+      if (!res.headersSent) {
+        res.status(404).json({ error: 'Dokument nicht gefunden' });
+      }
+      return;
+    }
+    console.error('[AdminDoc] DOCX download failed:', errorSummary(err));
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Dokument konnte nicht geladen werden' });
+    }
+  });
+});
 
 app.get('/api/folders', requireAuth, (_req, res) => {
   // Ensure color and icon columns exist (for existing databases)
@@ -3681,11 +4177,30 @@ app.post('/api/payments', requireAuth, (req, res) => {
   }
 
   const now = new Date().toISOString();
+  const existing = db.prepare('SELECT * FROM payments WHERE id = ? AND user_id = ?').get(input.id, userId) || null;
+  const reminderEnabled = input.reminder_enabled !== undefined
+    ? Boolean(input.reminder_enabled)
+    : existing ? Boolean(existing.reminder_enabled ?? 1) : true;
+  const effectiveReminderEnabled = input.status === 'bezahlt' ? false : reminderEnabled;
+  const reminderChannel = input.reminder_channel !== undefined
+    ? input.reminder_channel
+    : existing?.reminder_channel || 'ntfy';
+  const reminder1dSentAt = input.reminder_1d_sent_at !== undefined
+    ? input.reminder_1d_sent_at
+    : existing?.reminder_1d_sent_at || null;
+  const reminderSameDaySentAt = input.reminder_same_day_sent_at !== undefined
+    ? input.reminder_same_day_sent_at
+    : existing?.reminder_same_day_sent_at || null;
+  const dueDateChanged = existing && String(existing.faelligkeit || '') !== input.faelligkeit;
+  const reminderModeChanged = existing && Boolean(existing.reminder_enabled ?? 1) !== effectiveReminderEnabled;
+  const shouldResetReminders = !existing || dueDateChanged || reminderModeChanged;
+  const nextReminder1dSentAt = shouldResetReminders && input.reminder_1d_sent_at === undefined ? null : reminder1dSentAt;
+  const nextReminderSameDaySentAt = shouldResetReminders && input.reminder_same_day_sent_at === undefined ? null : reminderSameDaySentAt;
   db.prepare(`
     INSERT INTO payments (
       id, user_id, document_id, absender, beschreibung, betrag, faelligkeit,
-      status, paid_json, kategorie, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      status, paid_json, kategorie, reminder_enabled, reminder_1d_sent_at, reminder_same_day_sent_at, reminder_channel, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       document_id = excluded.document_id,
       absender = excluded.absender,
@@ -3695,6 +4210,10 @@ app.post('/api/payments', requireAuth, (req, res) => {
       status = excluded.status,
       paid_json = excluded.paid_json,
       kategorie = excluded.kategorie,
+      reminder_enabled = excluded.reminder_enabled,
+      reminder_1d_sent_at = excluded.reminder_1d_sent_at,
+      reminder_same_day_sent_at = excluded.reminder_same_day_sent_at,
+      reminder_channel = excluded.reminder_channel,
       updated_at = excluded.updated_at
     WHERE payments.user_id = excluded.user_id
   `).run(
@@ -3708,6 +4227,10 @@ app.post('/api/payments', requireAuth, (req, res) => {
     input.status,
     input.paid_json,
     input.kategorie,
+    effectiveReminderEnabled ? 1 : 0,
+    nextReminder1dSentAt,
+    nextReminderSameDaySentAt,
+    reminderChannel,
     now,
     now,
   );
@@ -3944,10 +4467,13 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 12);
     const userId = uid();
     const normalizedEmail = email.toLowerCase().trim();
+    const calendarToken = buildSuggestedCalendarToken();
 
     db.prepare(
-      'INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)'
-    ).run(userId, normalizedEmail, passwordHash);
+      'INSERT INTO users (id, email, password_hash, calendar_token, calendar_lead_days) VALUES (?, ?, ?, ?, ?)'
+    ).run(userId, normalizedEmail, passwordHash, calendarToken, 2);
+    db.prepare("UPDATE users SET ntfy_topic = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(buildSuggestedNtfyTopic({ id: userId, email: normalizedEmail, display_name: null }), userId);
 
     log('REGISTER_STARTED', { userId, ip });
 
@@ -4100,7 +4626,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
   try {
     // Clean up old sessions for this user
-    db.prepare("DELETE FROM sessions WHERE user_id = ? AND expires_at < datetime('now')").run(user.id);
+    db.prepare('DELETE FROM sessions WHERE user_id = ? AND expires_at < ?').run(user.id, new Date().toISOString());
 
     db.prepare(`
       INSERT INTO sessions (id, user_id, last_activity, expires_at, created_at)
@@ -4131,7 +4657,17 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   res.cookie('auth_token', token, cookieOptions);
 
   log('LOGIN_SUCCESS', { userId: user.id, ip });
-  return res.status(200).json({ email: user.email, role: String(user.role || 'user'), displayName: user.display_name || null });
+  const ensuredUser = ensureUserNotificationSettings(user.id) || user;
+  return res.status(200).json({
+    email: ensuredUser.email,
+    role: String(ensuredUser.role || 'user'),
+    displayName: ensuredUser.display_name || null,
+    ntfyTopic: ensuredUser.ntfy_topic || null,
+    ntfySuggestedTopic: buildSuggestedNtfyTopic(ensuredUser),
+    calendarToken: ensuredUser.calendar_token || null,
+    calendarLeadDays: normalizeCalendarLeadDays(ensuredUser.calendar_lead_days),
+    calendarFeedUrl: buildCalendarFeedUrl(ensuredUser),
+  });
 });
 
 // ── POST /api/auth/logout ─────────────────────────────────────────────────────
@@ -4152,7 +4688,8 @@ app.post('/api/auth/logout', (req, res) => {
   const clearOptions = {
     httpOnly: true,
     secure: true,
-    sameSite: 'strict',
+    sameSite: 'lax',
+    path: '/',
   };
   if (clearDomain) {
     clearOptions.domain = clearDomain;
@@ -4163,35 +4700,70 @@ app.post('/api/auth/logout', (req, res) => {
 
 // ── PATCH /api/auth/profile ───────────────────────────────────────────────────
 app.patch('/api/auth/profile', requireAuth, (req, res) => {
-  const { displayName } = req.body;
-
-  if (!displayName || typeof displayName !== 'string') {
-    return res.status(400).json({ error: 'Anzeigename erforderlich' });
-  }
-
-  const trimmed = displayName.trim();
-  if (trimmed.length === 0 || trimmed.length > 50) {
-    return res.status(400).json({ error: 'Anzeigename muss 1-50 Zeichen lang sein' });
-  }
-
   const userId = currentUserId(req);
   if (!userId) {
     console.error('[Profile] No user ID found in request');
     return res.status(401).json({ error: 'Authentifizierung erforderlich' });
   }
 
+  const { displayName, ntfyTopic, calendarLeadDays } = req.body ?? {};
+  const updates = {};
+
+  if (displayName !== undefined) {
+    if (typeof displayName !== 'string') {
+      return res.status(400).json({ error: 'Anzeigename muss ein Text sein' });
+    }
+    const trimmed = displayName.trim();
+    if (trimmed.length === 0 || trimmed.length > 50) {
+      return res.status(400).json({ error: 'Anzeigename muss 1-50 Zeichen lang sein' });
+    }
+    updates.display_name = trimmed;
+  }
+
+  if (ntfyTopic !== undefined) {
+    if (ntfyTopic === null || String(ntfyTopic).trim() === '') {
+      updates.ntfy_topic = null;
+    } else {
+      const normalizedTopic = normalizeTopic(ntfyTopic);
+      if (!normalizedTopic) {
+        return res.status(400).json({ error: 'ntfy-Topic ist ungültig' });
+      }
+      updates.ntfy_topic = normalizedTopic;
+    }
+  }
+
+  if (calendarLeadDays !== undefined) {
+    const normalizedLeadDays = normalizeCalendarLeadDays(calendarLeadDays);
+    if (![1, 2, 7].includes(normalizedLeadDays)) {
+      return res.status(400).json({ error: 'Kalender-Erinnerung muss 1, 2 oder 7 Tage sein' });
+    }
+    updates.calendar_lead_days = normalizedLeadDays;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return res.status(400).json({ error: 'Keine Änderungen übergeben' });
+  }
+
   try {
-    console.log('[Profile] Updating display name for user:', userId);
-    const result = db.prepare('UPDATE users SET display_name = ?, updated_at = datetime("now") WHERE id = ?')
-      .run(trimmed, userId);
+    console.log('[Profile] Updating profile for user:', userId);
+    const assignments = Object.keys(updates).map((column) => `${column} = ?`).join(', ');
+    const result = db.prepare(`UPDATE users SET ${assignments}, updated_at = datetime('now') WHERE id = ?`)
+      .run(...Object.values(updates), userId);
 
     if (result.changes === 0) {
       console.warn('[Profile] User not found:', userId);
       return res.status(404).json({ error: 'Benutzer nicht gefunden' });
     }
 
-    console.log('[Profile] Display name updated successfully for:', userId);
-    return res.status(200).json({ message: 'Profil aktualisiert', displayName: trimmed });
+    console.log('[Profile] Profile updated successfully for:', userId);
+    const updated = getUserById(userId);
+    return res.status(200).json({
+      message: 'Profil aktualisiert',
+      displayName: updated?.display_name || null,
+      ntfyTopic: updated?.ntfy_topic || null,
+      calendarLeadDays: normalizeCalendarLeadDays(updated?.calendar_lead_days),
+      calendarFeedUrl: buildCalendarFeedUrl(updated),
+    });
   } catch (err) {
     console.error('[Profile] Update error:', errorSummary(err));
     return res.status(500).json({ error: 'Fehler beim Aktualisieren des Profils' });
@@ -4239,7 +4811,7 @@ app.patch('/api/auth/change-password', requireAuth, (req, res) => {
   try {
     console.log('[ChangePassword] Changing password for user:', userId);
     const newHash = bcrypt.hashSync(newPassword, 12);
-    const result = db.prepare('UPDATE users SET password_hash = ?, updated_at = datetime("now") WHERE id = ?')
+    const result = db.prepare("UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?")
       .run(newHash, userId);
 
     if (result.changes === 0) {
@@ -4257,11 +4829,16 @@ app.patch('/api/auth/change-password', requireAuth, (req, res) => {
 
 // ── GET /api/auth/me ──────────────────────────────────────────────────────────
 app.get('/api/auth/me', requireAuth, (req, res) => {
-  const user = getUserById(currentUserId(req));
+  const user = ensureUserNotificationSettings(currentUserId(req));
   return res.status(200).json({
     email: req.user.email,
     role: isAdminUser(user) ? 'admin' : 'user',
     displayName: user?.display_name || null,
+    ntfyTopic: user?.ntfy_topic || null,
+    ntfySuggestedTopic: buildSuggestedNtfyTopic(user),
+    calendarToken: user?.calendar_token || null,
+    calendarLeadDays: normalizeCalendarLeadDays(user?.calendar_lead_days),
+    calendarFeedUrl: buildCalendarFeedUrl(user),
   });
 });
 
@@ -4370,6 +4947,11 @@ app.get('/api/admin/documents', requireAdmin, (req, res) => {
       d.review_status,
       d.review_reason,
       d.should_auto_archive,
+      d.due_date,
+      d.reminder_enabled,
+      d.reminder_sent_at,
+      d.reminder_channel,
+      d.reminder_note,
       d.confidence,
       d.absender,
       d.dokumenttyp,
@@ -4395,6 +4977,11 @@ app.get('/api/admin/documents', requireAdmin, (req, res) => {
       reviewStatus: row.review_status,
       reviewReason: row.review_reason,
       shouldAutoArchive: Boolean(row.should_auto_archive),
+      dueDate: row.due_date || null,
+      reminderEnabled: Boolean(row.reminder_enabled),
+      reminderSentAt: row.reminder_sent_at || null,
+      reminderChannel: row.reminder_channel || 'ntfy',
+      reminderNote: row.reminder_note || '',
       confidence: row.confidence == null ? null : Number(row.confidence),
       absender: row.absender,
       dokumenttyp: row.dokumenttyp,

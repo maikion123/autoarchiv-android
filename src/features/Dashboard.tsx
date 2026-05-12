@@ -9,7 +9,7 @@ import { useArchive } from "../lib/store";
 import { DEFAULT_FOLDER_TREE, FOLDER_META, createFolder, deleteFolder, flattenFolderTree, getTopFolder, loadFolderTree, renameFolder, type FolderNode } from "../lib/folders";
 import { fmtEUR, fmtDate, daysUntil, fmtBytes } from "../lib/format";
 import { getIconComponent } from "../lib/iconHelper";
-import { deleteDocument, getDocumentBlob, getDocumentStatusSummary, type ArchivedDoc, type DocumentStatusSummary } from "../lib/db";
+import { deleteDocument, getDocumentBlob, type ArchivedDoc } from "../lib/db";
 import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { FolderCreateDialog } from "../components/FolderCreateDialog";
@@ -41,7 +41,7 @@ function CountUp({ value, suffix = "" }: { value: number; suffix?: string }) {
 }
 
 export default function Dashboard() {
-  const { documents, payments, refresh } = useArchive();
+  const { documents, payments, refresh, loaded } = useArchive();
   const [folders, setFolders] = useState<FolderNode[]>(DEFAULT_FOLDER_TREE);
   const [foldersLoading, setFoldersLoading] = useState(true);
   const [openFolder, setOpenFolder] = useState<string | null>(null);
@@ -60,7 +60,6 @@ export default function Dashboard() {
   const [openFolderInSelectionMode, setOpenFolderInSelectionMode] = useState(false);
   const [folderToDelete, setFolderToDelete] = useState<FolderNode | null>(null);
   const categoriesRef = useRef<HTMLElement | null>(null);
-  const [statusSummary, setStatusSummary] = useState<DocumentStatusSummary | null>(null);
 
   // Hide bottom nav when modals are open
   useEffect(() => {
@@ -90,22 +89,6 @@ export default function Dashboard() {
     };
   }, []);
 
-  useEffect(() => {
-    let mounted = true;
-    const load = async () => {
-      try {
-        const summary = await getDocumentStatusSummary();
-        if (mounted) setStatusSummary(summary);
-      } catch {
-        if (mounted) setStatusSummary(null);
-      }
-    };
-    load();
-    return () => {
-      mounted = false;
-    };
-  }, [documents]);
-
   const stats = useMemo(() => {
     const open = payments.filter((p) => p.status !== "bezahlt");
     const sum = open.reduce((a, p) => a + (p.betrag - (p.paid?.reduce((s, x) => s + x.amount, 0) || 0)), 0);
@@ -117,7 +100,6 @@ export default function Dashboard() {
     }).length;
     return { total: archivedDocuments.length, openSum: sum, high, upcoming, archivedDocuments };
   }, [documents, payments]);
-
   const lastDoc = useMemo(() => {
     return [...documents].filter((doc) => doc.status === "archived").sort((a, b) => +new Date(b.uploadedAt) - +new Date(a.uploadedAt))[0];
   }, [documents]);
@@ -188,28 +170,15 @@ export default function Dashboard() {
         <Kpi
           icon={FileText}
           label="Archivierte Dokumente"
-          value={<CountUp value={stats.total} />}
+          value={loaded ? <CountUp value={stats.total} /> : "—"}
           accent="from-violet-500 to-fuchsia-500"
           onClick={openFolderOverview}
           title="Ordnerstruktur und Dokumente öffnen"
         />
-        <Kpi icon={Wallet} label="Offene Zahlungen" value={fmtEUR(stats.openSum)} accent={stats.openSum > 0 ? "from-rose-500 to-amber-400" : "from-emerald-400 to-cyan-400"} glow={stats.openSum > 0} />
-        <Kpi icon={AlertTriangle} label="Hohe Wichtigkeit" value={<CountUp value={stats.high} />} accent="from-amber-400 to-orange-500" />
-        <Kpi icon={CalendarClock} label="Bald fällig (30T)" value={<CountUp value={stats.upcoming} />} accent="from-cyan-400 to-blue-500" />
+        <Kpi icon={Wallet} label="Offene Zahlungen" value={loaded ? fmtEUR(stats.openSum) : "—"} accent={stats.openSum > 0 ? "from-rose-500 to-amber-400" : "from-emerald-400 to-cyan-400"} glow={stats.openSum > 0} />
+        <Kpi icon={AlertTriangle} label="Hohe Wichtigkeit" value={loaded ? <CountUp value={stats.high} /> : "—"} accent="from-amber-400 to-orange-500" />
+        <Kpi icon={CalendarClock} label="Bald fällig (30T)" value={loaded ? <CountUp value={stats.upcoming} /> : "—"} accent="from-cyan-400 to-blue-500" />
       </div>
-
-      <section className="glass rounded-2xl border-glow p-4">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Archiv-Status</h2>
-          <div className="text-xs text-muted-foreground">
-            {statusSummary ? `${statusSummary.review} noch zu archivieren` : "Lade Status..."}
-          </div>
-        </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <StatusKpi label="Archiviert" value={statusSummary?.archived ?? 0} accent="from-emerald-400 to-cyan-400" hint="Bereits sauber abgelegt" />
-          <StatusKpi label="Noch offen" value={statusSummary?.review ?? 0} accent="from-amber-400 to-orange-500" hint="Sollte noch archiviert werden" />
-        </div>
-      </section>
 
       {/* Recently processed banner */}
       {lastDoc && (
@@ -643,19 +612,6 @@ function Kpi({ icon: Icon, label, value, accent, glow, onClick, title }: any) {
       <div className="mt-3 text-2xl font-bold tracking-tight">{value}</div>
       <div className="mt-0.5 text-xs text-muted-foreground">{label}</div>
     </motion.button>
-  );
-}
-
-function StatusKpi({ label, value, accent, hint }: { label: string; value: number; accent: string; hint?: string }) {
-  return (
-    <div className="glass rounded-2xl border border-border/40 p-4">
-      <div className="flex items-center justify-between gap-2">
-        <div className={`h-2.5 w-2.5 rounded-full bg-gradient-to-r ${accent}`} />
-        {hint && <span className="text-[11px] text-muted-foreground">{hint}</span>}
-      </div>
-      <div className="mt-3 text-2xl font-bold tracking-tight">{value.toLocaleString("de-DE")}</div>
-      <div className="mt-0.5 text-xs text-muted-foreground">{label}</div>
-    </div>
   );
 }
 

@@ -50,6 +50,16 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
 - `Kevin + Codex` focuses on UI, browser flows, and fast frontend iteration.
 - `Maik + Claude Code` focuses on backend, auth, deployment, and system fixes.
 - If a fix affects both sides, write it into the memory files and log it in `/agents`.
+- Payment reminder setup in `src/features/Zahlungen.tsx` now exposes topic copy/generate directly in the `Topic abonnieren` step and no longer has a separate `Testen` tab. Keep `docs/ntfy-push.md`, the memory/changelog notes, and the profile status text aligned when changing that flow.
+- ntfy topics are per user account now: existing users were backfilled, new accounts get a stable personal topic, and reminders must never fall back to a shared/global channel.
+- iPhone payment reminders now also have a per-user calendar feed on `/profil` with a default 2-day lead time and selectable 1/2/7-day lead times. Keep the feed URL, lead-days selector, and the reminder onboarding copy consistent.
+- The reminder worker currently runs every minute during testing so reminder changes can be verified quickly.
+- The payment save path is server-first; do not reintroduce silent local-only fallback for reminders.
+- Dashboard and archive counters must keep the last known good value during partial fetch failures; do not let a single empty response overwrite loaded data with `0`.
+- Profile / ntfy / calendar setup screens must stay aligned: the saved topic, topic status, calendar feed URL, lead-days selector, and last sync text should always describe the same account-bound reminders.
+- The profile editor now lives on a dedicated `/profil` page. Keep that page aligned with the AppShell header state; do not rebuild it back into a cramped modal.
+- The `/termine` page is now a combined calendar workspace: appointments, payments, and document fristen live in one month view plus a selected-day agenda and clickable upcoming rows. Keep appointment/payment/document edits server-first and preserve the separate document tab for deeper archive work.
+- The dashboard overview no longer shows the separate `Archiv-Status` card. Keep the overview focused on the main KPIs, latest archived document banner, folder access, and payment/document highlights.
 - Current login/session behavior:
   - central auth guard lives in `src/components/AppShell.tsx`
   - protected routes no longer use `beforeLoad` auth redirects
@@ -208,6 +218,6 @@ Use `codex` instead of `claude-code` when working as Codex.
 
 ---
 
-**Last Updated:** 2026-05-10  
+**Last Updated:** 2026-05-12  
 **Memory System:** `.claude/memory/` (6 Dateien, Changelog eingeführt)  
 **Production Status:** ✅ Live and stable

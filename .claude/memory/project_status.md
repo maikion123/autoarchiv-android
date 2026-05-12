@@ -6,27 +6,29 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 ---
 # AutoArchiv: Privates Dokumentenarchiv
 
-## Current Status (as of 2026-05-11)
+## Current Status (as of 2026-05-12)
 **Production Live:** https://nextkm.de  
 **Git Commits Ahead:** includes session timeout security fix + OCR/upload stability improvements  
 **Auth System:** ✅ Functional (bcrypt + JWT + real SMTP OTP + logout cookie fix + Nginx cookie proxying + central AppShell auth guard + login wait for `/api/auth/me`)
 **Logo Replacement:** ✅ Complete (nextKM logo across all components + favicon)
-**Termine (Calendar):** ✅ Live (`/termine` route with payments & reminders)
+**Termine (Calendar):** ✅ Live (`/termine` route with combined month calendar, selected-day agenda, clickable upcoming rows, and quick add/edit/delete for appointments + payments + document fristen)
 **Document Upload:** ✅ Restored and iPhone camera upload fixed (`/eingang` route, PDF/image upload, local IndexedDB archive, free local OCR/text analysis with fallback)
 **Session Management:** ✅ 30-minute inactivity timeout implemented (server-side session tracking, auto-logout on inactivity, cannot be bypassed by client)
 **Logout UI:** ✅ Enhanced logout buttons (desktop + mobile headers with improved visibility)
 **Live Agent Dashboard:** ✅ Live (`/agents` route, `/api/agents/*` API, SSE stream, CLI logging via `npm run agent:*`)
 **Folder Management:** ✅ Live (`/api/folders` API, Overview can create/rename/delete root folders and subfolders, Eingang uses the same folder source)
 **Team Workflow:** ✅ Documented so Claude Code and Codex know where to write status and how the login/session path currently behaves
+**Payment Reminder Onboarding:** ✅ Streamlined and user-bound (each account has its own ntfy topic; existing users were backfilled, new registrations get a stable personal topic suggestion, the dedicated `Testen` tab was removed, the profile/setup screens now show `Topic im Konto gespeichert` plus `Letzter Sync erfolgreich`, and each account also has a personal iPhone calendar feed for payment reminders with a default 2-day lead time)
 **Document AI Analysis:** ✅ Ollama integration added behind `USE_OLLAMA_ANALYSIS=true`; regex remains fallback. Current configured model is `llama3:8b`, which is the practical default for the VPS. Larger models such as `gemma4:26b` need much more RAM and are not the current target.
 **Document Storage Layout:** ✅ Readable server paths are now the source of truth for both site and filesystem. `analyzed` documents stay under `documents/analyzed/<YYYY-MM>/...`, archived documents move under `documents/archived/<haupt>/<unter>/<YYYY-MM>/...`, and the preview UI shows the visible `storageLocation` so users can trace where each file landed.
 **Auth + Upload Stability:** ✅ Android first-upload reload loop fixed. The app now keeps a short-lived auth cache in `localStorage` and `sessionStorage`, confirms the session in the background, and keeps the first upload after login stable without flashing back to the auth-loading state. Upload errors stay local to the Eingang flow instead of resetting the whole app.
 **Document Summaries:** ✅ Improved. Analysis now separates field extraction from the user-facing summary. If Ollama succeeds, a dedicated prompt writes 2-4 clear German sentences with actions, amounts, and deadlines; otherwise a stronger local fallback summary is used.
 **OCR for Phone Photos:** ✅ Improved. Image uploads are now auto-rotated and preprocessed with `sharp` before Tesseract runs. Multiple OCR passes (`psm 6/4/11`) are scored, and the pipeline now prefers the variant with real invoice/date lines instead of just the longest noisy text.
 **Invoice Amount Selection:** ✅ Hardened. `Rechnungsbetrag` / `Gesamtbetrag` lines win over VAT lines, which fixed the heating-company photo that previously misread `38,59 EUR` instead of the actual `241,69 EUR`.
-**Archived-Only Views:** ✅ Dashboard counts, folder panels, top senders, and search now only surface archived documents; analysis/review states are no longer mixed into the user-facing document counts.
+**Archived-Only Views:** ✅ Dashboard counts, folder panels, top senders, and search now only surface archived documents; analysis/review states are no longer mixed into the user-facing document counts. The dedicated dashboard archive-status card has been removed so the overview stays focused on the primary KPIs. The live store still avoids overwriting loaded data with empty partial fetches, so the archived count should not flash back to `0` during transient request failures.
 **Database:** ✅ Fixed permission issues (directory 775, file 664, cleaned WAL files)
-**User Menu (Modern SaaS):** ✅ Implemented 2026-05-11. Avatar with initials + dropdown menu (Edit Profile, Change Password, Logout). ProfileModal for display name (1-50 chars). PasswordModal with strength meter + visibility toggles. Replaces old "Sicher verbunden" status indicator. Mobile-optimized: fixed dropdown positioning (no logo shift), modals open from top with downward scroll on mobile, 48px touch targets. Integrated into AppShell header (desktop + mobile). Fully animated with Framer Motion springs.
+**Reminder Worker:** ✅ Running every minute for testability; it sends per-user reminders only to each account's saved ntfy topic or the server-generated personal fallback, while the iPhone calendar feed handles payment reminders through the profile subscription URL
+**User Menu (Modern SaaS):** ✅ Implemented 2026-05-11. Avatar with initials + dropdown menu (Edit Profile, Change Password, Logout). The profile settings were rebuilt as a dedicated `/profil` page with display name, ntfy-topic status, private iPhone calendar feed status, copy/generate/release actions, and sync feedback instead of the old modal flow. PasswordModal with strength meter + visibility toggles remains in the menu. Replaces old "Sicher verbunden" status indicator. Mobile-optimized: fixed dropdown positioning (no logo shift), menu actions stay compact on small screens, 48px touch targets. Integrated into AppShell header (desktop + mobile). Fully animated with Framer Motion springs.
 
 ## Tech Stack
 
@@ -45,13 +47,14 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 - **Password:** bcryptjs (cost factor 12)
 - **OTP:** SHA-256 hashed 6-digit codes (10min expiry, 5 attempt limit)
 - **Session:** 
-  - JWT as httpOnly SameSite=Strict cookie (4-hour token expiry)
+  - JWT as httpOnly SameSite=Lax cookie (4-hour token expiry)
   - Server-side `sessions` table tracks `user_id`, `last_activity`, `expires_at`
   - **30-minute inactivity timeout** enforced on every authenticated request
   - JWT includes `sessionId` for session validation
   - Prevents indefinite auth on shared devices
 - **Email:** Nodemailer → Gmail SMTP (587 + STARTTLS)
 - **Security:** Helmet, express-rate-limit (25 req/15min on `/api/auth/login`, keyed by IP + email)
+- **Auth Cookie Scope:** Login, logout, timeout cleanup, and JWT-error cleanup now all use the same cookie shape (`SameSite=Lax`, `Path=/`, optional production domain) so browser deletion works consistently.
 - **Document Analysis:** `POST /api/analyze-document-file` for binary uploads plus legacy `POST /api/analyze-document` JSON fallback (auth required, free local analysis: `pdfjs-dist` text extraction for digital PDFs, local Tesseract OCR for images, optional Ollama LLM analysis with regex/fallback otherwise)
 - **Live Agent Dashboard:** `/api/agents`, `/api/agents/events`, `/api/agents/activity`, `/api/agents/event`, `/api/agents/stream` (auth required; SSE live updates)
 
@@ -121,11 +124,14 @@ Nginx (Port 443)
 
 ### users
 ```sql
-id (TEXT PK) | email (UNIQUE) | password_hash | email_verified (INT) | role | display_name | created_at | updated_at
+id (TEXT PK) | email (UNIQUE) | password_hash | email_verified (INT) | role | display_name | ntfy_topic | calendar_token | calendar_lead_days | created_at | updated_at
 ```
 
 **New columns (2026-05-11):**
 - `display_name` (TEXT, nullable) — User's custom display name for the UI (1-50 chars, set via PATCH /api/auth/profile)
+- `ntfy_topic` (TEXT, nullable) — Personal ntfy topic stored per account
+- `calendar_token` (TEXT, nullable) — Secret per-account iPhone calendar feed token
+- `calendar_lead_days` (INTEGER, default 2) — Default reminder lead time for the private calendar feed
 
 ### email_verification_codes
 ```sql
@@ -177,6 +183,25 @@ id | agent_id | event_type | message | files | created_at
 - **Agent Workflow Docs:** `/srv/projects/autoarchiv/docs/AGENT_WORKFLOW.md`
 
 ## Recent Changes
+1. 2026-05-12 — Payment Reminder Onboarding Cleanup:
+   - Removed the separate `Testen` tab from `src/features/Zahlungen.tsx`.
+   - The `Topic abonnieren` step now shows the ntfy topic as a copyable input, can generate a local fallback topic, and keeps the QR link on the actual topic URL.
+   - `docs/ntfy-push.md`, `docs/AGENT_WORKFLOW.md`, `CLAUDE.md`, and the Maik/Claude notes were aligned with the shorter flow.
+   - The live agent dashboard status was synced again so `/agents` matches the current documentation work.
+
+1. 2026-05-12 — Per-User ntfy + Dashboard Stability:
+   - Existing users were backfilled with their own `users.ntfy_topic`.
+   - New accounts now receive a stable personal ntfy suggestion instead of a shared/global channel.
+   - The profile dialog and ntfy setup page now show saved-topic and last-sync status.
+   - Dashboard counts no longer get overwritten by empty partial fetches, so archived-document totals do not flash to `0` on transient failures.
+   - Reminder saving is server-first; local-only fallback storage for real reminders stays disabled.
+
+1. 2026-05-12 — iPhone Calendar Feed for Payment Reminders:
+   - Each account now exposes a private calendar subscription URL on `/profil`.
+   - The feed contains the account's open payment reminders and uses a default 2-day alarm lead time.
+   - Users can switch the lead time to 1, 2, or 7 days from the profile page.
+   - ntfy remains available as an optional push channel, but the calendar feed is the primary iPhone reminder path.
+
 1. 2026-05-11 — Android First-Upload Reload Fix:
    - Root cause was a mobile browser/app remount after the first camera/file intent, which briefly pushed the app back into the auth-loading state.
    - Added auth cache persistence in both `localStorage` and `sessionStorage` with TTL so a confirmed login survives the Android return path.
