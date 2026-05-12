@@ -689,8 +689,10 @@ function ensureUserCalendarSettings(userId) {
 
   const updates = {};
   const token = String(user.calendar_token || '').trim();
+  let generatedToken = null;
   if (!token) {
-    updates.calendar_token = buildSuggestedCalendarToken();
+    generatedToken = buildSuggestedCalendarToken();
+    updates.calendar_token = generatedToken;
   }
 
   const normalizedLeadDays = normalizeCalendarLeadDays(user.calendar_lead_days);
@@ -703,11 +705,14 @@ function ensureUserCalendarSettings(userId) {
       const assignments = Object.keys(updates).map((column) => `${column} = ?`).join(', ');
       db.prepare(`UPDATE users SET ${assignments}, updated_at = datetime('now') WHERE id = ?`)
         .run(...Object.values(updates), user.id);
+      return getUserById(userId);
     } catch (err) {
       console.warn('[calendar] ensure settings failed:', errorSummary(err));
+      if (generatedToken) {
+        return { ...user, calendar_token: generatedToken };
+      }
       return user;
     }
-    return getUserById(userId);
   }
 
   return user;
