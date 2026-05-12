@@ -34,10 +34,9 @@ function NtfySetupPage() {
   const isConnected = saveState === "saved";
 
   useEffect(() => {
-    setSaveState("idle");
-    setSaveError("");
     setCopyOk(false);
-  }, [safeTopic, isCalendarMode, calendarToken]);
+    setSaveError("");
+  }, [safeTopic]);
 
   useEffect(() => {
     if (isCalendarMode && !tokenLoaded) {
@@ -76,9 +75,14 @@ function NtfySetupPage() {
     if (isCalendarMode) {
       setSaveState("saved");
       setLastSyncAt(new Date().toISOString());
+      toast.success("Kalender im Konto gespeichert");
       return;
     }
-    if (!safeTopic) return;
+    if (!safeTopic) {
+      setSaveError("Topic ist erforderlich");
+      setSaveState("error");
+      return;
+    }
     setSaveState("saving");
     setSaveError("");
     try {
