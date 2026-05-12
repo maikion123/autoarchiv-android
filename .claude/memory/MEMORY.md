@@ -6,3 +6,4 @@
 - [Deployment Checklist](deployment_checklist.md) — Steps to go live, verification tests
 - [Working Approach & Patterns](working_approach.md) — What works, how to debug, patterns that succeed
 - [Team & Collaboration](team_collaboration.md) — How multiple agents collaborate on this project
+- [Parallel Work Insights](parallel_work_insights.md) — Lessons from 2026-05-11 sync: doc/code/PM2 drift prevention
