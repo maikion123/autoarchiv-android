@@ -20,6 +20,7 @@ function NtfySetupPage() {
   const [saveError, setSaveError] = useState("");
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [calendarToken, setCalendarToken] = useState(initialCalendarToken);
+  const [tokenLoaded, setTokenLoaded] = useState(!!initialCalendarToken);
   const safeTopic = useMemo(() => topic.trim(), [topic]);
   const isCalendarMode = kind === "calendar";
   const calendarIcsUrl = useMemo(
@@ -39,17 +40,26 @@ function NtfySetupPage() {
   }, [safeTopic, isCalendarMode, calendarToken]);
 
   useEffect(() => {
-    if (isCalendarMode && !calendarToken) {
-      fetch("/api/auth/me", { credentials: "include" })
-        .then(res => res.json())
-        .then(data => {
-          if (data.calendarToken) {
+    if (isCalendarMode && !tokenLoaded) {
+      setTokenLoaded(true);
+      (async () => {
+        try {
+          const res = await fetch("/api/auth/me", { credentials: "include" });
+          const data = await res.json();
+          if (data?.calendarToken) {
             setCalendarToken(data.calendarToken);
+          } else if (data?.calendarFeedUrl) {
+            const tokenMatch = data.calendarFeedUrl.match(/\/calendar\/([^.]+)\.ics/);
+            if (tokenMatch?.[1]) {
+              setCalendarToken(decodeURIComponent(tokenMatch[1]));
+            }
           }
-        })
-        .catch(() => {});
+        } catch (err) {
+          console.warn("Failed to load calendar token:", err);
+        }
+      })();
     }
-  }, [isCalendarMode]);
+  }, [isCalendarMode, tokenLoaded]);
 
   const onCopy = async () => {
     if (!safeTopic) return;
