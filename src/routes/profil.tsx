@@ -323,12 +323,13 @@ function ProfilePage() {
 
                 <p className="font-medium text-foreground/80 pt-1">Android:</p>
                 <p className="text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2 py-1.5">
-                  <strong>ℹ️ Hinweis:</strong> Android nutzt das Standard-Kalender-App nicht für CalDAV. Du brauchst eine kompatible App.
+                  <strong>ℹ️ Hinweis:</strong> Android braucht <strong className="text-amber-300">DAVx5</strong> (kostenlos) für CalDAV-Sync.
                 </p>
                 <ol className="list-decimal space-y-1 pl-5">
-                  <li>App installieren: <strong className="text-foreground/70">CalDAV Sync</strong>, <strong className="text-foreground/70">Fruux Sync</strong> oder <strong className="text-foreground/70">DAVx5</strong></li>
-                  <li>App öffnen → Account hinzufügen → Server, E-Mail, Passwort (oben kopieren)</li>
-                  <li>Mit deinem Standard-Kalender synchronisieren</li>
+                  <li><strong className="text-foreground/70">DAVx5</strong> aus dem Google Play Store installieren (kostenlos)</li>
+                  <li>DAVx5 öffnen → Account hinzufügen → Server: <strong>nextkm.de</strong>, E-Mail, Passwort (oben kopieren)</li>
+                  <li>Berechtigung für Kalender-Sync erteilen</li>
+                  <li>Fertig — DAVx5 synchronisiert automatisch mit deinem Android-Kalender</li>
                 </ol>
               </div>
             </div>
