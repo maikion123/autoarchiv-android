@@ -312,7 +312,7 @@ function ProfilePage() {
                 </div>
               </div>
 
-              <div className="mt-4 rounded-xl border border-border/30 bg-background/40 p-3 space-y-2 text-xs text-muted-foreground">
+              <div className="mt-4 rounded-xl border border-border/30 bg-background/40 p-3 space-y-3 text-xs text-muted-foreground">
                 <p className="font-medium text-foreground/80">iPhone:</p>
                 <ol className="list-decimal space-y-1 pl-5">
                   <li>Einstellungen → Kalender → Accounts → Account hinzufügen</li>
@@ -321,11 +321,14 @@ function ProfilePage() {
                   <li>Speichern und SSL bestätigen</li>
                 </ol>
 
-                <p className="font-medium text-foreground/80 pt-2">Android:</p>
+                <p className="font-medium text-foreground/80 pt-1">Android:</p>
+                <p className="text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2 py-1.5">
+                  <strong>ℹ️ Hinweis:</strong> Android nutzt das Standard-Kalender-App nicht für CalDAV. Du brauchst eine kompatible App.
+                </p>
                 <ol className="list-decimal space-y-1 pl-5">
-                  <li>CalDAV-App installieren (z.B. <strong className="text-foreground/70">CalDAV Sync</strong> oder <strong className="text-foreground/70">Fruux Sync</strong>)</li>
-                  <li>App öffnen → Account hinzufügen → Server, E-Mail, Passwort</li>
-                  <li>Mit deinem Kalender synchronisieren</li>
+                  <li>App installieren: <strong className="text-foreground/70">CalDAV Sync</strong>, <strong className="text-foreground/70">Fruux Sync</strong> oder <strong className="text-foreground/70">DAVx5</strong></li>
+                  <li>App öffnen → Account hinzufügen → Server, E-Mail, Passwort (oben kopieren)</li>
+                  <li>Mit deinem Standard-Kalender synchronisieren</li>
                 </ol>
               </div>
             </div>
