@@ -44,17 +44,19 @@ Claude Code can't parse `"claude-opus-4-7"` and falls back to default `"haiku"`.
 
 The `:free` suffix and exact model name were incorrect.
 
-**Solution:** Use `"meta-llama/llama-2-7b-chat:free"` (free OpenRouter model):
+**Solution:** Use `"openrouter/auto"` (OpenRouter auto-selects best available):
 ```json
 {
-  "model": "meta-llama/llama-2-7b-chat:free",  // ✅ Free OpenRouter model
+  "model": "openrouter/auto",  // ✅ Auto-selects from OpenRouter
   "env": {
     "ANTHROPIC_BASE_URL": "https://openrouter.ai/api/v1",  // ✅ Correct /v1 endpoint
-    "ANTHROPIC_AUTH_TOKEN": "sk-or-v1-...",
+    "ANTHROPIC_AUTH_TOKEN": "sk-or-v1-YOUR-API-KEY",  // ⚠️ MUST BE FILLED IN!
     "ANTHROPIC_API_KEY": ""
   }
 }
 ```
+
+**CRITICAL:** `ANTHROPIC_AUTH_TOKEN` must contain your real OpenRouter API key from https://openrouter.ai/keys
 
 ### Issue 3: OpenRouter Endpoint
 **Symptom:** API communication failed with OpenRouter  
@@ -67,7 +69,7 @@ Claude Code expects the `/v1` endpoint per OpenAI-compatible standards.
 ### 1. `scripts/setup-claude.mjs`
 **Changed:**
 - `createProProfile()`: `"model": "claude-opus-4-7"` → `"model": "opus"`
-- `createFreeProfile()`: `"model": "google/gemma-2-9b-it:free"` → `"model": "meta-llama/llama-2-7b-chat:free"`
+- `createFreeProfile()`: `"model": "google/gemma-2-9b-it:free"` → `"model": "openrouter/auto"`
 - Removed unnecessary `ANTHROPIC_DEFAULT_*` model overrides
 - Fixed endpoint: `/api` → `/api/v1`
 
@@ -153,9 +155,20 @@ For Maik: Same process with his own `~maik/.claude/` directory
 - `.claude/memory/changelog.md` — Documented the fix
 - `KEVIN_FIX_2026_05_16.md` — Step-by-step guide for Kevin
 
+## Critical Configuration Step
+
+**The API key MUST be configured in `settings.free.json`:**
+```bash
+# User must replace the placeholder with their actual OpenRouter API key
+cat ~/.claude/settings.free.json
+# Should show: "ANTHROPIC_AUTH_TOKEN": "sk-or-v1-abc123..."
+```
+
+If `ANTHROPIC_AUTH_TOKEN` is empty, free-claude will fail with "model not found" error.
+
 ## Known Limitations
 
-- `openrouter/auto` selects the model automatically; if you need a specific model, you can edit `settings.free.json` to use `"meta-llama/llama-2-7b-chat:free"` or another specific OpenRouter model ID
+- `openrouter/auto` selects the model automatically; if you need a specific model, you can edit `settings.free.json` to use `"google/flan-t5-xl"` or another specific OpenRouter model ID
 - OAuth token expiry: If tokens expire, user must run `pro-claude` → `/login` again to refresh
 
 ## Future Improvements

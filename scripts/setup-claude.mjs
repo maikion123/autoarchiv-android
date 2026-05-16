@@ -102,9 +102,9 @@ function createProProfile(method) {
 function createFreeProfile(apiKey) {
   return {
     theme: 'dark',
-    model: 'meta-llama/llama-2-7b-chat:free',
+    model: 'openrouter/auto',
     comment: 'Free-Profile: OpenRouter API Integration',
-    note: 'Uses OpenRouter for free model access',
+    note: 'Auto-selects best available model on OpenRouter',
     env: {
       // OpenRouter API Configuration (v1 endpoint)
       ANTHROPIC_BASE_URL: 'https://openrouter.ai/api/v1',
