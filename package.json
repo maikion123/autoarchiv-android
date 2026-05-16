@@ -15,10 +15,14 @@
     "test:live-analysis": "node scripts/test-auth-document-upload.mjs",
     "test:layout-analysis": "node scripts/test-layout-analysis.mjs",
     "test:vision-review": "node scripts/test-vision-review.mjs",
+    "provider:pick": "node scripts/pick-provider.mjs",
+    "provider:switch": "node scripts/switch-provider.mjs",
     "agent:start": "node scripts/agent-log.mjs start",
     "agent:event": "node scripts/agent-log.mjs event",
     "agent:block": "node scripts/agent-log.mjs block",
-    "agent:done": "node scripts/agent-log.mjs done"
+    "agent:done": "node scripts/agent-log.mjs done",
+    "claude:setup": "node scripts/setup-claude.mjs",
+    "claude:delete": "node scripts/delete-claude.mjs"
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "^1.25.5",

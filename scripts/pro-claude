@@ -1,13 +1,59 @@
 #!/bin/bash
-# pro-claude: Starte Claude Code mit Anthropic Pro (via claude.ai subscription)
-# Nutzt bestehende claude.ai Authentifizierung, keine externen Keys
+# pro-claude: Starte Claude Code mit Pro-Profil (Anthropic)
+# Nutzt ~/.claude/settings.pro.json
+# Authentifizierung: OAuth (via Browser) oder API Key
 
-echo "🚀 Claude Pro aktiviert (Opus 4.7)"
-echo "   API: Anthropic (via claude.ai subscription)"
+set -e
+
+CLAUDE_DIR="${HOME}/.claude"
+SETTINGS_PRO="${CLAUDE_DIR}/settings.pro.json"
+SETTINGS_ACTIVE="${CLAUDE_DIR}/settings.json"
+CREDENTIALS_FILE="${CLAUDE_DIR}/.credentials.json"
+
+# Überprüfe ob Pro-Profile existiert
+if [ ! -f "$SETTINGS_PRO" ]; then
+  echo "❌ Fehler: Pro-Profil nicht gefunden!"
+  echo ""
+  echo "   Bitte zuerst ausführen:"
+  echo "   setup-claude"
+  echo ""
+  exit 1
+fi
+
+echo "🚀 Claude Pro aktiviert"
+echo "   Authentifizierung: Anthropic API"
+echo "   Model: claude-opus-4-7"
+echo "   Profil: $SETTINGS_PRO"
 echo ""
 
-# Stelle sicher, dass du mit claude.ai angemeldet bist (falls nicht, wird Claude Code auffordern)
-# Keine Konfiguration nötig - nutzt deinen bestehenden claude.ai Token
+# Stelle sicher, dass .claude existiert
+mkdir -p "$CLAUDE_DIR"
 
-# Starte Claude Code normal mit deiner Subscription
+# Kopiere Pro-Profil zu aktivem Profil
+cp "$SETTINGS_PRO" "$SETTINGS_ACTIVE"
+
+# Extrahiere und setze Umgebungsvariablen aus Pro-Profil
+if command -v jq &> /dev/null && [ -f "$SETTINGS_ACTIVE" ]; then
+  # Extrahiere API Key aus settings (falls vorhanden)
+  ANTHROPIC_API_KEY=$(jq -r '.env.ANTHROPIC_API_KEY // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
+  if [ -n "$ANTHROPIC_API_KEY" ] && [ "$ANTHROPIC_API_KEY" != "null" ]; then
+    export ANTHROPIC_API_KEY
+    echo "   API-Konfiguration: API Key geladen ✓"
+  fi
+
+  # Setze immer Model auf Opus
+  jq '.model = "claude-opus-4-7"' "$SETTINGS_ACTIVE" > "${SETTINGS_ACTIVE}.tmp" 2>/dev/null && \
+    mv "${SETTINGS_ACTIVE}.tmp" "$SETTINGS_ACTIVE" || true
+else
+  # Fallback ohne jq - einfach kopiert
+  echo "   API-Konfiguration: Profil geladen ✓"
+fi
+
+# Cleanup - Entferne OpenRouter/Free Variablen
+unset ANTHROPIC_BASE_URL
+unset ANTHROPIC_AUTH_TOKEN
+
+echo ""
+
+# Starte Claude Code mit Pro-Profil
 exec claude code "$@"

@@ -1,56 +1,59 @@
 #!/bin/bash
-# free-claude: Starte Claude Code mit OpenRouter Free (ohne bestehenden Login zu beeinflussen)
+# free-claude: Starte Claude Code mit Free-Profil (OpenRouter)
+# Nutzt ~/.claude/settings.free.json
+# Authentifizierung: OpenRouter API Key
 
 set -e
 
-# Überprüfe, ob OpenRouter API Key gesetzt ist
-# Versuche zuerst aus Umgebung zu laden, dann aus Shell-Dateien
-if [ -z "$OPENROUTER_API_KEY" ]; then
-  # Versuche aus ~/.bashrc oder ~/.bash_profile zu laden
-  if [ -f ~/.bashrc ]; then
-    source ~/.bashrc 2>/dev/null || true
-  fi
-  if [ -z "$OPENROUTER_API_KEY" ] && [ -f ~/.bash_profile ]; then
-    source ~/.bash_profile 2>/dev/null || true
-  fi
-  if [ -z "$OPENROUTER_API_KEY" ] && [ -f ~/.profile ]; then
-    source ~/.profile 2>/dev/null || true
-  fi
-fi
+CLAUDE_DIR="${HOME}/.claude"
+SETTINGS_FREE="${CLAUDE_DIR}/settings.free.json"
+SETTINGS_ACTIVE="${CLAUDE_DIR}/settings.json"
 
-# Falls immer noch nicht gesetzt, zeige Fehler
-if [ -z "$OPENROUTER_API_KEY" ]; then
-  echo "❌ Fehler: OPENROUTER_API_KEY nicht gesetzt"
+# Überprüfe ob Free-Profile existiert
+if [ ! -f "$SETTINGS_FREE" ]; then
+  echo "❌ Fehler: Free-Profil nicht gefunden!"
   echo ""
-  echo "Setze die Variable in ~/.bashrc oder ~/.bash_profile:"
-  echo "  export OPENROUTER_API_KEY='sk-or-v1-...'"
+  echo "   Bitte zuerst ausführen:"
+  echo "   setup-claude"
   echo ""
-  echo "Oder aktuell in dieser Shell:"
-  echo "  export OPENROUTER_API_KEY='sk-or-v1-...'"
   exit 1
 fi
 
-echo "🆓 OpenRouter Free aktiviert"
-echo "   API: openrouter.ai/api"
-echo "   Model: openrouter/free"
+echo "🆓 Claude Free (OpenRouter) aktiviert"
+echo "   Authentifizierung: OpenRouter API"
+echo "   Model: google/gemma-4-31b-it:free"
+echo "   Profil: $SETTINGS_FREE"
 echo ""
 
-# Erstelle temporäre Konfiguration für diese Session (nicht permanent!)
-# Nutze --settings Flag um nur für diese Invocation die OpenRouter Konfiguration zu setzen
-# Dies beeinträchtigt nicht bestehende claude.ai Authentifizierung
-SETTINGS_JSON=$(cat <<EOF
-{
-  "model": "openrouter/free",
-  "provider": "openrouter",
-  "env": {
-    "ANTHROPIC_BASE_URL": "https://openrouter.ai/api",
-    "ANTHROPIC_AUTH_TOKEN": "$OPENROUTER_API_KEY",
-    "ANTHROPIC_API_KEY": ""
-  }
-}
-EOF
-)
+# Stelle sicher, dass .claude existiert
+mkdir -p "$CLAUDE_DIR"
 
-# Starte Claude Code mit temporären Settings
-# --settings überschreibt nur für diese Session, ohne permanent zu speichern
-exec claude code --settings "$SETTINGS_JSON" "$@"
+# Kopiere Free-Profil zu aktivem Profil
+cp "$SETTINGS_FREE" "$SETTINGS_ACTIVE"
+
+# Extrahiere und setze Umgebungsvariablen aus Free-Profil
+if command -v jq &> /dev/null && [ -f "$SETTINGS_ACTIVE" ]; then
+  ANTHROPIC_BASE_URL=$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
+  ANTHROPIC_AUTH_TOKEN=$(jq -r '.env.ANTHROPIC_AUTH_TOKEN // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
+
+  if [ -n "$ANTHROPIC_BASE_URL" ] && [ "$ANTHROPIC_BASE_URL" != "null" ]; then
+    export ANTHROPIC_BASE_URL
+    export ANTHROPIC_AUTH_TOKEN
+    echo "   API-Konfiguration: OpenRouter geladen ✓"
+  fi
+
+  # Setze immer Model auf Gemma-4 Free
+  jq '.model = "google/gemma-4-31b-it:free"' "$SETTINGS_ACTIVE" > "${SETTINGS_ACTIVE}.tmp" 2>/dev/null && \
+    mv "${SETTINGS_ACTIVE}.tmp" "$SETTINGS_ACTIVE" || true
+else
+  # Fallback ohne jq
+  echo "   API-Konfiguration: Profil geladen ✓"
+fi
+
+# Cleanup - Entferne Anthropic/Pro Variablen
+unset ANTHROPIC_API_KEY
+
+echo ""
+
+# Starte Claude Code mit Free-Profil
+exec claude code "$@"

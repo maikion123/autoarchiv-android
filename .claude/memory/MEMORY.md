@@ -1,6 +1,8 @@
 - [Auto Documentation](auto_documentation.md) — Automatic changelog + agent dashboard updates after every commit
 - [Project Status & Architecture](project_status.md) — Current production setup, stack, deployment
 - [Changelog & Documentation Process](changelog.md) — All changes, when to update docs, templates
+- [Claude Setup System](claude_setup_system.md) — Complete setup: setup-claude, delete-claude, pro-claude, free-claude (user-isolated)
+- [Claude Code Setup (old)](claude_code_setup.md) — ⚠️ DEPRECATED — see claude_setup_system.md instead
 - [Live Agent Workflow](../../docs/AGENT_WORKFLOW.md) — How Claude Code, Codex, Kevin, and Maik update `/agents`
 - [Auth System Details](auth_system.md) — How backend auth works, endpoints, security
 - [Deployment Checklist](deployment_checklist.md) — Steps to go live, verification tests
