@@ -52,8 +52,8 @@ The script guides through:
 ### Running
 
 ```bash
-pro-claude   # Anthropic Pro with claude-opus-4-7
-free-claude  # OpenRouter Free with google/gemma-4-31b-it:free
+pro-claude   # Anthropic Pro with claude-opus-4-7 (Opus model)
+free-claude  # OpenRouter Free with meta-llama/llama-2-7b-chat:free
 ```
 
 ### Reset

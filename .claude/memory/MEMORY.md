@@ -2,6 +2,7 @@
 - [Project Status & Architecture](project_status.md) — Current production setup, stack, deployment
 - [Changelog & Documentation Process](changelog.md) — All changes, when to update docs, templates
 - [Claude Setup System](claude_setup_system.md) — Complete setup: setup-claude, delete-claude, pro-claude, free-claude (user-isolated)
+- [Claude Setup Fixes](claude_setup_fixes_complete.md) — 2026-05-16: Model format & OpenRouter endpoint corrections
 - [Claude Code Setup (old)](claude_code_setup.md) — ⚠️ DEPRECATED — see claude_setup_system.md instead
 - [Live Agent Workflow](../../docs/AGENT_WORKFLOW.md) — How Claude Code, Codex, Kevin, and Maik update `/agents`
 - [Auth System Details](auth_system.md) — How backend auth works, endpoints, security
