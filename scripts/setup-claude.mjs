@@ -1,287 +1,136 @@
-#!/usr/bin/env node
+#!/bin/bash
+# setup-claude: Automatischer Setup für Claude Pro + OpenRouter
 
-/**
- * setup-claude.mjs
- * Benutzerfreundliche Konfiguration für Claude Pro + Free Profile
- * Speichert Einstellungen BENUTZERSPEZIFISCH in ~/.claude/
- * Konfiguriert UNABHÄNGIG für jeden User (Kevin, Maik, etc.)
- */
+set -euo pipefail
 
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
-import readline from 'readline';
-import { spawn } from 'child_process';
-import { fileURLToPath } from 'url';
+readonly USER=$(whoami)
+readonly HOME_DIR=$(eval echo ~$USER)
+readonly CLAUDE_DIR="${HOME_DIR}/.claude"
+readonly CONFIG_DIR="${HOME_DIR}/.config"
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+# Farben
+readonly GREEN='\033[0;32m'
+readonly BLUE='\033[0;34m'
+readonly YELLOW='\033[1;33m'
+readonly NC='\033[0m'
 
-const HOME_DIR = os.homedir();
-const CLAUDE_DIR = path.join(HOME_DIR, '.claude');
-const SETTINGS_PRO = path.join(CLAUDE_DIR, 'settings.pro.json');
-const SETTINGS_FREE = path.join(CLAUDE_DIR, 'settings.free.json');
+log_info() { echo -e "${BLUE}[INFO]${NC} $*"; }
+log_success() { echo -e "${GREEN}[✓]${NC} $*"; }
+log_warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
-
-function question(prompt) {
-  return new Promise((resolve) => {
-    rl.question(prompt, (answer) => {
-      resolve(answer.trim());
-    });
-  });
+log_section() {
+    echo ""
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}$*${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 }
 
-async function runProClaudeWithLogin() {
-  return new Promise((resolve) => {
-    // Starte auto-login Script (pro-claude mit automatisch eingefügtem /login)
-    const autoLoginPath = path.join(__dirname, 'auto-login.sh');
-    const autoLoginProcess = spawn('bash', [autoLoginPath], {
-      stdio: 'inherit',  // Zeige Output direkt
-      shell: false,
-    });
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Schritt 1: Ordner vorbereiten
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    // Warte auf Process-Ende
-    autoLoginProcess.on('close', (code) => {
-      console.log('\n════════════════════════════════════');
-      console.log('✅ Claude Code geschlossen\n');
-      console.log('🎉 OAuth-Session gespeichert!\n');
-      console.log('Deine OAuth-Tokens sind jetzt in ~/.claude/.credentials.json gespeichert');
-      console.log('Du kannst pro-claude jederzeit wieder verwenden!\n');
-      console.log('════════════════════════════════════\n');
-      resolve(true);
-    });
+log_section "Claude Setup für $USER"
 
-    autoLoginProcess.on('error', (err) => {
-      console.error('\n❌ Fehler beim Starten von Claude Code:');
-      console.error(err.message);
-      resolve(false);
-    });
-  });
+mkdir -p "${CLAUDE_DIR}"
+mkdir -p "${CONFIG_DIR}/claude"
+mkdir -p "${CONFIG_DIR}/openrouter"
+
+log_success "Ordner vorbereitet"
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Schritt 2: Claude Pro OAuth konfigurieren
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+log_section "Claude Pro OAuth Setup"
+
+cat > "${CLAUDE_DIR}/settings.pro.json" << 'PRO_EOF'
+{
+  "theme": "dark",
+  "model": "opus",
+  "comment": "Pro-Profile: Browser OAuth (Anthropic Claude.ai)"
 }
+PRO_EOF
 
-function ensureDir() {
-  if (!fs.existsSync(CLAUDE_DIR)) {
-    fs.mkdirSync(CLAUDE_DIR, { recursive: true, mode: 0o700 });
-  }
+log_success "Pro-Profile erstellt"
+log_info "Beim ersten Start mit pro-claude: Führe /login aus für OAuth"
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Schritt 3: OpenRouter konfigurieren
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+log_section "OpenRouter Free Setup"
+
+read -p "OpenRouter API Key (von https://openrouter.ai/keys): " -r API_KEY
+
+if [[ ! $API_KEY =~ ^sk-or-v1- ]]; then
+    log_warn "API Key scheint ungültig zu sein (sollte mit sk-or-v1- beginnen)"
+fi
+
+# Speichere API Key sicher
+echo "$API_KEY" > "${CONFIG_DIR}/openrouter/api-key"
+chmod 600 "${CONFIG_DIR}/openrouter/api-key"
+
+# Erstelle Free-Profile mit korrektem Modell
+cat > "${CLAUDE_DIR}/settings.free.json" << FREE_EOF
+{
+  "theme": "dark",
+  "model": "openrouter/free",
+  "comment": "Free-Profile: OpenRouter Free Models"
 }
+FREE_EOF
 
-function saveJson(filePath, data) {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), { mode: 0o600 });
-}
+# Speichere API-Konfiguration separat
+cat > "${CONFIG_DIR}/openrouter/config" << CONFIG_EOF
+OPENAI_API_KEY=$API_KEY
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_MODEL=openrouter/free
+CONFIG_EOF
 
-function createProProfile(method) {
-  const baseConfig = {
-    theme: 'dark',
-    model: 'opus',
-  };
+chmod 600 "${CONFIG_DIR}/openrouter/config"
+log_success "OpenRouter konfiguriert"
 
-  if (method === 'oauth') {
-    return {
-      ...baseConfig,
-      comment: 'Pro-Profile: Browser OAuth (Anthropic Claude.ai)',
-      note: 'Tokens werden bei ersten Login über /login gespeichert',
-    };
-  } else if (method === 'apikey') {
-    const apiKey = process.argv[3]; // Kann von der Kommandozeile übergeben werden
-    return {
-      ...baseConfig,
-      comment: 'Pro-Profile: API Key Auth (Anthropic)',
-      env: {
-        ANTHROPIC_API_KEY: apiKey || '${ANTHROPIC_API_KEY}',
-      },
-    };
-  }
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Schritt 4: Validierung
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  return baseConfig;
-}
+log_section "Validierung"
 
-function createFreeProfile(apiKey) {
-  return {
-    theme: 'dark',
-    model: 'google/flan-t5-xl:free',
-    comment: 'Free-Profile: Google Flan-T5 XL (Free on OpenRouter)',
-    note: 'Uses free Google Flan-T5 model with :free variant on OpenRouter',
-    env: {
-      // OpenRouter API Configuration (v1 endpoint)
-      ANTHROPIC_BASE_URL: 'https://openrouter.ai/api/v1',
-      ANTHROPIC_AUTH_TOKEN: apiKey || '${OPENROUTER_API_KEY}',
-      ANTHROPIC_API_KEY: '',  // MUSS LEER sein!
-    },
-  };
-}
+if [ -f "${CLAUDE_DIR}/settings.pro.json" ]; then
+    log_success "✓ Pro-Profile vorhanden"
+else
+    log_warn "Pro-Profile nicht gefunden"
+fi
 
-async function setupPro() {
-  console.log('\n' + '═'.repeat(60));
-  console.log('🚀 Claude PRO Profile Setup');
-  console.log('═'.repeat(60));
-  console.log(
-    '\nWie möchtest du dich mit Anthropic Claude Pro authentifizieren?\n'
-  );
+if [ -f "${CLAUDE_DIR}/settings.free.json" ]; then
+    log_success "✓ Free-Profile vorhanden"
+else
+    log_warn "Free-Profile nicht gefunden"
+fi
 
-  const choice = await question(
-    '  [1] Browser-OAuth (claude.ai Login - empfohlen)\n' +
-    '  [2] API Key (Anthropic API Key - sk-ant-...)\n' +
-    '  [0] Diesen Schritt überspringen\n\n' +
-    'Deine Wahl (0-2): '
-  );
+if [ -f "${CONFIG_DIR}/openrouter/api-key" ]; then
+    log_success "✓ OpenRouter API-Key gespeichert"
+else
+    log_warn "OpenRouter API-Key nicht gefunden"
+fi
 
-  if (choice === '0') {
-    console.log('\n⏭️  Claude Pro überspringen. (bestehendes Profil bleibt)');
-    return false;
-  }
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Fertig!
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  if (choice === '1') {
-    console.log('\n✅ Browser-OAuth wird konfiguriert');
-    console.log('   Profil wird gespeichert...\n');
+log_section "Setup abgeschlossen! ✨"
 
-    ensureDir();
-    saveJson(SETTINGS_PRO, createProProfile('oauth'));
-    console.log(`✓ Pro-Profile gespeichert: ${SETTINGS_PRO}\n`);
+echo ""
+echo "Nächste Schritte:"
+echo ""
+echo "1. Claude Pro starten:"
+echo "   $ pro-claude"
+echo "   Dann: /login (OAuth Authentifizierung)"
+echo ""
+echo "2. Claude Free starten:"
+echo "   $ free-claude"
+echo ""
+echo "Profile wechseln:"
+echo "   $ pro-claude   (zurück zu Pro)"
+echo "   $ free-claude  (zu Free)"
+echo ""
 
-    // Frage ob Login jetzt durchgeführt werden soll
-    const doLogin = await question('Möchtest du dich JETZT anmelden? (ja/nein): ');
-
-    if (doLogin.toLowerCase() === 'ja' || doLogin.toLowerCase() === 'yes' || doLogin.toLowerCase() === 'j' || doLogin.toLowerCase() === 'y') {
-      console.log('\n🚀 Starte Claude Code und /login...\n');
-      console.log('   Browser öffnet sich → Melde dich an');
-      console.log('   Nach erfolgreicher Anmeldung: exit drücken\n');
-
-      // NICHT rl.close() hier — wird am Ende der main() gemacht!
-      // Starte pro-claude mit /login Befehl
-      return await runProClaudeWithLogin();
-    }
-
-    return true;
-  }
-
-  if (choice === '2') {
-    const apiKey = await question(
-      '\nAnthropoic API Key eingeben (sk-ant-...): '
-    );
-
-    if (!apiKey || !apiKey.startsWith('sk-ant-')) {
-      console.error(
-        '\n❌ Ungültige API Key Format! Muss mit "sk-ant-" beginnen.\n'
-      );
-      return false;
-    }
-
-    ensureDir();
-    const config = createProProfile('apikey');
-    config.env.ANTHROPIC_API_KEY = apiKey;
-    saveJson(SETTINGS_PRO, config);
-    console.log(`\n✓ Pro-Profile mit API Key gespeichert: ${SETTINGS_PRO}\n`);
-    return true;
-  }
-
-  console.error('\n❌ Ungültige Eingabe!\n');
-  return false;
-}
-
-async function setupFree() {
-  console.log('═'.repeat(60));
-  console.log('🆓 OpenRouter FREE Profile Setup');
-  console.log('═'.repeat(60));
-  console.log('\nFür kostenlose Claude-Nutzung via OpenRouter\n');
-
-  const choice = await question(
-    '  [1] OpenRouter API Key konfigurieren\n' +
-    '  [0] Diesen Schritt überspringen\n\n' +
-    'Deine Wahl (0-1): '
-  );
-
-  if (choice === '0') {
-    console.log('\n⏭️  OpenRouter überspringen. (bestehendes Profil bleibt)');
-    return false;
-  }
-
-  if (choice === '1') {
-    console.log(
-      '\n📝 OpenRouter API Key benötigt:' +
-        '\n   1. Gehe zu: https://openrouter.ai' +
-        '\n   2. Registriere dich (kostenlos)' +
-        '\n   3. Gehe zu: https://openrouter.ai/keys' +
-        '\n   4. Kopiere deinen API Key (sk-or-v1-...)\n'
-    );
-
-    const apiKey = await question('OpenRouter API Key eingeben (sk-or-v1-...): ');
-
-    if (!apiKey || !apiKey.startsWith('sk-or-v1-')) {
-      console.error(
-        '\n❌ Ungültige API Key Format! Muss mit "sk-or-v1-" beginnen.\n'
-      );
-      return false;
-    }
-
-    ensureDir();
-    saveJson(SETTINGS_FREE, createFreeProfile(apiKey));
-    console.log(`\n✓ Free-Profile gespeichert: ${SETTINGS_FREE}\n`);
-    return true;
-  }
-
-  console.error('\n❌ Ungültige Eingabe!\n');
-  return false;
-}
-
-async function main() {
-  console.log('\n');
-  console.log('╔' + '═'.repeat(58) + '╗');
-  console.log('║' + ' '.repeat(15) + 'Claude Code Setup für ' + os.userInfo().username + ' '.repeat(22) + '║');
-  console.log('╚' + '═'.repeat(58) + '╝');
-  console.log(
-    '\nDieses Script erstellt DEINE PERSÖNLICHE Claude-Konfiguration.'
-  );
-  console.log(
-    'Kevin und Maik haben JEWEILS ihre eigenen Einstellungen.\n'
-  );
-
-  let proSuccess = await setupPro();
-  let freeSuccess = await setupFree();
-
-  console.log('═'.repeat(60));
-  console.log('✨ Setup abgeschlossen!\n');
-
-  if (proSuccess || freeSuccess) {
-    console.log('📋 Nächste Schritte:\n');
-
-    if (proSuccess) {
-      console.log('  1️⃣  Starte Claude Pro:');
-      console.log('      $ pro-claude');
-      console.log('      Falls OAuth: Führe /login aus');
-      console.log('');
-    }
-
-    if (freeSuccess) {
-      console.log('  2️⃣  Starte Claude Free:');
-      console.log('      $ free-claude');
-      console.log('');
-    }
-
-    console.log('  3️⃣  Profile wechseln:');
-    console.log('      $ pro-claude   (für Pro-Profile)');
-    console.log('      $ free-claude  (für Free-Profile)\n');
-  } else {
-    console.log('⚠️  Keine Profile erstellt. Führe setup-claude erneut aus.\n');
-  }
-
-  console.log('📁 Deine Profile:');
-  console.log(`   Pro:  ${SETTINGS_PRO}`);
-  console.log(`   Free: ${SETTINGS_FREE}\n`);
-
-  console.log('🔒 Sicherheit:');
-  console.log('   • API Keys werden NUR in ~/.claude/ gespeichert');
-  console.log('   • .claude/ ist privat (chmod 700)');
-  console.log('   • Nie in Git committet (.gitignore)\n');
-
-  rl.close();
-}
-
-main().catch((error) => {
-  console.error('\n❌ Fehler:', error.message);
-  rl.close();
-  process.exit(1);
-});

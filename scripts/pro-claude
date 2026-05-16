@@ -1,47 +1,34 @@
 #!/bin/bash
-# pro-claude: Starte Claude Code mit Pro-Profil (Anthropic)
-# Setzt ~/.claude/settings.json mit korrekten Pro-Einstellungen
+# pro-claude: Claude Code mit Pro-Profile (OAuth)
 
-set -e
+set -euo pipefail
 
-CLAUDE_DIR="${HOME}/.claude"
-SETTINGS_PRO="${CLAUDE_DIR}/settings.pro.json"
-SETTINGS_ACTIVE="${CLAUDE_DIR}/settings.json"
+readonly USER=$(whoami)
+readonly HOME_DIR=$(eval echo ~$USER)
+readonly CLAUDE_DIR="${HOME_DIR}/.claude"
+readonly SETTINGS_PRO="${CLAUDE_DIR}/settings.pro.json"
+readonly SETTINGS_ACTIVE="${CLAUDE_DIR}/settings.json"
+
+# Farben
+readonly GREEN='\033[0;32m'
+readonly BLUE='\033[0;34m'
+readonly RED='\033[0;31m'
+readonly NC='\033[0m'
+
+log_error() { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
+log_success() { echo -e "${GREEN}[✓]${NC} $*"; }
 
 # Überprüfe ob Pro-Profile existiert
 if [ ! -f "$SETTINGS_PRO" ]; then
-  echo "❌ Fehler: Pro-Profil nicht gefunden!"
-  echo "   Bitte zuerst ausführen: setup-claude"
-  exit 1
+    log_error "Pro-Profile nicht gefunden! Führe 'setup-claude' aus."
 fi
 
-echo "🚀 Claude Pro aktiviert"
+log_success "Claude Pro aktiviert"
 
-# KRITISCH: Kopiere Pro-Profil zu aktiven Settings
+# Kopiere Pro-Profile zu aktiven Settings
 mkdir -p "$CLAUDE_DIR"
 cp "$SETTINGS_PRO" "$SETTINGS_ACTIVE"
 
-# Extrahiere API Key falls vorhanden
-if command -v jq &> /dev/null; then
-  ANTHROPIC_API_KEY=$(jq -r '.env.ANTHROPIC_API_KEY // empty' "$SETTINGS_PRO" 2>/dev/null || true)
-
-  if [ -n "$ANTHROPIC_API_KEY" ] && [ "$ANTHROPIC_API_KEY" != "null" ]; then
-    export ANTHROPIC_API_KEY
-    echo "   Auth: API Key ✓"
-  else
-    echo "   Auth: OAuth (Browser) ✓"
-  fi
-
-  echo "   Model: $(jq -r '.model // "opus"' "$SETTINGS_ACTIVE")"
-else
-  echo "   Config geladen von: $SETTINGS_PRO"
-fi
-
-echo ""
-
-# Cleanup
-unset ANTHROPIC_BASE_URL
-unset ANTHROPIC_AUTH_TOKEN
-
 # Starte Claude Code
 exec claude code "$@"
+
