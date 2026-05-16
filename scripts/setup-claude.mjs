@@ -74,7 +74,7 @@ chmod 600 "${CONFIG_DIR}/openrouter/api-key"
 cat > "${CLAUDE_DIR}/settings.free.json" << FREE_EOF
 {
   "theme": "dark",
-  "model": "openrouter/free",
+  "model": "openrouter/auto",
   "comment": "Free-Profile: OpenRouter Free Models"
 }
 FREE_EOF
