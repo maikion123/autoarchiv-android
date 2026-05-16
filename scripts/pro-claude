@@ -8,15 +8,19 @@ readonly HOME_DIR=$(eval echo ~$USER)
 readonly CLAUDE_DIR="${HOME_DIR}/.claude"
 readonly SETTINGS_PRO="${CLAUDE_DIR}/settings.pro.json"
 readonly SETTINGS_ACTIVE="${CLAUDE_DIR}/settings.json"
+readonly CREDENTIALS="${CLAUDE_DIR}/.credentials.json"
+readonly CREDENTIALS_BAK="${CLAUDE_DIR}/.credentials.json.bak"
 
 # Farben
 readonly GREEN='\033[0;32m'
 readonly BLUE='\033[0;34m'
 readonly RED='\033[0;31m'
+readonly YELLOW='\033[1;33m'
 readonly NC='\033[0m'
 
 log_error() { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
 log_success() { echo -e "${GREEN}[✓]${NC} $*"; }
+log_warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 
 # Überprüfe ob Pro-Profile existiert
 if [ ! -f "$SETTINGS_PRO" ]; then
@@ -24,6 +28,14 @@ if [ ! -f "$SETTINGS_PRO" ]; then
 fi
 
 log_success "Claude Pro aktiviert"
+
+# Überprüfe und stelle .credentials.json wieder her wenn nötig
+if [ ! -f "$CREDENTIALS" ] && [ -f "$CREDENTIALS_BAK" ]; then
+    log_warn "OAuth-Tokens wiederherstellen..."
+    cp "$CREDENTIALS_BAK" "$CREDENTIALS"
+    chmod 600 "$CREDENTIALS"
+    log_success "OAuth-Tokens wiederhergestellt"
+fi
 
 # Kopiere Pro-Profile zu aktiven Settings
 mkdir -p "$CLAUDE_DIR"
