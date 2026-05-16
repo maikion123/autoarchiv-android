@@ -1,0 +1,198 @@
+#!/bin/bash
+
+# pro-claude-config: Konfiguriere Claude Pro für den aktuellen User
+# Direkter Zugriff auf ~/.claude/settings.json
+
+set -e
+
+SETTINGS_FILE="${HOME}/.claude/settings.json"
+mkdir -p "$(dirname "$SETTINGS_FILE")"
+
+# Initialisiere settings.json falls nicht vorhanden
+[ -f "$SETTINGS_FILE" ] || echo '{}' > "$SETTINGS_FILE"
+
+# Funktion: Update JSON Feld
+update_json() {
+  local file=$1
+  local key=$2
+  local value=$3
+
+  jq --arg v "$value" ".$key = \$v" "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+}
+
+# Funktion: Update nested JSON
+update_json_nested() {
+  local file=$1
+  local path=$2
+  local value=$3
+
+  jq --arg v "$value" "$path = \$v" "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+}
+
+case "$1" in
+  --key|--api-key)
+    # Ändere nur API Key
+    if [ -z "$2" ]; then
+      echo "❌ API Key erforderlich"
+      echo "   Verwendung: pro-claude-config --key sk-ant-..."
+      exit 1
+    fi
+
+    update_json_nested "$SETTINGS_FILE" '.env.ANTHROPIC_API_KEY' "$2"
+
+    echo "✅ Anthropic API Key aktualisiert für User: $(whoami)"
+    echo "   Key: ${2:0:20}...${2: -10}"
+    echo "   Datei: $SETTINGS_FILE"
+    echo ""
+    echo "🚀 Nächste Schritte:"
+    echo "   1. Claude Code neu starten"
+    echo "   2. pro-claude ausführen"
+    ;;
+
+  --model)
+    # Ändere nur Model
+    if [ -z "$2" ]; then
+      echo "❌ Model erforderlich"
+      echo "   Beispiele:"
+      echo "     haiku"
+      echo "     sonnet"
+      echo "     opus"
+      echo "     claude-opus-4-7"
+      exit 1
+    fi
+
+    update_json "$SETTINGS_FILE" 'model' "$2"
+
+    echo "✅ Model aktualisiert für User: $(whoami)"
+    echo "   Model: $2"
+    echo "   Datei: $SETTINGS_FILE"
+    echo ""
+    echo "🚀 Claude Code neu starten"
+    ;;
+
+  --interactive|"")
+    # Interaktive Konfiguration
+    echo "🔧 Claude Pro - Benutzer-Konfiguration für: $(whoami)"
+    echo "════════════════════════════════════════════"
+    echo ""
+
+    # Zeige aktuelles Setup
+    if [ -f "$SETTINGS_FILE" ]; then
+      echo "📌 Aktuelles Setup:"
+      echo "   Model: $(jq -r '.model // "nicht gesetzt"' "$SETTINGS_FILE")"
+      API_KEY=$(jq -r '.env.ANTHROPIC_API_KEY // ""' "$SETTINGS_FILE")
+      if [ -n "$API_KEY" ]; then
+        echo "   API Key: gesetzt ✓"
+      else
+        echo "   API Key: nicht gesetzt ✗"
+      fi
+      echo ""
+    fi
+
+    # Frage nach Auth-Methode
+    echo "📌 Authentifizierung:"
+    echo "   [1] Browser Auth (Browser öffnet sich)"
+    echo "   [2] API Key (sk-ant-...)"
+    echo ""
+    read -p "Authentifizierung (1 oder 2, default 1): " AUTH_CHOICE
+
+    case "$AUTH_CHOICE" in
+      2)
+        # API Key Methode
+        read -p "🔑 Anthropic API Key (sk-ant-...): " API_KEY
+        if [[ ! "$API_KEY" =~ ^sk-ant- ]]; then
+          echo "❌ Ungültiges Format! Muss mit 'sk-ant-' beginnen"
+          exit 1
+        fi
+
+        # Frage nach Model
+        echo ""
+        echo "📌 Verfügbare Models:"
+        echo "   [1] haiku (schnell, günstig)"
+        echo "   [2] sonnet (ausgewogen)"
+        echo "   [3] opus (am leistungsfähigsten)"
+        echo ""
+        read -p "Model (1-3, default 1): " MODEL_CHOICE
+
+        case "$MODEL_CHOICE" in
+          2) MODEL="sonnet" ;;
+          3) MODEL="opus" ;;
+          *) MODEL="haiku" ;;
+        esac
+
+        # Speichere Settings
+        jq -n \
+          --arg model "$MODEL" \
+          --arg key "$API_KEY" \
+          '{model: $model, env: {ANTHROPIC_API_KEY: $key}}' > "$SETTINGS_FILE"
+
+        echo ""
+        echo "✅ Claude Pro konfiguriert für User: $(whoami)"
+        echo "   Auth: API Key"
+        echo "   Model: $MODEL"
+        echo "   API Key: ${API_KEY:0:20}...${API_KEY: -10}"
+        ;;
+
+      *)
+        # Browser Auth Methode
+        jq -n \
+          --arg model "haiku" \
+          '{model: $model}' > "$SETTINGS_FILE"
+
+        echo ""
+        echo "✅ Claude Pro konfiguriert für User: $(whoami)"
+        echo "   Auth: Browser Auth"
+        echo "   Model: haiku"
+        echo ""
+        echo "📌 Browser-Auth funktioniert so:"
+        echo "   1. pro-claude ausführen"
+        echo "   2. Browser öffnet sich automatisch"
+        echo "   3. Mit Claude-Account anmelden"
+        ;;
+    esac
+
+    echo "   Datei: $SETTINGS_FILE"
+    echo ""
+    echo "🚀 Nächste Schritte:"
+    echo "   1. Claude Code neu starten"
+    echo "   2. pro-claude ausführen"
+    ;;
+
+  --status|status)
+    echo "📊 Claude Pro Setup für User: $(whoami)"
+    echo "────────────────────────────────"
+    if [ -f "$SETTINGS_FILE" ]; then
+      echo "Model: $(jq -r '.model // "nicht gesetzt"' "$SETTINGS_FILE")"
+      API_KEY=$(jq -r '.env.ANTHROPIC_API_KEY // ""' "$SETTINGS_FILE")
+      if [ -n "$API_KEY" ]; then
+        echo "API Key: ${API_KEY:0:20}...${API_KEY: -10} ✓"
+      else
+        echo "Auth: Browser Auth"
+      fi
+      echo "Datei: $SETTINGS_FILE"
+    else
+      echo "⚠️  Noch nicht konfiguriert"
+    fi
+    echo "────────────────────────────────"
+    ;;
+
+  --help|help|*)
+    echo "🔧 pro-claude-config - Claude Pro Konfiguration"
+    echo ""
+    echo "Verwendung:"
+    echo "  pro-claude-config [OPTION]"
+    echo ""
+    echo "Optionen:"
+    echo "  (keine)              Interaktive Konfiguration"
+    echo "  --key KEY            Nur API Key ändern"
+    echo "  --model MODEL        Nur Model ändern"
+    echo "  --status             Aktuelles Setup anzeigen"
+    echo "  --help               Diese Hilfe"
+    echo ""
+    echo "Beispiele:"
+    echo "  pro-claude-config --key sk-ant-..."
+    echo "  pro-claude-config --model sonnet"
+    echo "  pro-claude-config"
+    echo ""
+    ;;
+esac

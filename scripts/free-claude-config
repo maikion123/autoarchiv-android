@@ -1,0 +1,164 @@
+#!/bin/bash
+
+# free-claude-config: Konfiguriere OpenRouter Free für den aktuellen User
+# Direkter Zugriff auf ~/.claude/settings.json
+
+set -e
+
+SETTINGS_FILE="${HOME}/.claude/settings.json"
+mkdir -p "$(dirname "$SETTINGS_FILE")"
+
+# Initialisiere settings.json falls nicht vorhanden
+[ -f "$SETTINGS_FILE" ] || echo '{}' > "$SETTINGS_FILE"
+
+# Funktion: Update JSON Feld
+update_json() {
+  local file=$1
+  local key=$2
+  local value=$3
+
+  jq --arg v "$value" ".$key = \$v" "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+}
+
+# Funktion: Update nested JSON
+update_json_nested() {
+  local file=$1
+  local path=$2
+  local value=$3
+
+  jq --arg v "$value" "$path = \$v" "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+}
+
+case "$1" in
+  --key|--api-key)
+    # Ändere nur API Key
+    if [ -z "$2" ]; then
+      echo "❌ API Key erforderlich"
+      echo "   Verwendung: free-claude-config --key sk-or-v1-..."
+      exit 1
+    fi
+
+    update_json_nested "$SETTINGS_FILE" '.env.OPENROUTER_API_KEY' "$2"
+
+    echo "✅ OpenRouter API Key aktualisiert für User: $(whoami)"
+    echo "   Key: ${2:0:20}...${2: -10}"
+    echo "   Datei: $SETTINGS_FILE"
+    echo ""
+    echo "🚀 Nächste Schritte:"
+    echo "   1. Claude Code neu starten"
+    echo "   2. /model ausführen um Modell zu wählen"
+    ;;
+
+  --model)
+    # Ändere nur Model
+    if [ -z "$2" ]; then
+      echo "❌ Model erforderlich"
+      echo "   Beispiele:"
+      echo "     openrouter/free"
+      echo "     qwen/qwen3-coder:free"
+      echo "     deepseek/deepseek-v4-flash:free"
+      exit 1
+    fi
+
+    update_json "$SETTINGS_FILE" 'model' "$2"
+
+    echo "✅ Model aktualisiert für User: $(whoami)"
+    echo "   Model: $2"
+    echo "   Datei: $SETTINGS_FILE"
+    echo ""
+    echo "🚀 Claude Code neu starten"
+    ;;
+
+  --interactive|"")
+    # Interaktive Konfiguration
+    echo "🔧 OpenRouter Free - Benutzer-Konfiguration für: $(whoami)"
+    echo "═══════════════════════════════════════════════════"
+    echo ""
+
+    # Zeige aktuelles Setup
+    if [ -f "$SETTINGS_FILE" ]; then
+      echo "📌 Aktuelles Setup:"
+      echo "   Model: $(jq -r '.model // "nicht gesetzt"' "$SETTINGS_FILE")"
+      echo "   API Key: $(jq -r '.env.OPENROUTER_API_KEY // "nicht gesetzt"' "$SETTINGS_FILE" | sed 's/./&\n/g' | head -1)..."
+      echo ""
+    fi
+
+    # Frage nach API Key
+    read -p "🔑 OpenRouter API Key (sk-or-v1-...): " API_KEY
+    if [[ ! "$API_KEY" =~ ^sk-or-v1- ]]; then
+      echo "❌ Ungültiges Format! Muss mit 'sk-or-v1-' beginnen"
+      exit 1
+    fi
+
+    # Frage nach Model
+    echo ""
+    echo "📌 Verfügbare Models:"
+    echo "   [1] openrouter/free (generisch)"
+    echo "   [2] qwen/qwen3-coder:free (Code-Fokus)"
+    echo "   [3] deepseek/deepseek-v4-flash:free (schnell)"
+    echo "   [4] google/gemma-4-31b-it:free (ausgewogen)"
+    echo ""
+    read -p "Model (1-4, default 1): " MODEL_CHOICE
+
+    case "$MODEL_CHOICE" in
+      2) MODEL="qwen/qwen3-coder:free" ;;
+      3) MODEL="deepseek/deepseek-v4-flash:free" ;;
+      4) MODEL="google/gemma-4-31b-it:free" ;;
+      *) MODEL="openrouter/free" ;;
+    esac
+
+    # Speichere Settings
+    jq -n \
+      --arg model "$MODEL" \
+      --arg key "$API_KEY" \
+      '{model: $model, env: {OPENROUTER_API_KEY: $key}}' > "$SETTINGS_FILE"
+
+    echo ""
+    echo "✅ OpenRouter Free konfiguriert für User: $(whoami)"
+    echo "   Model: $MODEL"
+    echo "   API Key: ${API_KEY:0:20}...${API_KEY: -10}"
+    echo "   Datei: $SETTINGS_FILE"
+    echo ""
+    echo "🚀 Nächste Schritte:"
+    echo "   1. Claude Code neu starten"
+    echo "   2. free-claude ausführen"
+    ;;
+
+  --status|status)
+    echo "📊 OpenRouter Free Setup für User: $(whoami)"
+    echo "────────────────────────────────────"
+    if [ -f "$SETTINGS_FILE" ]; then
+      echo "Model: $(jq -r '.model // "nicht gesetzt"' "$SETTINGS_FILE")"
+      API_KEY=$(jq -r '.env.OPENROUTER_API_KEY // ""' "$SETTINGS_FILE")
+      if [ -n "$API_KEY" ]; then
+        echo "API Key: ${API_KEY:0:20}...${API_KEY: -10} ✓"
+      else
+        echo "API Key: ✗ nicht gesetzt"
+      fi
+      echo "Datei: $SETTINGS_FILE"
+    else
+      echo "⚠️  Noch nicht konfiguriert"
+    fi
+    echo "────────────────────────────────────"
+    ;;
+
+  --help|help|*)
+    echo "🔧 free-claude-config - OpenRouter Free Konfiguration"
+    echo ""
+    echo "Verwendung:"
+    echo "  free-claude-config [OPTION]"
+    echo ""
+    echo "Optionen:"
+    echo "  (keine)              Interaktive Konfiguration"
+    echo "  --key KEY            Nur API Key ändern"
+    echo "  --model MODEL        Nur Model ändern"
+    echo "  --status             Aktuelles Setup anzeigen"
+    echo "  --help               Diese Hilfe"
+    echo ""
+    echo "Beispiele:"
+    echo "  free-claude-config --key sk-or-v1-..."
+    echo "  free-claude-config --model openrouter/free"
+    echo "  free-claude-config"
+    echo ""
+    ;;
+esac
