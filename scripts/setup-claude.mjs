@@ -11,6 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import readline from 'readline';
+import { spawn } from 'child_process';
 
 const HOME_DIR = os.homedir();
 const CLAUDE_DIR = path.join(HOME_DIR, '.claude');
@@ -26,6 +27,35 @@ function question(prompt) {
   return new Promise((resolve) => {
     rl.question(prompt, (answer) => {
       resolve(answer.trim());
+    });
+  });
+}
+
+async function runProClaudeWithLogin() {
+  return new Promise((resolve) => {
+    // Starte auto-login Script (pro-claude mit automatisch eingefügtem /login)
+    const autoLoginProcess = spawn('bash', [
+      path.join(path.dirname(process.argv[1]), 'auto-login.sh')
+    ], {
+      stdio: 'inherit',  // Zeige Output direkt
+      shell: false,
+    });
+
+    // Warte auf Process-Ende
+    autoLoginProcess.on('close', (code) => {
+      console.log('\n════════════════════════════════════');
+      console.log('✅ Claude Code geschlossen\n');
+      console.log('🎉 OAuth-Session gespeichert!\n');
+      console.log('Deine OAuth-Tokens sind jetzt in ~/.claude/.credentials.json gespeichert');
+      console.log('Du kannst pro-claude jederzeit wieder verwenden!\n');
+      console.log('════════════════════════════════════\n');
+      resolve(true);
+    });
+
+    autoLoginProcess.on('error', (err) => {
+      console.error('\n❌ Fehler beim Starten von Claude Code:');
+      console.error(err.message);
+      resolve(false);
     });
   });
 }
@@ -109,12 +139,26 @@ async function setupPro() {
 
   if (choice === '1') {
     console.log('\n✅ Browser-OAuth wird konfiguriert');
-    console.log('   Beim ersten Start: pro-claude');
-    console.log('   Dann: claude /login (im Browser authentifizieren)\n');
+    console.log('   Profil wird gespeichert...\n');
 
     ensureDir();
     saveJson(SETTINGS_PRO, createProProfile('oauth'));
     console.log(`✓ Pro-Profile gespeichert: ${SETTINGS_PRO}\n`);
+
+    // Frage ob Login jetzt durchgeführt werden soll
+    const doLogin = await question('Möchtest du dich JETZT anmelden? (ja/nein): ');
+
+    if (doLogin.toLowerCase() === 'ja' || doLogin.toLowerCase() === 'yes' || doLogin.toLowerCase() === 'j' || doLogin.toLowerCase() === 'y') {
+      console.log('\n🚀 Starte Claude Code und /login...\n');
+      console.log('   Browser öffnet sich → Melde dich an');
+      console.log('   Nach erfolgreicher Anmeldung: exit drücken\n');
+
+      rl.close();
+
+      // Starte pro-claude mit /login Befehl
+      return await runProClaudeWithLogin();
+    }
+
     return true;
   }
 
