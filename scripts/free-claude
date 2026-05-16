@@ -27,12 +27,17 @@ if command -v jq &> /dev/null; then
   ANTHROPIC_AUTH_TOKEN=$(jq -r '.env.ANTHROPIC_AUTH_TOKEN // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
 
   if [ -n "$ANTHROPIC_BASE_URL" ] && [ "$ANTHROPIC_BASE_URL" != "null" ]; then
+    # Stelle sicher dass v1 endpoint existiert
+    if [[ ! "$ANTHROPIC_BASE_URL" =~ /v1$ ]]; then
+      ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL}/v1"
+    fi
     export ANTHROPIC_BASE_URL
     export ANTHROPIC_AUTH_TOKEN
     export ANTHROPIC_API_KEY=""  # MUSS LEER sein!
 
     echo "   API: OpenRouter ✓"
-    echo "   Model: $(jq -r '.model // "unknown"' "$SETTINGS_ACTIVE")"
+    echo "   Endpoint: ${ANTHROPIC_BASE_URL}"
+    echo "   Model: $(jq -r '.model // "openrouter/auto"' "$SETTINGS_ACTIVE")"
   else
     echo "   ⚠️  OpenRouter nicht korrekt konfiguriert"
   fi

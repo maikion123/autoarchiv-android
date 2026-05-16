@@ -12,6 +12,43 @@ Aktueller Stand:
 - Zahlungen werden nur noch serverseitig gespeichert; lokale Offline-Fallbacks für echte Reminder sind deaktiviert.
 - Zusätzlich bekommt jedes Konto einen geheimen Kalender-Feed-Link, der im Profil angezeigt wird und auf dem iPhone als abonnierter Kalender mit Alarm 1/2/7 Tage vorher genutzt werden kann.
 
+## iPhone CalDAV Kalender-Sync (empfohlener Weg)
+
+nextKM betreibt einen vollständigen CalDAV-Server unter `/dav/`. Das ist die stabile Lösung — Termine und Zahlungserinnerungen erscheinen innerhalb von Minuten auf dem iPhone und die Verbindung bleibt dauerhaft erhalten.
+
+### Einrichtung
+
+1. iPhone → Einstellungen → Kalender → Accounts → Account hinzufügen → **Andere**
+2. **CalDAV-Account hinzufügen** auswählen
+3. Felder:
+   - **Server:** `nextkm.de`
+   - **Benutzername:** E-Mail-Adresse des Kontos
+   - **Passwort:** `calendarToken` (in `/profil` unter "Kalender direkt einrichten" kopieren)
+4. Speichern — iOS fragt nach SSL, bestätigen
+
+Das Passwort ist der `calendarToken` aus der Datenbank (`users.calendar_token`), **nicht** das Login-Passwort. Das ist Absicht: bcrypt pro CalDAV-Request wäre ~300ms × 4 Requests/Sync = iOS wirft den Account raus.
+
+### CalDAV-Endpunkte
+
+| Pfad | Methode | Funktion |
+|------|---------|----------|
+| `/dav/` | PROPFIND | Wurzel → current-user-principal |
+| `/dav/{uid}/` | PROPFIND | Principal → calendar-home-set |
+| `/dav/{uid}/default/` | PROPFIND, REPORT | Kalender-Collection |
+| `/dav/{uid}/default/{uid}.ics` | GET, PROPFIND | Einzelnes Event |
+| `/.well-known/caldav` | * | 302 → `/dav/` |
+
+### Sync-Verhalten
+
+- iOS synct alle ~15 Minuten oder beim Öffnen der Kalender-App
+- ctag = `MAX(updated_at)-COUNT(*)` — ändert sich bei Eintrag, Änderung UND Löschung
+- Profil zeigt "iPhone verbunden · [Uhrzeit]" sobald iOS sich zum ersten Mal verbunden hat (`users.caldav_last_sync`)
+
+### Bekannte Probleme / Offene Punkte
+
+- iOS-Hintergrundsync nach 15min noch nicht bestätigt funktionierend (Stand 2026-05-12)
+- Express 5 / path-to-regexp v8: Wildcards wie `/dav/*` sind ungültig — stattdessen `app.use` mit `req.path.startsWith('/dav/')`
+
 ## AutoArchiv-Onboarding
 
 Das geführte Onboarding in der Zahlungen-Ansicht nutzt dieselbe ntfy-Konfiguration:

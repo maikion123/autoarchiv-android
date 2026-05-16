@@ -53,6 +53,9 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
 - Payment reminder setup in `src/features/Zahlungen.tsx` now exposes topic copy/generate directly in the `Topic abonnieren` step and no longer has a separate `Testen` tab. Keep `docs/ntfy-push.md`, the memory/changelog notes, and the profile status text aligned when changing that flow.
 - ntfy topics are per user account now: existing users were backfilled, new accounts get a stable personal topic, and reminders must never fall back to a shared/global channel.
 - iPhone payment reminders now also have a per-user calendar feed on `/profil` with a default 2-day lead time and selectable 1/2/7-day lead times. Keep the feed URL, lead-days selector, and the reminder onboarding copy consistent.
+- **CalDAV server** runs at `/dav/` (full RFC 4791). Auth = `calendarToken` (NOT bcrypt/login password — bcrypt was causing iOS to drop the account). ctag includes COUNT so deletions trigger re-sync. `caldav_last_sync` column tracks last iOS connection and is shown in profile. Do NOT switch CalDAV auth back to bcrypt.
+- Two pm2 daemons: Maik's (user maik) manages `autoarchiv-api` on port 3001. Always restart with `sudo -u maik PM2_HOME=/home/maik/.pm2 pm2 restart autoarchiv-api`. Kevin's pm2 shows `autoarchiv-api` as errored — ignore it.
+- Express 5 uses path-to-regexp v8 (via `router` package): bare `*` wildcards are INVALID. Use `app.use` with `req.path.startsWith(...)` for wildcard routes.
 - The reminder worker currently runs every minute during testing so reminder changes can be verified quickly.
 - The payment save path is server-first; do not reintroduce silent local-only fallback for reminders.
 - Dashboard and archive counters must keep the last known good value during partial fetch failures; do not let a single empty response overwrite loaded data with `0`.
@@ -218,6 +221,6 @@ Use `codex` instead of `claude-code` when working as Codex.
 
 ---
 
-**Last Updated:** 2026-05-12  
+**Last Updated:** 2026-05-12 (Abend — CalDAV session)  
 **Memory System:** `.claude/memory/` (6 Dateien, Changelog eingeführt)  
 **Production Status:** ✅ Live and stable

@@ -97,6 +97,43 @@ export default function AdminPage() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
   const [selectedNavigationId, setSelectedNavigationId] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteUserId, setDeleteUserId] = useState<string | null>(null);
+  const [deleteUserEmail, setDeleteUserEmail] = useState<string>('');
+
+  const openDeleteConfirm = (userId: string, email: string) => {
+    setDeleteUserId(userId);
+    setDeleteUserEmail(email);
+    setShowDeleteConfirm(true);
+  };
+
+  const cancelDelete = () => {
+    setShowDeleteConfirm(false);
+    setDeleteUserId(null);
+    setDeleteUserEmail('');
+  };
+
+  const handleDeleteUser = async () => {
+    if (!deleteUserId) return;
+    try {
+      const res = await fetch(`/api/admin/users/${deleteUserId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Löschung fehlgeschlagen");
+      setShowDeleteConfirm(false);
+      setDeleteUserId(null);
+      setDeleteUserEmail('');
+      await load({ silent: true });
+    } catch (err: any) {
+      setError(err?.message || "Löschung fehlgeschlagen");
+      setShowDeleteConfirm(false);
+      setDeleteUserId(null);
+      setDeleteUserEmail('');
+    }
+  };
+
   const [userDraft, setUserDraft] = useState<{ role: "admin" | "user"; emailVerified: boolean }>({
     role: "user",
     emailVerified: false,
@@ -615,6 +652,7 @@ export default function AdminPage() {
                     <th className="py-3 pr-3">Prüfung</th>
                     <th className="py-3 pr-3">Verifiziert</th>
                     <th className="py-3 pr-3">Letztes Dokument</th>
+                    <th className="py-3 pr-3">Aktion</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -634,6 +672,14 @@ export default function AdminPage() {
                       <td className="py-3 pr-3">{user.reviewCount}</td>
                       <td className="py-3 pr-3">{user.emailVerified ? "Ja" : "Nein"}</td>
                       <td className="py-3 pr-3 text-muted-foreground">{fmtDateTime(user.lastDocumentAt)}</td>
+                      <td className="py-3 pr-3">
+                        <button
+                          className="bg-red-500 text-white hover:bg-red-600 rounded-lg px-3 py-1.5 text-sm font-semibold"
+                          onClick={() => openDeleteConfirm(user.id, user.email)}
+                        >
+                          Papierkorb
+                        </button>
+                      </td>
                     </tr>
                   ))}
                   {filteredUsers.length === 0 && (
@@ -1050,6 +1096,32 @@ export default function AdminPage() {
           <div className="mt-1 text-sm text-muted-foreground">{selectedDocument.userEmail}</div>
           <div className="mt-1 text-sm text-muted-foreground">{selectedDocument.folderPath}</div>
         </AdminSidePanel>
+      )}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+          <div className="bg-background rounded-xl border border-border/40 p-6 max-w-md w-full">
+            <h3 className="text-lg font-semibold">Benutzer löschen?</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Möchtest du den Benutzer <strong>{deleteUserEmail}</strong> wirklich dauerhaft löschen? Diese Aktion kann nicht rückgängig gemacht werden.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={cancelDelete}
+                className="rounded-xl border border-border/60 bg-background/50 px-4 py-2.5 text-sm font-semibold text-foreground"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteUser}
+                className="rounded-xl bg-rose-500/15 px-4 py-2.5 text-sm font-semibold text-rose-100"
+              >
+                Ja, löschen
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

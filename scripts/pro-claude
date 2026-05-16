@@ -32,7 +32,7 @@ if command -v jq &> /dev/null; then
     echo "   Auth: OAuth (Browser) ✓"
   fi
 
-  echo "   Model: $(jq -r '.model // "claude-opus-4-7"' "$SETTINGS_ACTIVE")"
+  echo "   Model: $(jq -r '.model // "opus"' "$SETTINGS_ACTIVE")"
 else
   echo "   Config geladen von: $SETTINGS_PRO"
 fi

@@ -16,7 +16,9 @@ export const Route = createFileRoute("/ntfy-setup")({
 function NtfySetupPage() {
   const { topic, source, kind, calendarToken: initialCalendarToken } = Route.useSearch();
   const [copyOk, setCopyOk] = useState(false);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">(
+    () => kind === "calendar" && !!initialCalendarToken ? "saved" : "idle"
+  );
   const [saveError, setSaveError] = useState("");
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [calendarToken, setCalendarToken] = useState(initialCalendarToken);
@@ -50,10 +52,12 @@ function NtfySetupPage() {
           const data = await res.json();
           if (data?.calendarToken) {
             setCalendarToken(data.calendarToken);
+            setSaveState("saved");
           } else if (data?.calendarFeedUrl) {
             const tokenMatch = data.calendarFeedUrl.match(/\/calendar\/([^.]+)\.ics/);
             if (tokenMatch?.[1]) {
               setCalendarToken(decodeURIComponent(tokenMatch[1]));
+              setSaveState("saved");
             }
           }
         } catch (err) {

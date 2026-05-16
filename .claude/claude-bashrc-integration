@@ -1,0 +1,24 @@
+# Claude Setup — Bash Integration (optional)
+# Füge diese Zeilen in deine ~/.bashrc oder ~/.zshrc ein für einfache Befehle
+
+# Pfad zum Projekt
+AUTOARCHIV_PATH="/srv/projects/autoarchiv"
+
+# Setup & Delete Befehle
+alias setup-claude="$AUTOARCHIV_PATH/scripts/setup-claude"
+alias delete-claude="$AUTOARCHIV_PATH/scripts/delete-claude"
+
+# Pro & Free Befehle
+alias pro-claude="bash $AUTOARCHIV_PATH/scripts/pro-claude"
+alias free-claude="bash $AUTOARCHIV_PATH/scripts/free-claude"
+
+# Oder verwende NPM:
+# cd /srv/projects/autoarchiv
+# npm run claude:setup
+# npm run claude:delete
+
+echo "✅ Claude Commands loaded:"
+echo "   setup-claude   - Neue Profile erstellen"
+echo "   delete-claude  - Profile löschen"
+echo "   pro-claude     - Claude Pro starten"
+echo "   free-claude    - Claude Free starten"

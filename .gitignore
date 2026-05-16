@@ -37,3 +37,4 @@ storage/*
 *.njsproj
 *.sln
 *.sw?
+.aider*

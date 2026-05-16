@@ -6,7 +6,7 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 ---
 # AutoArchiv: Privates Dokumentenarchiv
 
-## Current Status (as of 2026-05-12)
+## Current Status (as of 2026-05-12, Abend)
 **Production Live:** https://nextkm.de  
 **Git Commits Ahead:** includes session timeout security fix + OCR/upload stability improvements  
 **Auth System:** ✅ Functional (bcrypt + JWT + real SMTP OTP + logout cookie fix + Nginx cookie proxying + central AppShell auth guard + login wait for `/api/auth/me`)
@@ -19,6 +19,7 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 **Folder Management:** ✅ Live (`/api/folders` API, Overview can create/rename/delete root folders and subfolders, Eingang uses the same folder source)
 **Team Workflow:** ✅ Documented so Claude Code and Codex know where to write status and how the login/session path currently behaves
 **Payment Reminder Onboarding:** ✅ Streamlined and user-bound (each account has its own ntfy topic; existing users were backfilled, new registrations get a stable personal topic suggestion, the dedicated `Testen` tab was removed, the profile/setup screens now show `Topic im Konto gespeichert` plus `Letzter Sync erfolgreich`, and each account also has a personal iPhone calendar feed for payment reminders with a default 2-day lead time)
+**iPhone CalDAV Sync:** ✅ Implemented. Full CalDAV server at `/dav/` (PROPFIND, REPORT, GET). Auth uses `calendarToken` (fast, no bcrypt). ctag includes COUNT so deletions trigger re-sync. Profile shows CalDAV credentials + "iPhone verbunden" status badge with last sync time. `caldav_last_sync` column tracks last iOS connection. Setup: iOS Einstellungen → Kalender → Accounts → CalDAV, Server nextkm.de, Passwort = calendarToken. **Note:** iOS background sync (~15min) not yet confirmed working — may need further investigation.
 **Document AI Analysis:** ✅ Ollama integration added behind `USE_OLLAMA_ANALYSIS=true`; regex remains fallback. Current configured model is `llama3:8b`, which is the practical default for the VPS. Larger models such as `gemma4:26b` need much more RAM and are not the current target.
 **Document Storage Layout:** ✅ Readable server paths are now the source of truth for both site and filesystem. `analyzed` documents stay under `documents/analyzed/<YYYY-MM>/...`, archived documents move under `documents/archived/<haupt>/<unter>/<YYYY-MM>/...`, and the preview UI shows the visible `storageLocation` so users can trace where each file landed.
 **Auth + Upload Stability:** ✅ Android first-upload reload loop fixed. The app now keeps a short-lived auth cache in `localStorage` and `sessionStorage`, confirms the session in the background, and keeps the first upload after login stable without flashing back to the auth-loading state. Upload errors stay local to the Eingang flow instead of resetting the whole app.
@@ -124,14 +125,15 @@ Nginx (Port 443)
 
 ### users
 ```sql
-id (TEXT PK) | email (UNIQUE) | password_hash | email_verified (INT) | role | display_name | ntfy_topic | calendar_token | calendar_lead_days | created_at | updated_at
+id (TEXT PK) | email (UNIQUE) | password_hash | email_verified (INT) | role | display_name | ntfy_topic | calendar_token | calendar_lead_days | caldav_last_sync | created_at | updated_at
 ```
 
-**New columns (2026-05-11):**
+**New columns:**
 - `display_name` (TEXT, nullable) — User's custom display name for the UI (1-50 chars, set via PATCH /api/auth/profile)
 - `ntfy_topic` (TEXT, nullable) — Personal ntfy topic stored per account
-- `calendar_token` (TEXT, nullable) — Secret per-account iPhone calendar feed token
+- `calendar_token` (TEXT, nullable) — Secret per-account token; used as BOTH ICS feed token AND CalDAV password
 - `calendar_lead_days` (INTEGER, default 2) — Default reminder lead time for the private calendar feed
+- `caldav_last_sync` (TEXT, nullable) — UTC timestamp of last successful CalDAV auth; shown in profile as "iPhone verbunden · [time]"
 
 ### email_verification_codes
 ```sql
@@ -183,6 +185,19 @@ id | agent_id | event_type | message | files | created_at
 - **Agent Workflow Docs:** `/srv/projects/autoarchiv/docs/AGENT_WORKFLOW.md`
 
 ## Recent Changes
+1. 2026-05-12 — iPhone CalDAV Sync:
+   - Full CalDAV server at `/dav/` with PROPFIND/REPORT/GET for appointments + payments.
+   - Auth uses `calendarToken` (no bcrypt per request — was causing iOS to drop account after ~minutes).
+   - ctag = `MAX(updated_at)-COUNT(*)` with same filters as event list — detects add, edit, AND delete.
+   - REPORT parses `calendar-multiget` body, returns only requested events.
+   - PROPFIND on individual `.ics` files handled (ETag check).
+   - `caldav_last_sync` column: updated on every successful CalDAV auth request.
+   - Profile page: CalDAV credentials block + green/amber "iPhone verbunden" badge.
+   - `ntfy-setup.tsx`: calendar mode initializes as "saved" when token exists.
+   - Nginx: `/dav/` and `/.well-known/caldav` routing added.
+   - Express 5 / path-to-regexp v8 fix: wildcard `*` not supported — use `app.use` with `req.path.startsWith` instead.
+   - pm2: Maik's daemon manages the API (user maik); always restart via `sudo -u maik PM2_HOME=/home/maik/.pm2 pm2 restart autoarchiv-api`.
+
 1. 2026-05-12 — Payment Reminder Onboarding Cleanup:
    - Removed the separate `Testen` tab from `src/features/Zahlungen.tsx`.
    - The `Topic abonnieren` step now shows the ntfy topic as a copyable input, can generate a local fallback topic, and keeps the QR link on the actual topic URL.
