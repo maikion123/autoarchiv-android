@@ -2,6 +2,7 @@
 # free-claude: Starte Claude Code mit Free-Profil (OpenRouter)
 # Nutzt ~/.claude/settings.free.json
 # Authentifizierung: OpenRouter API Key
+# Nach: https://openrouter.ai/docs/cookbook/coding-agents/claude-code-integration
 
 set -e
 
@@ -21,7 +22,7 @@ fi
 
 echo "🆓 Claude Free (OpenRouter) aktiviert"
 echo "   Authentifizierung: OpenRouter API"
-echo "   Model: google/gemma-4-31b-it:free"
+echo "   Model: google/gemma-2-9b-it:free"
 echo "   Profil: $SETTINGS_FREE"
 echo ""
 
@@ -31,29 +32,48 @@ mkdir -p "$CLAUDE_DIR"
 # Kopiere Free-Profil zu aktivem Profil
 cp "$SETTINGS_FREE" "$SETTINGS_ACTIVE"
 
-# KRITISCH: Stelle sicher dass Model IMMER auf Gemma-Free gesetzt ist
+# KRITISCH: Stelle sicher dass Model auf Gemma gesetzt ist
 if [ -f "$SETTINGS_ACTIVE" ]; then
   # Versuche mit jq (schneller und sicherer)
   if command -v jq &> /dev/null; then
+    # Extrahiere OpenRouter Konfiguration
     ANTHROPIC_BASE_URL=$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
     ANTHROPIC_AUTH_TOKEN=$(jq -r '.env.ANTHROPIC_AUTH_TOKEN // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
+    ANTHROPIC_API_KEY=$(jq -r '.env.ANTHROPIC_API_KEY // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
 
     if [ -n "$ANTHROPIC_BASE_URL" ] && [ "$ANTHROPIC_BASE_URL" != "null" ]; then
       export ANTHROPIC_BASE_URL
       export ANTHROPIC_AUTH_TOKEN
+      # WICHTIG: API Key muss leer sein für OpenRouter!
+      export ANTHROPIC_API_KEY=""
       echo "   API-Konfiguration: OpenRouter geladen ✓"
+      echo "   Base URL: $ANTHROPIC_BASE_URL"
     fi
 
-    # Setze immer Model auf Gemma-4 Free
-    jq '.model = "google/gemma-4-31b-it:free"' "$SETTINGS_ACTIVE" > "${SETTINGS_ACTIVE}.tmp" 2>/dev/null && \
+    # Extrahiere Modell-Variablen
+    OPUS_MODEL=$(jq -r '.env.ANTHROPIC_DEFAULT_OPUS_MODEL // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
+    SONNET_MODEL=$(jq -r '.env.ANTHROPIC_DEFAULT_SONNET_MODEL // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
+    HAIKU_MODEL=$(jq -r '.env.ANTHROPIC_DEFAULT_HAIKU_MODEL // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
+    SUBAGENT_MODEL=$(jq -r '.env.CLAUDE_CODE_SUBAGENT_MODEL // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
+
+    if [ -n "$OPUS_MODEL" ] && [ "$OPUS_MODEL" != "null" ]; then
+      export ANTHROPIC_DEFAULT_OPUS_MODEL="$OPUS_MODEL"
+      export ANTHROPIC_DEFAULT_SONNET_MODEL="$SONNET_MODEL"
+      export ANTHROPIC_DEFAULT_HAIKU_MODEL="$HAIKU_MODEL"
+      export CLAUDE_CODE_SUBAGENT_MODEL="$SUBAGENT_MODEL"
+      echo "   Modelle: OpenRouter Gemma-2-9b ✓"
+    fi
+
+    # WICHTIG: Setze IMMER Model auf Gemma-Free
+    jq '.model = "google/gemma-2-9b-it:free"' "$SETTINGS_ACTIVE" > "${SETTINGS_ACTIVE}.tmp" 2>/dev/null && \
       mv "${SETTINGS_ACTIVE}.tmp" "$SETTINGS_ACTIVE" || true
   else
     # Fallback: Nutze sed wenn jq nicht vorhanden
     echo "   ⚠️  jq nicht installiert, nutze Fallback..."
-    sed -i 's/"model":[^,}]*/"model": "google\/gemma-4-31b-it:free"/g' "$SETTINGS_ACTIVE" 2>/dev/null || true
+    sed -i 's/"model":[^,}]*/"model": "google\/gemma-2-9b-it:free"/g' "$SETTINGS_ACTIVE" 2>/dev/null || true
 
     if ! grep -q '"model"' "$SETTINGS_ACTIVE"; then
-      sed -i '$ s/}/,"model": "google\/gemma-4-31b-it:free"}/g' "$SETTINGS_ACTIVE" 2>/dev/null || true
+      sed -i '$ s/}/,"model": "google\/gemma-2-9b-it:free"}/g' "$SETTINGS_ACTIVE" 2>/dev/null || true
     fi
   fi
 
@@ -64,16 +84,21 @@ if [ -f "$SETTINGS_ACTIVE" ]; then
     CURRENT_MODEL=$(grep -oP '"model":\s*"\K[^"]+' "$SETTINGS_ACTIVE" 2>/dev/null || true)
   fi
 
-  if [ "$CURRENT_MODEL" = "google/gemma-4-31b-it:free" ]; then
-    echo "   Model: google/gemma-4-31b-it:free ✓"
+  if [ "$CURRENT_MODEL" = "google/gemma-2-9b-it:free" ]; then
+    echo "   Modell-Validierung: google/gemma-2-9b-it:free ✓"
   else
-    echo "   ⚠️  Model ist '$CURRENT_MODEL', sollte 'google/gemma-4-31b-it:free' sein!"
+    echo "   ⚠️  Model ist '$CURRENT_MODEL', sollte 'google/gemma-2-9b-it:free' sein!"
   fi
 fi
 
 # Cleanup - Entferne Anthropic/Pro Variablen
-unset ANTHROPIC_API_KEY
+unset ANTHROPIC_API_KEY  # MUSS LEER sein für OpenRouter!
 
+echo ""
+echo "📝 Tipps:"
+echo "   • Nutze /status um OpenRouter Konfiguration zu überprüfen"
+echo "   • /model um aktuelles Modell zu sehen"
+echo "   • free-claude nutzt: google/gemma-2-9b-it:free (kostenlos)"
 echo ""
 
 # Starte Claude Code mit Free-Profil

@@ -69,11 +69,20 @@ function createProProfile(method) {
 function createFreeProfile(apiKey) {
   return {
     theme: 'dark',
-    model: 'google/gemma-4-31b-it:free',
-    comment: 'Free-Profile: OpenRouter API Key',
+    model: 'google/gemma-2-9b-it:free',
+    comment: 'Free-Profile: OpenRouter API Integration',
+    note: 'Uses OpenRouter for free/paid model access',
     env: {
-      ANTHROPIC_BASE_URL: 'https://openrouter.ai/api/v1',
+      // OpenRouter API Configuration (laut Dokumentation)
+      ANTHROPIC_BASE_URL: 'https://openrouter.ai/api',
       ANTHROPIC_AUTH_TOKEN: apiKey || '${OPENROUTER_API_KEY}',
+      ANTHROPIC_API_KEY: '',  // MUSS LEER sein!
+
+      // Claude Code Modell-Variablen (für verschiedene Aufgaben)
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'google/gemma-2-9b-it:free',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'google/gemma-2-9b-it:free',
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'google/gemma-2-9b-it:free',
+      CLAUDE_CODE_SUBAGENT_MODEL: 'google/gemma-2-9b-it:free',
     },
   };
 }
