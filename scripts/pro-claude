@@ -1,5 +1,5 @@
 #!/bin/bash
-# pro-claude: Starte Claude Code mit Anthropic Pro
+# pro-claude: Starte Claude Code mit Anthropic Pro (via claude.ai subscription)
 
 set -e
 
@@ -11,27 +11,26 @@ if [ ! -f "$SETTINGS_FILE" ]; then
   echo '{}' > "$SETTINGS_FILE"
 fi
 
-# Backup erstellen (optional, für Sicherheit)
+# Backup erstellen
 BACKUP_FILE="${SETTINGS_FILE}.backup"
 cp "$SETTINGS_FILE" "$BACKUP_FILE"
 
-# Konfiguriere für Anthropic Pro
+# Konfiguriere für Anthropic Pro (Subscription-basiert via claude.ai)
+# WICHTIG: Keine ANTHROPIC_API_KEY setzen - Claude Code nutzt claude.ai Token
 jq '.model = "claude-opus-4-7" |
     .provider = "anthropic" |
-    .env.ANTHROPIC_API_KEY = env.ANTHROPIC_API_KEY |
-    .env.ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"' \
+    .env.ANTHROPIC_BASE_URL = "https://api.anthropic.com" |
+    .env.ANTHROPIC_API_KEY = "" |
+    .env |= del(.ANTHROPIC_AUTH_TOKEN) |
+    .env |= del(.OPENROUTER_API_KEY)' \
   "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && \
   mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
 
 echo "🚀 Claude Pro aktiviert (Opus 4.7)"
-echo "   API: Anthropic"
-
-# Unsetze ANTHROPIC_API_KEY um Auth-Konflikt zu vermeiden
-# (maik logged sich mit claude.ai ein, nicht mit API Key)
-unset ANTHROPIC_API_KEY
+echo "   API: Anthropic (via claude.ai subscription)"
+echo ""
+echo "💡 Stelle sicher, dass du mit claude.ai angemeldet bist:"
+echo "   claude /login"
 
 # Starte Claude Code
 exec claude code "$@"
-
-# Hinweis: Das Backup bleibt erhalten, falls du manuell zurückschalten möchtest
-# Restore: cp "$BACKUP_FILE" "$SETTINGS_FILE"

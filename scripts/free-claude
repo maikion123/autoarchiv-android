@@ -43,20 +43,23 @@ if [ -z "$OPENROUTER_API_KEY" ]; then
 fi
 
 # Konfiguriere für OpenRouter Free
+# WICHTIG: Nutze ANTHROPIC_AUTH_TOKEN (nicht ANTHROPIC_API_KEY)
+# und setze ANTHROPIC_API_KEY auf leere Zeichenkette "" (nicht null)
 jq '.model = "openrouter/free" |
     .provider = "openrouter" |
-    .env.OPENROUTER_API_KEY = env.OPENROUTER_API_KEY |
-    .env.ANTHROPIC_BASE_URL = "https://openrouter.ai/api/v1"' \
+    .env.ANTHROPIC_BASE_URL = "https://openrouter.ai/api" |
+    .env.ANTHROPIC_AUTH_TOKEN = env.OPENROUTER_API_KEY |
+    .env.ANTHROPIC_API_KEY = "" |
+    .env.OPENROUTER_API_KEY = env.OPENROUTER_API_KEY' \
   "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && \
   mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
 
 echo "🆓 OpenRouter Free aktiviert"
-echo "   API: openrouter.ai"
-echo "   Model: free"
-
-# Unsetze ANTHROPIC_API_KEY um Auth-Konflikt zu vermeiden
-# (maik logged sich mit claude.ai ein, nicht mit API Key)
-unset ANTHROPIC_API_KEY
+echo "   API: openrouter.ai/api"
+echo "   Model: openrouter/free"
+echo ""
+echo "💡 Hinweis: Falls noch mit claude.ai angemeldet, führe zuerst aus:"
+echo "   claude /logout"
 
 # Starte Claude Code
 exec claude code "$@"
