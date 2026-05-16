@@ -44,10 +44,10 @@ Claude Code can't parse `"claude-opus-4-7"` and falls back to default `"haiku"`.
 
 The `:free` suffix and exact model name were incorrect.
 
-**Solution:** Use `"openrouter/free"` (OpenRouter free/no-cost models only):
+**Solution:** Use specific free model with `:free` suffix (per OpenRouter API spec):
 ```json
 {
-  "model": "openrouter/free",  // ✅ OpenRouter free/no-cost models only
+  "model": "google/flan-t5-xl:free",  // ✅ Real OpenRouter free model (with :free suffix!)
   "env": {
     "ANTHROPIC_BASE_URL": "https://openrouter.ai/api/v1",  // ✅ Correct /v1 endpoint
     "ANTHROPIC_AUTH_TOKEN": "sk-or-v1-YOUR-API-KEY",  // ⚠️ MUST BE FILLED IN!
@@ -56,7 +56,10 @@ The `:free` suffix and exact model name were incorrect.
 }
 ```
 
-**CRITICAL:** `ANTHROPIC_AUTH_TOKEN` must contain your real OpenRouter API key from https://openrouter.ai/keys
+**CRITICAL:** 
+- `ANTHROPIC_AUTH_TOKEN` must contain your real OpenRouter API key from https://openrouter.ai/keys
+- Model name MUST include `:free` suffix (this is OpenRouter's format for free models)
+- Other free options: `google/gemma-2-9b-it:free`, `mistralai/mistral-7b-instruct:free`
 
 ### Issue 3: OpenRouter Endpoint
 **Symptom:** API communication failed with OpenRouter  
@@ -69,7 +72,8 @@ Claude Code expects the `/v1` endpoint per OpenAI-compatible standards.
 ### 1. `scripts/setup-claude.mjs`
 **Changed:**
 - `createProProfile()`: `"model": "claude-opus-4-7"` → `"model": "opus"`
-- `createFreeProfile()`: `"model": "google/gemma-2-9b-it:free"` → `"model": "openrouter/free"`
+- `createFreeProfile()`: `"model": "google/gemma-2-9b-it:free"` → `"model": "google/flan-t5-xl:free"`
+  (Uses properly formatted OpenRouter free model with `:free` suffix per API spec)
 - Removed unnecessary `ANTHROPIC_DEFAULT_*` model overrides
 - Fixed endpoint: `/api` → `/api/v1`
 
@@ -155,16 +159,25 @@ For Maik: Same process with his own `~maik/.claude/` directory
 - `.claude/memory/changelog.md` — Documented the fix
 - `KEVIN_FIX_2026_05_16.md` — Step-by-step guide for Kevin
 
-## Critical Configuration Step
+## Critical Configuration Steps
 
-**The API key MUST be configured in `settings.free.json`:**
+**1. API key MUST be configured in `settings.free.json`:**
 ```bash
 # User must replace the placeholder with their actual OpenRouter API key
 cat ~/.claude/settings.free.json
 # Should show: "ANTHROPIC_AUTH_TOKEN": "sk-or-v1-abc123..."
 ```
 
-If `ANTHROPIC_AUTH_TOKEN` is empty, free-claude will fail with "model not found" error.
+If `ANTHROPIC_AUTH_TOKEN` is empty, free-claude will fail.
+
+**2. Model name MUST use `:free` suffix (OpenRouter format):**
+```json
+"model": "google/flan-t5-xl:free"  // ✅ Correct
+"model": "openrouter/free"         // ❌ Wrong - not recognized by OpenRouter
+"model": "openrouter/auto"         // ❌ Wrong - not recognized by OpenRouter
+```
+
+The `:free` suffix tells OpenRouter to use the free variant of that model.
 
 ## Known Limitations
 

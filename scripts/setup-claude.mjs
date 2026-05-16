@@ -102,9 +102,9 @@ function createProProfile(method) {
 function createFreeProfile(apiKey) {
   return {
     theme: 'dark',
-    model: 'openrouter/free',
-    comment: 'Free-Profile: OpenRouter Free Models Only',
-    note: 'Uses only free/no-cost models from OpenRouter',
+    model: 'google/flan-t5-xl:free',
+    comment: 'Free-Profile: Google Flan-T5 XL (Free on OpenRouter)',
+    note: 'Uses free Google Flan-T5 model with :free variant on OpenRouter',
     env: {
       // OpenRouter API Configuration (v1 endpoint)
       ANTHROPIC_BASE_URL: 'https://openrouter.ai/api/v1',

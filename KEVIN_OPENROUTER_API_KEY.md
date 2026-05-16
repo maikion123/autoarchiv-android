@@ -28,8 +28,8 @@ It may not exist or you may not have access to it.
 cat > ~/.claude/settings.free.json << 'EOF'
 {
   "theme": "dark",
-  "model": "openrouter/free",
-  "comment": "Free-Profile: OpenRouter Free Models Only",
+  "model": "google/flan-t5-xl:free",
+  "comment": "Free-Profile: Google Flan-T5 XL (Free on OpenRouter)",
   "env": {
     "ANTHROPIC_BASE_URL": "https://openrouter.ai/api/v1",
     "ANTHROPIC_AUTH_TOKEN": "sk-or-v1-HIER-DEINEN-KEY-EINFUEGEN",
@@ -38,6 +38,8 @@ cat > ~/.claude/settings.free.json << 'EOF'
 }
 EOF
 ```
+
+**Format wichtig:** Das Modell-Format muss `name:free` sein (z.B. `google/flan-t5-xl:free`)!
 
 **WICHTIG:** Ersetze `sk-or-v1-HIER-DEINEN-KEY-EINFUEGEN` mit deinem echten Key!
 
@@ -59,7 +61,7 @@ kevin@nextkm:~$ free-claude
 🆓 Claude Free (OpenRouter) aktiviert
    API: OpenRouter ✓
    Endpoint: https://openrouter.ai/api/v1
-   Model: openrouter/free
+   Model: google/flan-t5-xl:free
 ```
 
 Jetzt in Claude Code:
@@ -116,18 +118,28 @@ Provider could not process the request: 400: invalid_request_error
 
 ---
 
-## 📝 Beispiel: Echte OpenRouter Modelle
+## 📝 Kostenlose OpenRouter Modelle (mit :free Suffix!)
 
-Falls `openrouter/auto` nicht funktioniert, kannst du ein spezifisches Modell verwenden:
+OpenRouter hat mehrere kostenlose Modelle. Sie verwenden alle das `:free` Suffix:
 
 ```json
 {
-  "model": "google/flan-t5-xl:free",
-  ...
+  "model": "google/flan-t5-xl:free"
 }
 ```
 
-Oder gehe zu https://openrouter.ai/docs und schau welche Modelle verfügbar sind.
+**Andere kostenlose Modelle, die funktionieren:**
+- `google/flan-t5-xl:free` (Text-zu-Text, zuverlässig)
+- `google/gemma-2-9b-it:free` (Chat-Modell)
+- `mistralai/mistral-7b-instruct:free` (Chat-Modell)
+
+**Falls ein Modell nicht funktioniert:** Ändere in settings.free.json das Modell zu einem anderen mit `:free` Suffix und teste erneut.
+
+```bash
+# Beispiel: Gemma statt Flan-T5 verwenden
+sed -i 's/"google\/flan-t5-xl:free"/"google\/gemma-2-9b-it:free"/' ~/.claude/settings.free.json
+free-claude
+```
 
 ---
 

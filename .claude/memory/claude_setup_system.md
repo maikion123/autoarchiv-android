@@ -56,12 +56,18 @@ pro-claude   # Anthropic Pro with Opus model
 free-claude  # OpenRouter free models only (requires API key in settings.free.json)
 ```
 
-**⚠️ Important:** free-claude requires your OpenRouter API key in `~/.claude/settings.free.json`:
+**⚠️ Important:** free-claude requires:
+1. Your OpenRouter API key in `ANTHROPIC_AUTH_TOKEN` (get from https://openrouter.ai/keys)
+2. A valid free model with `:free` suffix, e.g. `google/flan-t5-xl:free`
+
+```json
+{
+  "model": "google/flan-t5-xl:free",  // Must use :free suffix!
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "sk-or-v1-YOUR-KEY-HERE"
+  }
+}
 ```
-"model": "openrouter/free",
-"ANTHROPIC_AUTH_TOKEN": "sk-or-v1-YOUR-KEY-HERE"
-```
-Get key from: https://openrouter.ai/keys
 
 ### Reset
 
