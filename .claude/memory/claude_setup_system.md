@@ -7,7 +7,7 @@ metadata:
 
 # Claude Setup System — Multi-User Management
 
-**Status:** ✅ Fully implemented and tested (2026-05-16)
+**Status:** ✅ Fully implemented and tested (2026-05-16) — Auto-login path fix applied
 
 ## Architecture
 
@@ -96,8 +96,18 @@ pro-claude
 
 ## First-Time OAuth Setup
 
+**Option A: Automatic (Recommended — 2026-05-16 Fix)**
 1. Run `setup-claude`, choose option [1] for Browser-OAuth
-2. Run `pro-claude`
+2. Answer "ja" to "Möchtest du dich JETZT anmelden?"
+3. Claude Code starts automatically with `/login` injected
+4. Browser opens → authenticate at claude.ai
+5. Tokens auto-saved to `~/.claude/.credentials.json`
+6. Setup continues to step 2 (OpenRouter)
+7. Done! Both `pro-claude` and `free-claude` work immediately
+
+**Option B: Manual (if auto-login skipped)**
+1. Run `setup-claude`, choose option [1], answer "nein"
+2. Run `pro-claude` manually later
 3. In Claude Code terminal: `/login`
 4. Browser opens → authenticate at claude.ai
 5. Tokens auto-saved to `~/.claude/.credentials.json`

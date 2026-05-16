@@ -12,6 +12,10 @@ import path from 'path';
 import os from 'os';
 import readline from 'readline';
 import { spawn } from 'child_process';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const HOME_DIR = os.homedir();
 const CLAUDE_DIR = path.join(HOME_DIR, '.claude');
@@ -34,9 +38,8 @@ function question(prompt) {
 async function runProClaudeWithLogin() {
   return new Promise((resolve) => {
     // Starte auto-login Script (pro-claude mit automatisch eingefügtem /login)
-    const autoLoginProcess = spawn('bash', [
-      path.join(path.dirname(process.argv[1]), 'auto-login.sh')
-    ], {
+    const autoLoginPath = path.join(__dirname, 'auto-login.sh');
+    const autoLoginProcess = spawn('bash', [autoLoginPath], {
       stdio: 'inherit',  // Zeige Output direkt
       shell: false,
     });
@@ -153,8 +156,7 @@ async function setupPro() {
       console.log('   Browser öffnet sich → Melde dich an');
       console.log('   Nach erfolgreicher Anmeldung: exit drücken\n');
 
-      rl.close();
-
+      // NICHT rl.close() hier — wird am Ende der main() gemacht!
       // Starte pro-claude mit /login Befehl
       return await runProClaudeWithLogin();
     }
