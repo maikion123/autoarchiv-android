@@ -54,6 +54,10 @@ echo "🆓 OpenRouter Free aktiviert"
 echo "   API: openrouter.ai"
 echo "   Model: free"
 
+# Unsetze ANTHROPIC_API_KEY um Auth-Konflikt zu vermeiden
+# (maik logged sich mit claude.ai ein, nicht mit API Key)
+unset ANTHROPIC_API_KEY
+
 # Starte Claude Code
 exec claude code "$@"
 
