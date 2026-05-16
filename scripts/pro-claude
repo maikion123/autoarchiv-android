@@ -1,92 +1,47 @@
 #!/bin/bash
 # pro-claude: Starte Claude Code mit Pro-Profil (Anthropic)
-# Nutzt ~/.claude/settings.pro.json
-# Authentifizierung: OAuth (via Browser) oder API Key
+# Setzt ~/.claude/settings.json mit korrekten Pro-Einstellungen
 
 set -e
 
 CLAUDE_DIR="${HOME}/.claude"
 SETTINGS_PRO="${CLAUDE_DIR}/settings.pro.json"
 SETTINGS_ACTIVE="${CLAUDE_DIR}/settings.json"
-CREDENTIALS_FILE="${CLAUDE_DIR}/.credentials.json"
 
 # Überprüfe ob Pro-Profile existiert
 if [ ! -f "$SETTINGS_PRO" ]; then
   echo "❌ Fehler: Pro-Profil nicht gefunden!"
-  echo ""
-  echo "   Bitte zuerst ausführen:"
-  echo "   setup-claude"
-  echo ""
+  echo "   Bitte zuerst ausführen: setup-claude"
   exit 1
 fi
 
 echo "🚀 Claude Pro aktiviert"
-echo "   Authentifizierung: Anthropic API"
-echo "   Model: claude-opus-4-7"
-echo "   Profil: $SETTINGS_PRO"
-echo ""
 
-# Stelle sicher, dass .claude existiert
+# KRITISCH: Kopiere Pro-Profil zu aktiven Settings
 mkdir -p "$CLAUDE_DIR"
-
-# Kopiere Pro-Profil zu aktivem Profil
 cp "$SETTINGS_PRO" "$SETTINGS_ACTIVE"
 
-# Überprüfe ob OAuth-Tokens existieren (werden von Claude Code gespeichert)
-if [ -f "$CREDENTIALS_FILE" ]; then
-  echo "   OAuth-Tokens: Gefunden ✓"
-  echo "   (Werden automatisch von Claude Code geladen)"
+# Extrahiere API Key falls vorhanden
+if command -v jq &> /dev/null; then
+  ANTHROPIC_API_KEY=$(jq -r '.env.ANTHROPIC_API_KEY // empty' "$SETTINGS_PRO" 2>/dev/null || true)
+
+  if [ -n "$ANTHROPIC_API_KEY" ] && [ "$ANTHROPIC_API_KEY" != "null" ]; then
+    export ANTHROPIC_API_KEY
+    echo "   Auth: API Key ✓"
+  else
+    echo "   Auth: OAuth (Browser) ✓"
+  fi
+
+  echo "   Model: $(jq -r '.model // "claude-opus-4-7"' "$SETTINGS_ACTIVE")"
+else
+  echo "   Config geladen von: $SETTINGS_PRO"
 fi
 
-# KRITISCH: Stelle sicher dass Model IMMER auf claude-opus-4-7 gesetzt ist
-if [ -f "$SETTINGS_ACTIVE" ]; then
-  # Versuche mit jq (schneller und sicherer)
-  if command -v jq &> /dev/null; then
-    # Extrahiere API Key aus settings (falls vorhanden)
-    ANTHROPIC_API_KEY=$(jq -r '.env.ANTHROPIC_API_KEY // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
-    if [ -n "$ANTHROPIC_API_KEY" ] && [ "$ANTHROPIC_API_KEY" != "null" ]; then
-      export ANTHROPIC_API_KEY
-      echo "   API-Konfiguration: API Key geladen ✓"
-    else
-      echo "   API-Konfiguration: OAuth (Browser-Auth) ✓"
-    fi
+echo ""
 
-    # Setze Model mit jq
-    jq '.model = "claude-opus-4-7"' "$SETTINGS_ACTIVE" > "${SETTINGS_ACTIVE}.tmp" 2>/dev/null && \
-      mv "${SETTINGS_ACTIVE}.tmp" "$SETTINGS_ACTIVE" || true
-  else
-    # Fallback: Nutze sed wenn jq nicht vorhanden
-    echo "   ⚠️  jq nicht installiert, nutze Fallback..."
-
-    # Entferne alte model-Zeile und füge neue hinzu
-    sed -i 's/"model":[^,}]*/"model": "claude-opus-4-7"/g' "$SETTINGS_ACTIVE" 2>/dev/null || true
-
-    # Falls "model" nicht existiert, füge es hinzu
-    if ! grep -q '"model"' "$SETTINGS_ACTIVE"; then
-      # Füge "model" vor der letzten geschlossenen Klammer hinzu
-      sed -i '$ s/}/,"model": "claude-opus-4-7"}/g' "$SETTINGS_ACTIVE" 2>/dev/null || true
-    fi
-  fi
-
-  # Validierung: Überprüfe dass model richtig gesetzt wurde
-  if command -v jq &> /dev/null; then
-    CURRENT_MODEL=$(jq -r '.model // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
-  else
-    CURRENT_MODEL=$(grep -oP '"model":\s*"\K[^"]+' "$SETTINGS_ACTIVE" 2>/dev/null || true)
-  fi
-
-  if [ "$CURRENT_MODEL" = "claude-opus-4-7" ]; then
-    echo "   Model: claude-opus-4-7 ✓"
-  else
-    echo "   ⚠️  Model ist '$CURRENT_MODEL', sollte 'claude-opus-4-7' sein!"
-  fi
-fi
-
-# Cleanup - Entferne OpenRouter/Free Variablen
+# Cleanup
 unset ANTHROPIC_BASE_URL
 unset ANTHROPIC_AUTH_TOKEN
 
-echo ""
-
-# Starte Claude Code mit Pro-Profil
+# Starte Claude Code
 exec claude code "$@"
