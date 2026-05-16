@@ -31,23 +31,44 @@ mkdir -p "$CLAUDE_DIR"
 # Kopiere Free-Profil zu aktivem Profil
 cp "$SETTINGS_FREE" "$SETTINGS_ACTIVE"
 
-# Extrahiere und setze Umgebungsvariablen aus Free-Profil
-if command -v jq &> /dev/null && [ -f "$SETTINGS_ACTIVE" ]; then
-  ANTHROPIC_BASE_URL=$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
-  ANTHROPIC_AUTH_TOKEN=$(jq -r '.env.ANTHROPIC_AUTH_TOKEN // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
+# KRITISCH: Stelle sicher dass Model IMMER auf Gemma-Free gesetzt ist
+if [ -f "$SETTINGS_ACTIVE" ]; then
+  # Versuche mit jq (schneller und sicherer)
+  if command -v jq &> /dev/null; then
+    ANTHROPIC_BASE_URL=$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
+    ANTHROPIC_AUTH_TOKEN=$(jq -r '.env.ANTHROPIC_AUTH_TOKEN // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
 
-  if [ -n "$ANTHROPIC_BASE_URL" ] && [ "$ANTHROPIC_BASE_URL" != "null" ]; then
-    export ANTHROPIC_BASE_URL
-    export ANTHROPIC_AUTH_TOKEN
-    echo "   API-Konfiguration: OpenRouter geladen ✓"
+    if [ -n "$ANTHROPIC_BASE_URL" ] && [ "$ANTHROPIC_BASE_URL" != "null" ]; then
+      export ANTHROPIC_BASE_URL
+      export ANTHROPIC_AUTH_TOKEN
+      echo "   API-Konfiguration: OpenRouter geladen ✓"
+    fi
+
+    # Setze immer Model auf Gemma-4 Free
+    jq '.model = "google/gemma-4-31b-it:free"' "$SETTINGS_ACTIVE" > "${SETTINGS_ACTIVE}.tmp" 2>/dev/null && \
+      mv "${SETTINGS_ACTIVE}.tmp" "$SETTINGS_ACTIVE" || true
+  else
+    # Fallback: Nutze sed wenn jq nicht vorhanden
+    echo "   ⚠️  jq nicht installiert, nutze Fallback..."
+    sed -i 's/"model":[^,}]*/"model": "google\/gemma-4-31b-it:free"/g' "$SETTINGS_ACTIVE" 2>/dev/null || true
+
+    if ! grep -q '"model"' "$SETTINGS_ACTIVE"; then
+      sed -i '$ s/}/,"model": "google\/gemma-4-31b-it:free"}/g' "$SETTINGS_ACTIVE" 2>/dev/null || true
+    fi
   fi
 
-  # Setze immer Model auf Gemma-4 Free
-  jq '.model = "google/gemma-4-31b-it:free"' "$SETTINGS_ACTIVE" > "${SETTINGS_ACTIVE}.tmp" 2>/dev/null && \
-    mv "${SETTINGS_ACTIVE}.tmp" "$SETTINGS_ACTIVE" || true
-else
-  # Fallback ohne jq
-  echo "   API-Konfiguration: Profil geladen ✓"
+  # Validierung
+  if command -v jq &> /dev/null; then
+    CURRENT_MODEL=$(jq -r '.model // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
+  else
+    CURRENT_MODEL=$(grep -oP '"model":\s*"\K[^"]+' "$SETTINGS_ACTIVE" 2>/dev/null || true)
+  fi
+
+  if [ "$CURRENT_MODEL" = "google/gemma-4-31b-it:free" ]; then
+    echo "   Model: google/gemma-4-31b-it:free ✓"
+  else
+    echo "   ⚠️  Model ist '$CURRENT_MODEL', sollte 'google/gemma-4-31b-it:free' sein!"
+  fi
 fi
 
 # Cleanup - Entferne Anthropic/Pro Variablen

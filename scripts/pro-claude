@@ -32,21 +32,54 @@ mkdir -p "$CLAUDE_DIR"
 # Kopiere Pro-Profil zu aktivem Profil
 cp "$SETTINGS_PRO" "$SETTINGS_ACTIVE"
 
-# Extrahiere und setze Umgebungsvariablen aus Pro-Profil
-if command -v jq &> /dev/null && [ -f "$SETTINGS_ACTIVE" ]; then
-  # Extrahiere API Key aus settings (falls vorhanden)
-  ANTHROPIC_API_KEY=$(jq -r '.env.ANTHROPIC_API_KEY // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
-  if [ -n "$ANTHROPIC_API_KEY" ] && [ "$ANTHROPIC_API_KEY" != "null" ]; then
-    export ANTHROPIC_API_KEY
-    echo "   API-Konfiguration: API Key geladen ✓"
+# Überprüfe ob OAuth-Tokens existieren (werden von Claude Code gespeichert)
+if [ -f "$CREDENTIALS_FILE" ]; then
+  echo "   OAuth-Tokens: Gefunden ✓"
+  echo "   (Werden automatisch von Claude Code geladen)"
+fi
+
+# KRITISCH: Stelle sicher dass Model IMMER auf claude-opus-4-7 gesetzt ist
+if [ -f "$SETTINGS_ACTIVE" ]; then
+  # Versuche mit jq (schneller und sicherer)
+  if command -v jq &> /dev/null; then
+    # Extrahiere API Key aus settings (falls vorhanden)
+    ANTHROPIC_API_KEY=$(jq -r '.env.ANTHROPIC_API_KEY // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
+    if [ -n "$ANTHROPIC_API_KEY" ] && [ "$ANTHROPIC_API_KEY" != "null" ]; then
+      export ANTHROPIC_API_KEY
+      echo "   API-Konfiguration: API Key geladen ✓"
+    else
+      echo "   API-Konfiguration: OAuth (Browser-Auth) ✓"
+    fi
+
+    # Setze Model mit jq
+    jq '.model = "claude-opus-4-7"' "$SETTINGS_ACTIVE" > "${SETTINGS_ACTIVE}.tmp" 2>/dev/null && \
+      mv "${SETTINGS_ACTIVE}.tmp" "$SETTINGS_ACTIVE" || true
+  else
+    # Fallback: Nutze sed wenn jq nicht vorhanden
+    echo "   ⚠️  jq nicht installiert, nutze Fallback..."
+
+    # Entferne alte model-Zeile und füge neue hinzu
+    sed -i 's/"model":[^,}]*/"model": "claude-opus-4-7"/g' "$SETTINGS_ACTIVE" 2>/dev/null || true
+
+    # Falls "model" nicht existiert, füge es hinzu
+    if ! grep -q '"model"' "$SETTINGS_ACTIVE"; then
+      # Füge "model" vor der letzten geschlossenen Klammer hinzu
+      sed -i '$ s/}/,"model": "claude-opus-4-7"}/g' "$SETTINGS_ACTIVE" 2>/dev/null || true
+    fi
   fi
 
-  # Setze immer Model auf Opus
-  jq '.model = "claude-opus-4-7"' "$SETTINGS_ACTIVE" > "${SETTINGS_ACTIVE}.tmp" 2>/dev/null && \
-    mv "${SETTINGS_ACTIVE}.tmp" "$SETTINGS_ACTIVE" || true
-else
-  # Fallback ohne jq - einfach kopiert
-  echo "   API-Konfiguration: Profil geladen ✓"
+  # Validierung: Überprüfe dass model richtig gesetzt wurde
+  if command -v jq &> /dev/null; then
+    CURRENT_MODEL=$(jq -r '.model // empty' "$SETTINGS_ACTIVE" 2>/dev/null || true)
+  else
+    CURRENT_MODEL=$(grep -oP '"model":\s*"\K[^"]+' "$SETTINGS_ACTIVE" 2>/dev/null || true)
+  fi
+
+  if [ "$CURRENT_MODEL" = "claude-opus-4-7" ]; then
+    echo "   Model: claude-opus-4-7 ✓"
+  else
+    echo "   ⚠️  Model ist '$CURRENT_MODEL', sollte 'claude-opus-4-7' sein!"
+  fi
 fi
 
 # Cleanup - Entferne OpenRouter/Free Variablen
