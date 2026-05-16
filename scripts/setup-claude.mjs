@@ -102,9 +102,9 @@ function createProProfile(method) {
 function createFreeProfile(apiKey) {
   return {
     theme: 'dark',
-    model: 'openrouter/auto',
-    comment: 'Free-Profile: OpenRouter API Integration',
-    note: 'Auto-selects best available model on OpenRouter',
+    model: 'openrouter/free',
+    comment: 'Free-Profile: OpenRouter Free Models Only',
+    note: 'Uses only free/no-cost models from OpenRouter',
     env: {
       // OpenRouter API Configuration (v1 endpoint)
       ANTHROPIC_BASE_URL: 'https://openrouter.ai/api/v1',

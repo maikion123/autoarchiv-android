@@ -28,8 +28,8 @@ It may not exist or you may not have access to it.
 cat > ~/.claude/settings.free.json << 'EOF'
 {
   "theme": "dark",
-  "model": "openrouter/auto",
-  "comment": "Free-Profile: OpenRouter API Integration",
+  "model": "openrouter/free",
+  "comment": "Free-Profile: OpenRouter Free Models Only",
   "env": {
     "ANTHROPIC_BASE_URL": "https://openrouter.ai/api/v1",
     "ANTHROPIC_AUTH_TOKEN": "sk-or-v1-HIER-DEINEN-KEY-EINFUEGEN",
@@ -59,7 +59,7 @@ kevin@nextkm:~$ free-claude
 🆓 Claude Free (OpenRouter) aktiviert
    API: OpenRouter ✓
    Endpoint: https://openrouter.ai/api/v1
-   Model: openrouter/auto
+   Model: openrouter/free
 ```
 
 Jetzt in Claude Code:

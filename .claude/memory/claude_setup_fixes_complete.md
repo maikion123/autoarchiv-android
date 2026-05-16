@@ -44,10 +44,10 @@ Claude Code can't parse `"claude-opus-4-7"` and falls back to default `"haiku"`.
 
 The `:free` suffix and exact model name were incorrect.
 
-**Solution:** Use `"openrouter/auto"` (OpenRouter auto-selects best available):
+**Solution:** Use `"openrouter/free"` (OpenRouter free/no-cost models only):
 ```json
 {
-  "model": "openrouter/auto",  // ✅ Auto-selects from OpenRouter
+  "model": "openrouter/free",  // ✅ OpenRouter free/no-cost models only
   "env": {
     "ANTHROPIC_BASE_URL": "https://openrouter.ai/api/v1",  // ✅ Correct /v1 endpoint
     "ANTHROPIC_AUTH_TOKEN": "sk-or-v1-YOUR-API-KEY",  // ⚠️ MUST BE FILLED IN!
@@ -69,7 +69,7 @@ Claude Code expects the `/v1` endpoint per OpenAI-compatible standards.
 ### 1. `scripts/setup-claude.mjs`
 **Changed:**
 - `createProProfile()`: `"model": "claude-opus-4-7"` → `"model": "opus"`
-- `createFreeProfile()`: `"model": "google/gemma-2-9b-it:free"` → `"model": "openrouter/auto"`
+- `createFreeProfile()`: `"model": "google/gemma-2-9b-it:free"` → `"model": "openrouter/free"`
 - Removed unnecessary `ANTHROPIC_DEFAULT_*` model overrides
 - Fixed endpoint: `/api` → `/api/v1`
 

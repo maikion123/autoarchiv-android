@@ -53,11 +53,12 @@ The script guides through:
 
 ```bash
 pro-claude   # Anthropic Pro with Opus model
-free-claude  # OpenRouter with auto-selected model (requires API key in settings.free.json)
+free-claude  # OpenRouter free models only (requires API key in settings.free.json)
 ```
 
 **⚠️ Important:** free-claude requires your OpenRouter API key in `~/.claude/settings.free.json`:
 ```
+"model": "openrouter/free",
 "ANTHROPIC_AUTH_TOKEN": "sk-or-v1-YOUR-KEY-HERE"
 ```
 Get key from: https://openrouter.ai/keys
