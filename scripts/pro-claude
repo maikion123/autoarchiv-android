@@ -1,36 +1,13 @@
 #!/bin/bash
 # pro-claude: Starte Claude Code mit Anthropic Pro (via claude.ai subscription)
-
-set -e
-
-SETTINGS_FILE="${HOME}/.claude/settings.local.json"
-
-# Stelle sicher, dass settings.local.json existiert
-if [ ! -f "$SETTINGS_FILE" ]; then
-  mkdir -p "$(dirname "$SETTINGS_FILE")"
-  echo '{}' > "$SETTINGS_FILE"
-fi
-
-# Backup erstellen
-BACKUP_FILE="${SETTINGS_FILE}.backup"
-cp "$SETTINGS_FILE" "$BACKUP_FILE"
-
-# Konfiguriere für Anthropic Pro (Subscription-basiert via claude.ai)
-# WICHTIG: Keine ANTHROPIC_API_KEY setzen - Claude Code nutzt claude.ai Token
-jq '.model = "claude-opus-4-7" |
-    .provider = "anthropic" |
-    .env.ANTHROPIC_BASE_URL = "https://api.anthropic.com" |
-    .env.ANTHROPIC_API_KEY = "" |
-    .env |= del(.ANTHROPIC_AUTH_TOKEN) |
-    .env |= del(.OPENROUTER_API_KEY)' \
-  "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && \
-  mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
+# Nutzt bestehende claude.ai Authentifizierung, keine externen Keys
 
 echo "🚀 Claude Pro aktiviert (Opus 4.7)"
 echo "   API: Anthropic (via claude.ai subscription)"
 echo ""
-echo "💡 Stelle sicher, dass du mit claude.ai angemeldet bist:"
-echo "   claude /login"
 
-# Starte Claude Code
+# Stelle sicher, dass du mit claude.ai angemeldet bist (falls nicht, wird Claude Code auffordern)
+# Keine Konfiguration nötig - nutzt deinen bestehenden claude.ai Token
+
+# Starte Claude Code normal mit deiner Subscription
 exec claude code "$@"

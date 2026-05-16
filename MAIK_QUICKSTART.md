@@ -56,26 +56,16 @@ maik@nextkm:~$ free-claude
    API: openrouter.ai/api
    Model: openrouter/free
 
-💡 Hinweis: Falls noch mit claude.ai angemeldet, führe zuerst aus:
-   claude /logout
-
 Tip: You can launch Claude Code with just `claude`
 ```
 
 **Was passiert:**
 - Claude Code startet mit OpenRouter Free Model (kostenlos!)
-- Falls du mit claude.ai angemeldet bist, werden Anfragen blockiert
-- → Folge dem Hinweis: `claude /logout`
+- Verwendet deinen OpenRouter API Key nur für diese Session
+- **Dein bestehender claude.ai Login wird NICHT beeinflusst** ✅
+- Keine permanente Konfigurationsänderung
 
-**Wenn LogOut gefordert wird:**
-```bash
-# In Claude Code Session:
-claude /logout
-# Antworte auf die Frage mit: No
-
-# Dann erneut:
-maik@nextkm:~$ free-claude
-```
+**Hinweis:** Der Befehl nutzt Claude Code's `--settings` Flag, um nur für diese Session die OpenRouter-Konfiguration zu übergeben. Das ist sauber und konfligiert nicht mit deiner bestehenden Authentifizierung!
 
 ---
 
@@ -117,13 +107,19 @@ source ~/.bashrc
 
 ### Problem: "Auth conflict: Both token and API key are set"
 
-**Das ist kein Problem mit unseren Skripten mehr!**
+**Dieses Problem sollte NICHT mehr auftreten!**
 
-Wenn dieser Fehler trotzdem kommt:
+Die Skripte nutzen Claude Code's `--settings` Flag, um nur für diese Session die Konfiguration zu übergeben, ohne bestehende Authentifizierung zu beeinflussen. Falls dieser Fehler trotzdem auftritt:
+
 ```bash
-# Du bist noch mit claude.ai angemeldet
-# Melde dich ab (in Claude Code Session):
-claude /logout
+# Überprüfe deine Claude Code Version
+claude --version
+
+# Update falls nötig
+npm install -g @anthropic-ai/claude-code@latest
+
+# Versuche erneut:
+free-claude
 ```
 
 ### Problem: "Unauthorized - invalid key"

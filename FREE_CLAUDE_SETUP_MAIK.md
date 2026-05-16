@@ -9,9 +9,14 @@ Zwei Befehle für Maik:
 
 ### Für `pro-claude` (Anthropic Pro):
 Du nutzt deine claude.ai Subscription (bereits bei dir angemeldet). **Keine API Keys nötig.**
+- Startet einfach Claude Code mit deinem bestehenden Login
+- Falls nicht angemeldet, wirst du aufgefordert: `claude /login`
 
 ### Für `free-claude` (OpenRouter):
 Du brauchst einen OpenRouter Account (kostenlos!). **OpenRouter API Key erforderlich.**
+- **Wichtig:** Du musst dich NICHT von claude.ai abmelden!
+- Der Befehl nutzt `--settings` Flag um nur für diese Session OpenRouter zu verwenden
+- Dein bestehender claude.ai Login bleibt unverändert
 
 ---
 
