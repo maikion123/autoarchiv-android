@@ -287,6 +287,13 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
   CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+
+  CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
+    document_id UNINDEXED,
+    user_id     UNINDEXED,
+    content,
+    tokenize    = 'unicode61'
+  );
 `);
 
 // Clean up old sessions
@@ -405,6 +412,31 @@ try {
   `).run();
 } catch {
   // Backfill is best-effort only.
+}
+
+// FTS helpers
+function upsertDocumentFts(docId, docUserId, filename, absender, zusammenfassung, extractedText) {
+  const content = [filename, absender, zusammenfassung, extractedText].filter(Boolean).join(' ');
+  db.prepare('DELETE FROM documents_fts WHERE document_id = ?').run(docId);
+  db.prepare('INSERT INTO documents_fts(document_id, user_id, content) VALUES (?, ?, ?)').run(docId, docUserId, content);
+}
+
+// Backfill FTS for existing documents missing from the index
+try {
+  db.prepare(`
+    INSERT INTO documents_fts(document_id, user_id, content)
+    SELECT dt.document_id, d.user_id,
+      coalesce(d.filename, '') || ' ' ||
+      coalesce(d.absender, '') || ' ' ||
+      coalesce(d.zusammenfassung, '') || ' ' ||
+      coalesce(dt.extracted_text, '')
+    FROM document_texts dt
+    JOIN documents d ON d.id = dt.document_id
+    WHERE d.status != 'deleted'
+      AND dt.document_id NOT IN (SELECT document_id FROM documents_fts)
+  `).run();
+} catch (err) {
+  console.warn('[fts] backfill skipped:', err.message);
 }
 
 const DEFAULT_NAVIGATION_ITEMS = [
@@ -1295,6 +1327,8 @@ async function persistAnalyzedDocument({
       .run(sync.filename, sync.storagePath, new Date().toISOString(), documentId, userId);
     row = db.prepare('SELECT d.*, u.email FROM documents d JOIN users u ON u.id = d.user_id WHERE d.id = ? AND d.user_id = ?').get(documentId, userId);
   }
+
+  upsertDocumentFts(documentId, userId, row.filename, row.absender, row.zusammenfassung, text);
 
   return { row, benchmark };
 }
@@ -4034,6 +4068,43 @@ app.get('/api/documents/summary', requireAuth, (req, res) => {
   });
 });
 
+app.get('/api/search', requireAuth, (req, res) => {
+  const userId = currentUserId(req);
+  const raw = String(req.query.q || '').trim();
+  if (raw.length < 2) return res.status(200).json({ results: [] });
+
+  const terms = raw
+    .replace(/["()*:^\\]/g, ' ')
+    .trim().split(/\s+/)
+    .filter(t => t.length >= 2);
+  if (!terms.length) return res.status(200).json({ results: [] });
+  const ftsQuery = terms.map(t => `"${t}"*`).join(' ');
+
+  try {
+    const rows = db.prepare(`
+      SELECT d.*,
+             snippet(documents_fts, 2, '<mark>', '</mark>', '…', 15) AS fts_snippet
+      FROM   documents_fts
+      JOIN   documents d ON d.id = documents_fts.document_id
+      WHERE  documents_fts MATCH ?
+        AND  documents_fts.user_id = ?
+        AND  d.status = 'archived'
+      ORDER  BY rank
+      LIMIT  50
+    `).all(ftsQuery, userId);
+
+    return res.status(200).json({
+      results: rows.map(r => ({
+        document: documentResponse(r),
+        snippet: r.fts_snippet || null,
+      })),
+    });
+  } catch (err) {
+    console.error('[search] FTS error:', err.message, { ftsQuery });
+    return res.status(200).json({ results: [], error: 'Suche fehlgeschlagen' });
+  }
+});
+
 app.get('/api/documents/:id', requireAuth, (req, res) => {
   const userId = currentUserId(req);
   const row = db.prepare(`
@@ -4128,6 +4199,10 @@ app.patch('/api/documents/:id', requireAuth, async (req, res) => {
       WHERE d.id = ? AND d.user_id = ?
     `).get(req.params.id, userId);
   }
+
+  const textRow = db.prepare('SELECT extracted_text FROM document_texts WHERE document_id = ?').get(row.id);
+  upsertDocumentFts(row.id, userId, row.filename, row.absender, row.zusammenfassung, textRow?.extracted_text || '');
+
   return res.status(200).json({ document: documentResponse(row) });
 });
 
@@ -4143,6 +4218,7 @@ app.delete('/api/documents/:id', requireAuth, async (req, res) => {
 
   db.prepare("UPDATE documents SET status = 'deleted', updated_at = ? WHERE id = ? AND user_id = ?")
     .run(new Date().toISOString(), req.params.id, userId);
+  db.prepare('DELETE FROM documents_fts WHERE document_id = ?').run(req.params.id);
 
   const movedPath = await moveDocumentFileToReadablePath(doc, { status: 'deleted', folderPath: doc.folder_path });
   if (movedPath && movedPath !== doc.storage_path) {
