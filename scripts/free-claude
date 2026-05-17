@@ -42,15 +42,26 @@ if [ -f "$OPENROUTER_CONFIG" ]; then
     export ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-}"
     export ANTHROPIC_API_KEY=""
 
+    # Debug: Überprüfe API Key
+    if [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then
+        log_error "ANTHROPIC_AUTH_TOKEN ist leer. Überprüfe ~/.config/openrouter/config"
+    fi
+
     echo "   API: OpenRouter ✓"
 else
-    log_warn "OpenRouter Konfiguration nicht gefunden. Führe setup-claude aus."
+    log_error "OpenRouter Konfiguration nicht gefunden in $OPENROUTER_CONFIG"
+    log_error "Führe aus: setup-claude"
     exit 1
 fi
 
 # Überprüfe dass settings.free.json gültig ist
 if ! jq -e '.model' "$SETTINGS_FREE" > /dev/null 2>&1; then
     log_error "settings.free.json ist ungültig oder hat kein .model Feld"
+fi
+
+# Überprüfe dass ANTHROPIC_AUTH_TOKEN wirklich gesetzt ist
+if [ -z "${ANTHROPIC_AUTH_TOKEN}" ]; then
+    log_error "API Key nicht konfiguriert. Überprüfe ~/.config/openrouter/config"
 fi
 
 # Zeige Modell-Info

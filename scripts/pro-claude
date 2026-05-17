@@ -29,7 +29,12 @@ fi
 
 log_success "Claude Pro aktiviert"
 
-# Überprüfe und stelle .credentials.json wieder her wenn nötig
+# Kopiere Pro-Profile zu aktiven Settings
+mkdir -p "$CLAUDE_DIR"
+cp "$SETTINGS_PRO" "$SETTINGS_ACTIVE"
+
+# Stelle OAuth Credentials wieder her wenn nötig
+# (Credentials können durch Claude Code Update verloren gehen)
 if [ ! -f "$CREDENTIALS" ] && [ -f "$CREDENTIALS_BAK" ]; then
     log_warn "OAuth-Tokens wiederherstellen..."
     cp "$CREDENTIALS_BAK" "$CREDENTIALS"
@@ -37,9 +42,14 @@ if [ ! -f "$CREDENTIALS" ] && [ -f "$CREDENTIALS_BAK" ]; then
     log_success "OAuth-Tokens wiederhergestellt"
 fi
 
-# Kopiere Pro-Profile zu aktiven Settings
-mkdir -p "$CLAUDE_DIR"
-cp "$SETTINGS_PRO" "$SETTINGS_ACTIVE"
+# Überprüfe ob Credentials existieren
+if [ ! -f "$CREDENTIALS" ]; then
+    log_warn "Keine gespeicherten OAuth-Tokens gefunden"
+    echo ""
+    echo "Beim Start werden Sie aufgefordert, sich mit /login anzumelden."
+    echo "Dies ist normal beim ersten Start."
+    echo ""
+fi
 
 # Starte Claude Code
 exec claude code "$@"
