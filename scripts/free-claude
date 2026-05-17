@@ -37,13 +37,10 @@ cp "$SETTINGS_FREE" "$SETTINGS_ACTIVE"
 if [ -f "$OPENROUTER_CONFIG" ]; then
     source "$OPENROUTER_CONFIG"
 
-    # Exportiere Umgebungsvariablen für Claude Code
-    export OPENAI_API_KEY="${OPENAI_API_KEY:-}"
-    export OPENAI_BASE_URL="${OPENAI_BASE_URL:-https://openrouter.ai/api/v1}"
-
-    # Auch als ANTHROPIC_* für Kompatibilität
-    export ANTHROPIC_API_KEY="$OPENAI_API_KEY"
-    export ANTHROPIC_BASE_URL="$OPENAI_BASE_URL"
+    # Exportiere Umgebungsvariablen für Claude Code (OpenRouter)
+    export ANTHROPIC_BASE_URL="https://openrouter.ai/api/v1"
+    export ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-}"
+    export ANTHROPIC_API_KEY=""
 
     echo "   API: OpenRouter ✓"
 else

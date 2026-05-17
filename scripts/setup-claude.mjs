@@ -70,7 +70,7 @@ fi
 echo "$API_KEY" > "${CONFIG_DIR}/openrouter/api-key"
 chmod 600 "${CONFIG_DIR}/openrouter/api-key"
 
-# Erstelle Free-Profile mit korrektem Modell
+# Erstelle Free-Profile mit OpenRouter (auto-select model)
 cat > "${CLAUDE_DIR}/settings.free.json" << FREE_EOF
 {
   "theme": "dark",
@@ -79,11 +79,10 @@ cat > "${CLAUDE_DIR}/settings.free.json" << FREE_EOF
 }
 FREE_EOF
 
-# Speichere API-Konfiguration separat
+# Speichere API-Konfiguration separat (für Claude Code)
 cat > "${CONFIG_DIR}/openrouter/config" << CONFIG_EOF
-OPENAI_API_KEY=$API_KEY
-OPENAI_BASE_URL=https://openrouter.ai/api/v1
-OPENROUTER_MODEL=openrouter/free
+ANTHROPIC_AUTH_TOKEN=$API_KEY
+ANTHROPIC_BASE_URL=https://openrouter.ai/api/v1
 CONFIG_EOF
 
 chmod 600 "${CONFIG_DIR}/openrouter/config"
