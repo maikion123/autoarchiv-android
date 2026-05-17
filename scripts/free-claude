@@ -52,7 +52,7 @@ if [ -f "$SETTINGS_FREE" ]; then
     CURRENT_MODEL=$(jq -r '.model' "$SETTINGS_FREE" 2>/dev/null || echo "unknown")
     echo "   Modell: $CURRENT_MODEL"
     echo ""
-    echo "💡 Modell wechseln: npm run claude:model"
+    echo "💡 Modell wechseln: free-claude-model"
 fi
 
 # Starte Claude Code

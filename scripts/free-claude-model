@@ -1,0 +1,5 @@
+#!/bin/bash
+# free-claude-model: Wähle und speichere ein OpenRouter Free-Modell
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bash "$SCRIPT_DIR/select-openrouter-model.sh" "$@"

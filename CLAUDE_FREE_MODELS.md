@@ -11,7 +11,12 @@ Die `free-claude` Umgebung nutzt OpenRouter für kostenlose Modelle. Alle verfü
 ### Option 1: Interactive Model Selector (Empfohlen)
 
 ```bash
-npm run claude:model
+free-claude-model
+```
+
+Oder mit npm:
+```bash
+npm run free-claude-model
 ```
 
 Dies zeigt eine interaktive Liste aller verfügbaren kostenlosen OpenRouter-Modelle:
@@ -60,7 +65,7 @@ free-claude
 
 # 3. Modell während der Session wechseln
 # In anderem Terminal:
-npm run claude:model
+free-claude-model
 
 # 4. free-claude neu starten (neue Instanz)
 free-claude
