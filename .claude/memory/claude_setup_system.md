@@ -7,7 +7,7 @@ metadata:
 
 # Claude Setup System — Multi-User Management
 
-**Status:** ✅ Fully implemented and tested (2026-05-16) — Auto-login path fix applied
+**Status:** ✅ Fully implemented and tested (2026-05-17) — OpenRouter endpoint, wrappers, and npm scripts fixed
 
 ## Architecture
 
