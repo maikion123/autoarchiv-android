@@ -15,15 +15,17 @@ log_success() { echo -e "${GREEN}[✓]${NC} $*"; }
 log_warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 log_error() { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
 
-# Konfiguration
+# Konfiguration (isoliertes Free-Profile!)
 USER=$(whoami)
 HOME_DIR=$(eval echo ~$USER)
 CLAUDE_DIR="${HOME_DIR}/.claude"
-SETTINGS_FREE="${CLAUDE_DIR}/settings.free.json"
+FREE_PROFILE="${CLAUDE_DIR}/profiles/free"
+SETTINGS_FREE="${FREE_PROFILE}/settings.json"
 
-# Überprüfe ob settings.free.json existiert
+# Überprüfe ob Free-Profile existiert
 if [ ! -f "$SETTINGS_FREE" ]; then
-    log_error "settings.free.json nicht gefunden. Führe setup-claude aus."
+    log_error "Free-Profile Settings nicht gefunden: $SETTINGS_FREE"
+    log_error "Führe aus: setup-claude"
 fi
 
 echo ""

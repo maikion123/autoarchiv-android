@@ -1,15 +1,14 @@
 #!/bin/bash
-# pro-claude: Claude Code mit Pro-Profile (OAuth)
+# pro-claude: Claude Code mit isoliertem Pro-Profile
 
 set -euo pipefail
 
 readonly USER=$(whoami)
 readonly HOME_DIR=$(eval echo ~$USER)
 readonly CLAUDE_DIR="${HOME_DIR}/.claude"
-readonly SETTINGS_PRO="${CLAUDE_DIR}/settings.pro.json"
-readonly SETTINGS_ACTIVE="${CLAUDE_DIR}/settings.json"
-readonly CREDENTIALS="${CLAUDE_DIR}/.credentials.json"
-readonly CREDENTIALS_BAK="${CLAUDE_DIR}/.credentials.json.bak"
+readonly PRO_PROFILE="${CLAUDE_DIR}/profiles/pro"
+readonly SETTINGS_PRO="${PRO_PROFILE}/settings.json"
+readonly CREDENTIALS="${PRO_PROFILE}/.credentials.json"
 
 # Farben
 readonly GREEN='\033[0;32m'
@@ -24,33 +23,31 @@ log_warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 
 # Überprüfe ob Pro-Profile existiert
 if [ ! -f "$SETTINGS_PRO" ]; then
-    log_error "Pro-Profile nicht gefunden! Führe 'setup-claude' aus."
+    log_error "Pro-Profile nicht gefunden: $SETTINGS_PRO"
+    log_error "Führe aus: setup-claude"
 fi
 
-log_success "Claude Pro aktiviert"
+log_success "Claude Pro aktiviert (isoliert)"
+log_success "  Profile: ${PRO_PROFILE}/"
 
-# Kopiere Pro-Profile zu aktiven Settings
-mkdir -p "$CLAUDE_DIR"
-cp "$SETTINGS_PRO" "$SETTINGS_ACTIVE"
+# Erstelle Symlink auf active settings.json (isoliert!)
+# Dies stellt sicher, dass pro-claude SEINE eigenen settings.json nutzt
+ln -sf "$SETTINGS_PRO" "${CLAUDE_DIR}/settings.json" 2>/dev/null || {
+    # Fallback: Kopiere statt Symlink
+    cp "$SETTINGS_PRO" "${CLAUDE_DIR}/settings.json"
+}
 
-# Stelle OAuth Credentials wieder her wenn nötig
-# (Credentials können durch Claude Code Update verloren gehen)
-if [ ! -f "$CREDENTIALS" ] && [ -f "$CREDENTIALS_BAK" ]; then
-    log_warn "OAuth-Tokens wiederherstellen..."
-    cp "$CREDENTIALS_BAK" "$CREDENTIALS"
-    chmod 600 "$CREDENTIALS"
-    log_success "OAuth-Tokens wiederhergestellt"
-fi
+# Zeige Modell und Credentials-Info
+CURRENT_MODEL=$(jq -r '.model' "$SETTINGS_PRO" 2>/dev/null || echo "unknown")
+echo "   Modell: $CURRENT_MODEL"
 
-# Überprüfe ob Credentials existieren
 if [ ! -f "$CREDENTIALS" ]; then
-    log_warn "Keine gespeicherten OAuth-Tokens gefunden"
-    echo ""
-    echo "Beim Start werden Sie aufgefordert, sich mit /login anzumelden."
-    echo "Dies ist normal beim ersten Start."
-    echo ""
+    log_warn "Beim ersten Start: /login für OAuth Authentifizierung"
+else
+    log_success "OAuth Credentials gefunden"
 fi
 
-# Starte Claude Code
-exec claude code "$@"
+echo ""
 
+# Starte Claude Code (nutzt die isolierte settings.json)
+exec claude code "$@"

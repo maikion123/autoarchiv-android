@@ -1,11 +1,14 @@
 #!/bin/bash
-# setup-claude: Automatischer Setup für Claude Pro + OpenRouter
+# setup-claude: Automatischer Setup für Claude Pro + OpenRouter (mit Profil-Isolation)
 
 set -euo pipefail
 
 readonly USER=$(whoami)
 readonly HOME_DIR=$(eval echo ~$USER)
 readonly CLAUDE_DIR="${HOME_DIR}/.claude"
+readonly PROFILES_DIR="${CLAUDE_DIR}/profiles"
+readonly PRO_PROFILE="${PROFILES_DIR}/pro"
+readonly FREE_PROFILE="${PROFILES_DIR}/free"
 readonly CONFIG_DIR="${HOME_DIR}/.config"
 
 # Farben
@@ -26,39 +29,41 @@ log_section() {
 }
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Schritt 1: Ordner vorbereiten
+# Schritt 1: Verzeichnisstruktur erstellen
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-log_section "Claude Setup für $USER"
+log_section "Claude Setup für $USER (mit Profil-Isolation)"
 
-mkdir -p "${CLAUDE_DIR}"
-mkdir -p "${CONFIG_DIR}/claude"
+mkdir -p "${PROFILES_DIR}/pro"
+mkdir -p "${PROFILES_DIR}/free"
 mkdir -p "${CONFIG_DIR}/openrouter"
 
-log_success "Ordner vorbereitet"
+log_success "Profil-Verzeichnisse erstellt:"
+log_success "  Pro:  ${PRO_PROFILE}/"
+log_success "  Free: ${FREE_PROFILE}/"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Schritt 2: Claude Pro OAuth konfigurieren
+# Schritt 2: Pro-Profile initialisieren
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-log_section "Claude Pro OAuth Setup"
+log_section "Claude Pro (isoliert)"
 
-cat > "${CLAUDE_DIR}/settings.pro.json" << 'PRO_EOF'
+cat > "${PRO_PROFILE}/settings.json" << 'PRO_EOF'
 {
   "theme": "dark",
   "model": "opus",
-  "comment": "Pro-Profile: Browser OAuth (Anthropic Claude.ai)"
+  "comment": "Pro-Profile: Browser OAuth (Anthropic Claude.ai) - ISOLATED"
 }
 PRO_EOF
 
-log_success "Pro-Profile erstellt"
-log_info "Beim ersten Start mit pro-claude: Führe /login aus für OAuth"
+log_success "Pro-Profile erstellt in ${PRO_PROFILE}/"
+log_info "Beim ersten Start: pro-claude → dann /login für OAuth"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Schritt 3: OpenRouter konfigurieren
+# Schritt 3: Free-Profile + OpenRouter konfigurieren
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-log_section "OpenRouter Free Setup"
+log_section "Claude Free + OpenRouter"
 
 read -p "OpenRouter API Key (von https://openrouter.ai/keys): " -r API_KEY
 
@@ -66,51 +71,50 @@ if [[ ! $API_KEY =~ ^sk-or-v1- ]]; then
     log_warn "API Key scheint ungültig zu sein (sollte mit sk-or-v1- beginnen)"
 fi
 
-# Speichere API Key sicher
-echo "$API_KEY" > "${CONFIG_DIR}/openrouter/api-key"
-chmod 600 "${CONFIG_DIR}/openrouter/api-key"
-
-# Erstelle Free-Profile mit OpenRouter (auto-select model)
-cat > "${CLAUDE_DIR}/settings.free.json" << FREE_EOF
+# Erstelle Free-Profile Settings (isoliert)
+cat > "${FREE_PROFILE}/settings.json" << FREE_EOF
 {
   "theme": "dark",
-  "model": "openrouter/auto",
-  "comment": "Free-Profile: OpenRouter Free Models"
+  "model": "openrouter/free",
+  "comment": "Free-Profile: OpenRouter Free Models - ISOLATED"
 }
 FREE_EOF
 
-# Speichere API-Konfiguration separat (für Claude Code)
-cat > "${CONFIG_DIR}/openrouter/config" << CONFIG_EOF
+# Erstelle OpenRouter Config (isoliert in free/ Profil)
+mkdir -p "${FREE_PROFILE}/.config/openrouter"
+cat > "${FREE_PROFILE}/.config/openrouter/config" << CONFIG_EOF
 ANTHROPIC_AUTH_TOKEN=$API_KEY
 ANTHROPIC_BASE_URL=https://openrouter.ai/api/v1
 CONFIG_EOF
+chmod 600 "${FREE_PROFILE}/.config/openrouter/config"
 
-chmod 600 "${CONFIG_DIR}/openrouter/config"
-log_success "OpenRouter konfiguriert"
+# Speichere API Key auch global für Referenz
+echo "$API_KEY" > "${CONFIG_DIR}/openrouter/api-key"
+chmod 600 "${CONFIG_DIR}/openrouter/api-key"
+
+log_success "Free-Profile erstellt in ${FREE_PROFILE}/"
+log_success "OpenRouter Config gespeichert (isoliert)"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Schritt 4: Validierung
+# Schritt 4: Backup Template speichern
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+log_section "Templates speichern (für Reset)"
+
+cp "${PRO_PROFILE}/settings.json" "${CLAUDE_DIR}/settings.pro.json"
+cp "${FREE_PROFILE}/settings.json" "${CLAUDE_DIR}/settings.free.json"
+
+log_success "Templates gespeichert (für delete-claude)"
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Schritt 5: Validierung
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 log_section "Validierung"
 
-if [ -f "${CLAUDE_DIR}/settings.pro.json" ]; then
-    log_success "✓ Pro-Profile vorhanden"
-else
-    log_warn "Pro-Profile nicht gefunden"
-fi
-
-if [ -f "${CLAUDE_DIR}/settings.free.json" ]; then
-    log_success "✓ Free-Profile vorhanden"
-else
-    log_warn "Free-Profile nicht gefunden"
-fi
-
-if [ -f "${CONFIG_DIR}/openrouter/api-key" ]; then
-    log_success "✓ OpenRouter API-Key gespeichert"
-else
-    log_warn "OpenRouter API-Key nicht gefunden"
-fi
+[ -f "${PRO_PROFILE}/settings.json" ] && log_success "✓ Pro-Profile Settings" || log_warn "✗ Pro-Profile Settings fehlt"
+[ -f "${FREE_PROFILE}/settings.json" ] && log_success "✓ Free-Profile Settings" || log_warn "✗ Free-Profile Settings fehlt"
+[ -f "${FREE_PROFILE}/.config/openrouter/config" ] && log_success "✓ OpenRouter Config isoliert" || log_warn "✗ OpenRouter Config fehlt"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Fertig!
@@ -119,17 +123,21 @@ fi
 log_section "Setup abgeschlossen! ✨"
 
 echo ""
-echo "Nächste Schritte:"
+echo "📁 Profil-Struktur:"
+echo "   Pro:  ${PRO_PROFILE}/ (isoliert)"
+echo "   Free: ${FREE_PROFILE}/ (isoliert)"
+echo ""
+echo "🚀 Nächste Schritte:"
 echo ""
 echo "1. Claude Pro starten:"
 echo "   $ pro-claude"
-echo "   Dann: /login (OAuth Authentifizierung)"
+echo "   Beim Start: /login (OAuth Authentifizierung)"
 echo ""
 echo "2. Claude Free starten:"
 echo "   $ free-claude"
 echo ""
-echo "Profile wechseln:"
-echo "   $ pro-claude   (zurück zu Pro)"
-echo "   $ free-claude  (zu Free)"
+echo "💡 Profile sind jetzt ISOLIERT:"
+echo "   - Pro und Free laufen unabhängig"
+echo "   - Settings, Tokens, Config sind getrennt"
+echo "   - Keine gegenseitige Beeinflussung!"
 echo ""
-

@@ -1,15 +1,14 @@
 #!/bin/bash
-# free-claude: Claude Code mit OpenRouter Free
+# free-claude: Claude Code mit isoliertem Free-Profile + OpenRouter
 
 set -euo pipefail
 
 readonly USER=$(whoami)
 readonly HOME_DIR=$(eval echo ~$USER)
 readonly CLAUDE_DIR="${HOME_DIR}/.claude"
-readonly CONFIG_DIR="${HOME_DIR}/.config"
-readonly OPENROUTER_CONFIG="${CONFIG_DIR}/openrouter/config"
-readonly SETTINGS_FREE="${CLAUDE_DIR}/settings.free.json"
-readonly SETTINGS_ACTIVE="${CLAUDE_DIR}/settings.json"
+readonly FREE_PROFILE="${CLAUDE_DIR}/profiles/free"
+readonly SETTINGS_FREE="${FREE_PROFILE}/settings.json"
+readonly OPENROUTER_CONFIG="${FREE_PROFILE}/.config/openrouter/config"
 
 # Farben
 readonly GREEN='\033[0;32m'
@@ -24,54 +23,45 @@ log_warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 
 # Überprüfe ob Free-Profile existiert
 if [ ! -f "$SETTINGS_FREE" ]; then
-    log_error "Free-Profile nicht gefunden! Führe 'setup-claude' aus."
-fi
-
-log_success "Claude Free (OpenRouter) aktiviert"
-
-# Kopiere Free-Profile zu aktiven Settings
-mkdir -p "$CLAUDE_DIR"
-cp "$SETTINGS_FREE" "$SETTINGS_ACTIVE"
-
-# Lade OpenRouter-Konfiguration
-if [ -f "$OPENROUTER_CONFIG" ]; then
-    source "$OPENROUTER_CONFIG"
-
-    # Exportiere Umgebungsvariablen für Claude Code (OpenRouter)
-    export ANTHROPIC_BASE_URL="https://openrouter.ai/api/v1"
-    export ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-}"
-    export ANTHROPIC_API_KEY=""
-
-    # Debug: Überprüfe API Key
-    if [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then
-        log_error "ANTHROPIC_AUTH_TOKEN ist leer. Überprüfe ~/.config/openrouter/config"
-    fi
-
-    echo "   API: OpenRouter ✓"
-else
-    log_error "OpenRouter Konfiguration nicht gefunden in $OPENROUTER_CONFIG"
+    log_error "Free-Profile nicht gefunden: $SETTINGS_FREE"
     log_error "Führe aus: setup-claude"
-    exit 1
 fi
 
-# Überprüfe dass settings.free.json gültig ist
-if ! jq -e '.model' "$SETTINGS_FREE" > /dev/null 2>&1; then
-    log_error "settings.free.json ist ungültig oder hat kein .model Feld"
+log_success "Claude Free aktiviert (isoliert)"
+log_success "  Profile: ${FREE_PROFILE}/"
+
+# Erstelle Symlink auf active settings.json (isoliert!)
+ln -sf "$SETTINGS_FREE" "${CLAUDE_DIR}/settings.json" 2>/dev/null || {
+    # Fallback: Kopiere statt Symlink
+    cp "$SETTINGS_FREE" "${CLAUDE_DIR}/settings.json"
+}
+
+# Lade OpenRouter-Konfiguration (isoliert im Free-Profile!)
+if [ ! -f "$OPENROUTER_CONFIG" ]; then
+    log_error "OpenRouter Config nicht gefunden: $OPENROUTER_CONFIG"
+    log_error "Führe aus: setup-claude"
 fi
 
-# Überprüfe dass ANTHROPIC_AUTH_TOKEN wirklich gesetzt ist
-if [ -z "${ANTHROPIC_AUTH_TOKEN}" ]; then
-    log_error "API Key nicht konfiguriert. Überprüfe ~/.config/openrouter/config"
+source "$OPENROUTER_CONFIG"
+
+# Exportiere Umgebungsvariablen für Claude Code (OpenRouter)
+export ANTHROPIC_BASE_URL="https://openrouter.ai/api/v1"
+export ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-}"
+export ANTHROPIC_API_KEY=""
+
+# Validiere API Key
+if [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then
+    log_error "ANTHROPIC_AUTH_TOKEN ist leer in: $OPENROUTER_CONFIG"
 fi
+
+echo "   API: OpenRouter ✓"
 
 # Zeige Modell-Info
-if [ -f "$SETTINGS_FREE" ]; then
-    CURRENT_MODEL=$(jq -r '.model' "$SETTINGS_FREE" 2>/dev/null || echo "unknown")
-    echo "   Modell: $CURRENT_MODEL"
-    echo ""
-    echo "💡 Modell wechseln: free-claude-model"
-fi
+CURRENT_MODEL=$(jq -r '.model' "$SETTINGS_FREE" 2>/dev/null || echo "unknown")
+echo "   Modell: $CURRENT_MODEL"
+echo ""
+echo "💡 Modell wechseln: free-claude-model"
+echo ""
 
-# Starte Claude Code
+# Starte Claude Code (nutzt die isolierte settings.json + OpenRouter Env-Vars)
 exec claude code "$@"
-
