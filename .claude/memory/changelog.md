@@ -1,5 +1,14 @@
 ## Recent Changes
 
+### [2026-05-17] OpenRouter Free Model Selector & free-claude-model Command
+- Added interactive model selector: `free-claude-model` command
+- Fetches available free models from OpenRouter API (with fallback)
+- Option 0: `openrouter/free` for automatic model selection
+- Saves selected model to `~/.claude/settings.free.json`
+- Updated free-claude to display current model and hint for switching
+- Documentation: `CLAUDE_FREE_MODELS.md` with workflow and troubleshooting
+- Scripts: `select-openrouter-model.sh` and `free-claude-model` wrapper
+
 ### [2026-05-17] Complete Claude Setup System Fixes
 **Fixes Applied:**
 1. **OpenRouter Endpoint:** Fixed missing `/v1` suffix in free-claude and setup-claude.mjs
