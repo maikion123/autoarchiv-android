@@ -22,7 +22,8 @@
     "agent:block": "node scripts/agent-log.mjs block",
     "agent:done": "node scripts/agent-log.mjs done",
     "claude:setup": "bash scripts/setup-claude.mjs",
-    "claude:delete": "bash scripts/delete-claude.mjs"
+    "claude:delete": "bash scripts/delete-claude.mjs",
+    "claude:model": "bash scripts/select-openrouter-model.sh"
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "^1.25.5",
