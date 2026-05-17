@@ -21,8 +21,8 @@
     "agent:event": "node scripts/agent-log.mjs event",
     "agent:block": "node scripts/agent-log.mjs block",
     "agent:done": "node scripts/agent-log.mjs done",
-    "claude:setup": "node scripts/setup-claude.mjs",
-    "claude:delete": "node scripts/delete-claude.mjs"
+    "claude:setup": "bash scripts/setup-claude.mjs",
+    "claude:delete": "bash scripts/delete-claude.mjs"
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "^1.25.5",
