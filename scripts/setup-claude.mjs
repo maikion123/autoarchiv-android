@@ -22,14 +22,8 @@ echo -e "${BLUE}Claude Code Setup (Pro + Free)${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
-# Step 1: Pro-Claude (Just works with OAuth)
-echo "📌 Pro-Claude:"
-log_info "OAuth managed by Claude Code automatically"
-log_info "run: pro-claude → /login (first time only)"
-echo ""
-
-# Step 2: OpenRouter API Key for Free-Claude
-echo "📌 Free-Claude:"
+# Step 1: OpenRouter API Key for Free-Claude
+echo "📌 Free-Claude Setup:"
 read -p "OpenRouter API Key (from https://openrouter.ai/keys): " -r API_KEY
 
 if [[ ! $API_KEY =~ ^sk-or-v1- ]]; then
@@ -44,22 +38,58 @@ chmod 600 "${CONFIG_DIR}/config"
 log_success "OpenRouter API Key saved"
 echo ""
 
+# Step 2: Pro-Claude OAuth Login
+echo "📌 Pro-Claude OAuth Login:"
+echo ""
+read -p "Ready to log in to pro-claude now? (yes/no): " -r DO_LOGIN
+
+if [[ "$DO_LOGIN" =~ ^(yes|y)$ ]]; then
+    echo ""
+    log_info "Launching pro-claude for OAuth..."
+    echo ""
+    echo "📋 Instructions:"
+    echo "  1. Type in Claude Code: /login"
+    echo "  2. Browser will open for OAuth authentication"
+    echo "  3. Complete the authentication flow"
+    echo "  4. Exit Claude Code: type /exit or press Ctrl+D"
+    echo ""
+    echo -e "${YELLOW}Ready? Press Enter to continue...${NC}"
+    read -r
+    echo ""
+
+    # Launch pro-claude for login
+    pro-claude
+
+    # Check if credentials were saved
+    CREDENTIALS_FILE="${HOME_DIR}/.claude/.credentials.json"
+    echo ""
+    if [ -f "$CREDENTIALS_FILE" ]; then
+        log_success "✓ OAuth credentials saved successfully!"
+    else
+        log_warn "⚠️  OAuth credentials not found"
+        log_info "You can log in later: pro-claude → /login"
+    fi
+else
+    log_info "Skipped OAuth login - you can set it up later"
+    log_info "Run: pro-claude → /login"
+fi
+
+echo ""
+
 # Step 3: Done
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 log_success "Setup complete! ✨"
 echo ""
-echo "🚀 Next steps:"
+echo "🚀 Ready to use:"
 echo ""
-echo "1. Start Pro-Claude (with OAuth):"
+echo "1. Pro-Claude (with OAuth):"
 echo "   $ pro-claude"
-echo "   First time: /login (browser opens)"
 echo ""
-echo "2. Start Free-Claude (with OpenRouter):"
+echo "2. Free-Claude (with OpenRouter):"
 echo "   $ free-claude"
-echo "   Uses same OAuth as Pro"
 echo ""
 echo "💡 Tips:"
 echo "   • Change model in free-claude: /model"
-echo "   • OAuth tokens persist automatically"
-echo "   • No manual login needed after first time"
+echo "   • Both use the same OAuth session"
+echo "   • No additional login needed after setup"
 echo ""
