@@ -1,5 +1,55 @@
 ## Recent Changes
 
+### [2026-05-17] MAJOR: Complete Claude Profile System Redesign for True Isolation
+**Breaking Change - Complete System Redesign:**
+
+**Problem:** Pro-claude and free-claude were sharing settings.json, causing cross-contamination
+
+**Solution:** Isolated Profile Architecture
+```
+~/.claude/
+├── profiles/
+│   ├── pro/settings.json           (Pro settings - isolated)
+│   ├── pro/.credentials.json       (Pro OAuth tokens - isolated)
+│   ├── free/settings.json          (Free settings - isolated)
+│   └── free/.config/openrouter/config (OpenRouter API - isolated)
+└── settings.json                   (Symlink to active profile)
+```
+
+**What Changed:**
+1. **setup-claude** - Creates isolated profile directories
+   - Pro: ~/.claude/profiles/pro/
+   - Free: ~/.claude/profiles/free/
+2. **pro-claude** - Uses symlink to profiles/pro/settings.json
+3. **free-claude** - Uses symlink to profiles/free/settings.json + isolated OpenRouter config
+4. **delete-claude** - Deletes isolated profiles safely
+5. **free-claude-model** - Updates only profiles/free/settings.json
+
+**Benefits:**
+✅ Pro and Free completely independent
+✅ No settings cross-contamination
+✅ OAuth tokens/credentials are isolated
+✅ Model changes only affect respective profile
+✅ Each user has clean separation
+
+**Migration:**
+```bash
+# Back up old setup (optional)
+cp ~/.claude/settings.pro.json ~/.claude/settings.pro.json.backup
+cp ~/.claude/settings.free.json ~/.claude/settings.free.json.backup
+
+# Run new setup (creates isolated structure)
+setup-claude
+```
+
+**Verification:**
+```bash
+bash scripts/diagnose-claude-setup.sh
+# Should show:
+# ✓ profiles/pro/ exists
+# ✓ profiles/free/ exists
+```
+
 ### [2026-05-17] OpenRouter Free Model Selector & free-claude-model Command
 - Added interactive model selector: `free-claude-model` command
 - Fetches available free models from OpenRouter API (with fallback)
