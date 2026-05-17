@@ -1,5 +1,163 @@
 #!/bin/bash
-# setup-claude: Benutzerfreundliches Setup für Claude Pro + Free
+# setup-claude: Simple setup for pro-claude and free-claude (Ollama or OpenRouter)
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-bash "$SCRIPT_DIR/setup-claude.mjs" "$@"
+set -euo pipefail
+
+readonly HOME_DIR=$(eval echo ~$(whoami))
+readonly CONFIG_DIR="${HOME_DIR}/.config/claude-free"
+
+# Colors
+readonly GREEN='\033[0;32m'
+readonly BLUE='\033[0;34m'
+readonly YELLOW='\033[1;33m'
+readonly RED='\033[0;31m'
+readonly NC='\033[0m'
+
+log_info() { echo -e "${BLUE}ℹ${NC} $*"; }
+log_success() { echo -e "${GREEN}✓${NC} $*"; }
+log_warn() { echo -e "${YELLOW}!${NC} $*"; }
+log_error() { echo -e "${RED}❌${NC} $*"; }
+
+echo ""
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}Claude Code Setup (Pro + Free)${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+
+# Step 1: Choose method for Free-Claude
+echo "📌 Free-Claude Setup:"
+echo ""
+echo "Choose how to run Claude Code for free:"
+echo "  1) Ollama - Local (100% free, private, needs ~8GB RAM + decent CPU)"
+echo "  2) OpenRouter - Cloud (~free, needs $5-10 initial credit)"
+echo ""
+read -p "Choose method (1 or 2): " -r METHOD_CHOICE
+
+mkdir -p "$CONFIG_DIR"
+
+case "$METHOD_CHOICE" in
+    1|ollama)
+        echo ""
+        log_info "Setting up Ollama..."
+        echo ""
+
+        # Check if ollama is installed
+        if ! command -v ollama &> /dev/null; then
+            log_warn "Ollama not found. Install from: https://ollama.com"
+            read -p "Continue anyway? (yes/no): " -r CONTINUE
+            if [[ ! "$CONTINUE" =~ ^(yes|y)$ ]]; then
+                exit 1
+            fi
+        fi
+
+        # Choose model
+        echo "Available models:"
+        echo "  • qwen2.5:7b (7B, fast, good code)"
+        echo "  • mistral:7b (7B, balanced)"
+        echo "  • neural-chat:7b (7B, conversational)"
+        echo "  • llama2:7b (7B, general)"
+        echo ""
+        read -p "Model name (or custom): " -r MODEL_NAME
+        MODEL_NAME="${MODEL_NAME:-qwen2.5:7b}"
+
+        # Save config
+        echo "OLLAMA_MODEL=$MODEL_NAME" > "${CONFIG_DIR}/ollama"
+        chmod 600 "${CONFIG_DIR}/ollama"
+        echo "ollama" > "${CONFIG_DIR}/method"
+
+        log_success "Ollama configured: $MODEL_NAME"
+        echo ""
+        log_info "Next steps:"
+        echo "  1. Install Ollama: https://ollama.com"
+        echo "  2. Pull the model: ollama pull $MODEL_NAME"
+        echo "  3. Start Ollama: ollama serve (or use the Ollama app)"
+        echo "  4. Run: free-claude"
+        echo ""
+        ;;
+
+    2|openrouter)
+        echo ""
+        log_info "Setting up OpenRouter..."
+        echo ""
+
+        read -p "OpenRouter API Key (from https://openrouter.ai/keys): " -r API_KEY
+
+        if [[ ! $API_KEY =~ ^sk-or-v1- ]]; then
+            log_warn "API Key format may be invalid (should start with sk-or-v1-)"
+        fi
+
+        # Save config
+        echo "OPENROUTER_API_KEY=$API_KEY" > "${CONFIG_DIR}/openrouter"
+        chmod 600 "${CONFIG_DIR}/openrouter"
+        echo "openrouter" > "${CONFIG_DIR}/method"
+
+        log_success "OpenRouter API Key saved"
+        echo ""
+        log_info "Setup tips:"
+        echo "  • Add ~$5-10 credit to unlock ~1,000 free daily requests"
+        echo "  • Free models: deepseek/deepseek-chat, qwen/qwen-3.6-free"
+        echo "  • Change model in Claude Code: /model"
+        echo ""
+        ;;
+
+    *)
+        log_error "Invalid choice: $METHOD_CHOICE"
+        exit 1
+        ;;
+esac
+
+# Step 2: Pro-Claude OAuth Login
+echo "📌 Pro-Claude OAuth Login:"
+echo ""
+read -p "Ready to log in to pro-claude now? (yes/no): " -r DO_LOGIN
+
+if [[ "$DO_LOGIN" =~ ^(yes|y)$ ]]; then
+    echo ""
+    log_info "Launching pro-claude for OAuth..."
+    echo ""
+    echo "📋 Instructions:"
+    echo "  1. Type in Claude Code: /login"
+    echo "  2. Browser will open for OAuth authentication"
+    echo "  3. Complete the authentication flow"
+    echo "  4. Exit Claude Code: type /exit or press Ctrl+D"
+    echo ""
+    echo -e "${YELLOW}Ready? Press Enter to continue...${NC}"
+    read -r
+    echo ""
+
+    # Launch pro-claude for login
+    pro-claude
+
+    # Check if credentials were saved
+    CREDENTIALS_FILE="${HOME_DIR}/.claude/.credentials.json"
+    echo ""
+    if [ -f "$CREDENTIALS_FILE" ]; then
+        log_success "OAuth credentials saved successfully!"
+    else
+        log_warn "OAuth credentials not found"
+        log_info "You can log in later: pro-claude → /login"
+    fi
+else
+    log_info "Skipped OAuth login - you can set it up later"
+    log_info "Run: pro-claude → /login"
+fi
+
+echo ""
+
+# Step 3: Done
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+log_success "Setup complete! ✨"
+echo ""
+echo "🚀 Ready to use:"
+echo ""
+echo "1. Pro-Claude (with OAuth):"
+echo "   $ pro-claude"
+echo ""
+echo "2. Free-Claude ($(grep -s . "${CONFIG_DIR}/method" 2>/dev/null || echo "not configured")):"
+echo "   $ free-claude"
+echo ""
+echo "💡 Tips:"
+echo "   • Change model: /model"
+echo "   • Switch methods: run setup-claude again"
+echo "   • Both use the same OAuth session"
+echo ""

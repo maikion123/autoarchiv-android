@@ -1,34 +1,30 @@
 #!/bin/bash
-# delete-claude: Safe deletion of Claude profiles (keeps shared OAuth)
+# delete-claude: Delete free-claude config (keeps OAuth)
 
 set -euo pipefail
 
-readonly USER=$(whoami)
-readonly HOME_DIR=$(eval echo ~$USER)
-readonly CLAUDE_DIR="${HOME_DIR}/.claude"
-readonly PROFILES_DIR="${CLAUDE_DIR}/profiles"
+readonly HOME_DIR=$(eval echo ~$(whoami))
+readonly CONFIG_DIR="${HOME_DIR}/.config/claude-free"
 
-# Farben
-readonly GREEN='\033[0;32m'
-readonly BLUE='\033[0;34m'
+# Colors
 readonly RED='\033[0;31m'
 readonly YELLOW='\033[1;33m'
+readonly GREEN='\033[0;32m'
+readonly BLUE='\033[0;34m'
 readonly NC='\033[0m'
 
-log_warn() { echo -e "${YELLOW}[!]${NC} $*"; }
-log_success() { echo -e "${GREEN}[✓]${NC} $*"; }
-log_info() { echo -e "${BLUE}[i]${NC} $*"; }
+log_warn() { echo -e "${YELLOW}!${NC} $*"; }
+log_success() { echo -e "${GREEN}✓${NC} $*"; }
 
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${RED}Warning: Deletes Claude Pro/Free profiles for $USER${NC}"
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${RED}Delete Free-Claude Configuration?${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo "This will delete:"
-echo "  • ${PROFILES_DIR}/pro/"
-echo "  • ${PROFILES_DIR}/free/"
+echo "  • ${CONFIG_DIR}/ (method, API keys)"
 echo ""
-echo "⚠️  OAuth tokens in ~/.claude/.credentials.json will be KEPT"
-echo "   (so you can restore settings without re-logging in)"
+echo "⚠️  OAuth tokens in ~/.claude/.credentials.json are KEPT"
 echo ""
 
 read -p "Continue? (yes/no): " -r response
@@ -39,31 +35,14 @@ if [[ ! "$response" =~ ^(yes|y)$ ]]; then
 fi
 
 echo ""
-log_warn "Deleting profiles..."
-echo ""
+log_warn "Deleting..."
 
-# Delete isolated profiles
-if [ -d "${PROFILES_DIR}/pro" ]; then
-    rm -rf "${PROFILES_DIR}/pro"
-    log_success "Pro-Profile deleted"
+if [ -d "$CONFIG_DIR" ]; then
+    rm -rf "$CONFIG_DIR"
+    log_success "Free-Claude config deleted"
 fi
-
-if [ -d "${PROFILES_DIR}/free" ]; then
-    rm -rf "${PROFILES_DIR}/free"
-    log_success "Free-Profile deleted"
-fi
-
-# Delete active symlink
-if [ -L "${CLAUDE_DIR}/settings.json" ] || [ -f "${CLAUDE_DIR}/settings.json" ]; then
-    rm -f "${CLAUDE_DIR}/settings.json"
-    log_success "Active settings deleted"
-fi
-
-# Keep templates for recovery
-log_info "Templates in ~/.claude/ kept (for setup-claude)"
-log_info "OAuth tokens in ~/.claude/.credentials.json KEPT"
 
 echo ""
-log_success "✓ Profiles deleted"
+log_success "Done"
 log_warn "→ Run: setup-claude (to reconfigure)"
 echo ""

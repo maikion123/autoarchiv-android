@@ -21,7 +21,7 @@
     "agent:event": "node scripts/agent-log.mjs event",
     "agent:block": "node scripts/agent-log.mjs block",
     "agent:done": "node scripts/agent-log.mjs done",
-    "claude:setup": "bash scripts/setup-claude.mjs",
+    "claude:setup": "bash scripts/setup-claude",
     "claude:delete": "bash scripts/delete-claude.mjs",
     "free-claude-model": "bash scripts/free-claude-model"
   },
