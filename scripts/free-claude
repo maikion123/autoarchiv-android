@@ -1,68 +1,31 @@
 #!/bin/bash
-# free-claude: Claude Code Pro - OpenRouter Models + Shared OAuth
+# free-claude: Start Claude Code with OpenRouter API
 
 set -euo pipefail
 
-readonly USER=$(whoami)
-readonly HOME_DIR=$(eval echo ~$USER)
-readonly CLAUDE_DIR="${HOME_DIR}/.claude"
-readonly FREE_PROFILE="${CLAUDE_DIR}/profiles/free"
-readonly SETTINGS_FREE="${FREE_PROFILE}/settings.json"
-readonly ENV_FILE="${FREE_PROFILE}/.env"
-
-# Farben
-readonly GREEN='\033[0;32m'
-readonly BLUE='\033[0;34m'
-readonly RED='\033[0;31m'
-readonly YELLOW='\033[1;33m'
-readonly NC='\033[0m'
-
-log_error() { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
-log_success() { echo -e "${GREEN}[✓]${NC} $*"; }
-log_warn() { echo -e "${YELLOW}[!]${NC} $*"; }
-
-# Überprüfe ob Free-Profile existiert
-if [ ! -f "$SETTINGS_FREE" ]; then
-    log_error "Free-Profile nicht gefunden: $SETTINGS_FREE"
-    log_error "Run: setup-claude"
+# Load OpenRouter API Key
+OPENROUTER_CONFIG="${HOME}/.config/openrouter/config"
+if [ ! -f "$OPENROUTER_CONFIG" ]; then
+    echo "❌ OpenRouter config not found: $OPENROUTER_CONFIG"
+    echo "Run: setup-claude"
+    exit 1
 fi
 
-log_success "Claude Free aktiviert (OpenRouter + OAuth)"
+source "$OPENROUTER_CONFIG"
 
-# Erstelle Symlink auf active settings.json
-ln -sf "$SETTINGS_FREE" "${CLAUDE_DIR}/settings.json" 2>/dev/null || {
-    cp "$SETTINGS_FREE" "${CLAUDE_DIR}/settings.json"
-}
-
-# Lade OpenRouter Umgebungsvariablen BEVOR Claude Code startet
-if [ ! -f "$ENV_FILE" ]; then
-    log_error "OpenRouter config nicht gefunden: $ENV_FILE"
-    log_error "Run: setup-claude"
+if [ -z "${OPENROUTER_API_KEY:-}" ]; then
+    echo "❌ OPENROUTER_API_KEY is empty"
+    exit 1
 fi
 
-log_success "Loading OpenRouter API config..."
-source "$ENV_FILE"
-
-# Validiere API Key
-if [ -z "${ANTHROPIC_AUTH_TOKEN:-}" ]; then
-    log_error "ANTHROPIC_AUTH_TOKEN ist leer in: $ENV_FILE"
-fi
-
-log_success "   API: OpenRouter ✓"
-log_success "   Endpoint: ${ANTHROPIC_BASE_URL}"
-
-# Zeige aktuelles Modell
-CURRENT_MODEL=$(jq -r '.model' "$SETTINGS_FREE" 2>/dev/null || echo "unknown")
-echo "   Model: $CURRENT_MODEL (from OpenRouter)"
-echo "   OAuth: Shared (~/.claude/.credentials.json)"
-echo ""
-echo "💡 Change model: free-claude-model"
-echo ""
-
-# Exportiere Variablen für Claude Code
-export ANTHROPIC_BASE_URL
-export ANTHROPIC_AUTH_TOKEN
+# Set environment for Claude Code to use OpenRouter
+export ANTHROPIC_BASE_URL="https://openrouter.ai/api/v1"
+export ANTHROPIC_AUTH_TOKEN="$OPENROUTER_API_KEY"
 export ANTHROPIC_API_KEY=""
 
-# Starte Claude Code mit OpenRouter Env-Vars
+echo "✓ Claude Free (OpenRouter API)"
+echo "  Endpoint: $ANTHROPIC_BASE_URL"
+echo ""
+
+# Start Claude Code with OpenRouter
 exec claude code "$@"
