@@ -1,5 +1,5 @@
 #!/bin/bash
-# delete-claude: Sichere Löschung aller Claude-Konfigurationen (mit Profil-Isolation)
+# delete-claude: Safe deletion of Claude profiles (keeps shared OAuth)
 
 set -euo pipefail
 
@@ -20,47 +20,50 @@ log_success() { echo -e "${GREEN}[✓]${NC} $*"; }
 log_info() { echo -e "${BLUE}[i]${NC} $*"; }
 
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${RED}Warnung: Dies löscht ALLE Claude-Profile für $USER${NC}"
+echo -e "${RED}Warning: Deletes Claude Pro/Free profiles for $USER${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo "Dies betrifft:"
-echo "  • Pro-Profile:  ${PROFILES_DIR}/pro/"
-echo "  • Free-Profile: ${PROFILES_DIR}/free/"
-echo "  • Alle Settings, Tokens, Credentials"
+echo "This will delete:"
+echo "  • ${PROFILES_DIR}/pro/"
+echo "  • ${PROFILES_DIR}/free/"
+echo ""
+echo "⚠️  OAuth tokens in ~/.claude/.credentials.json will be KEPT"
+echo "   (so you can restore settings without re-logging in)"
 echo ""
 
-read -p "Möchtest du fortfahren? (ja/nein): " -r response
+read -p "Continue? (yes/no): " -r response
 
-if [[ ! "$response" =~ ^(ja|yes|j|y)$ ]]; then
-    log_warn "Abgebrochen"
+if [[ ! "$response" =~ ^(yes|y)$ ]]; then
+    log_warn "Aborted"
     exit 0
 fi
 
 echo ""
-log_warn "Lösche Konfigurationen..."
+log_warn "Deleting profiles..."
 echo ""
 
-# Lösche isolierte Profile
+# Delete isolated profiles
 if [ -d "${PROFILES_DIR}/pro" ]; then
     rm -rf "${PROFILES_DIR}/pro"
-    log_success "Pro-Profile gelöscht"
+    log_success "Pro-Profile deleted"
 fi
 
 if [ -d "${PROFILES_DIR}/free" ]; then
     rm -rf "${PROFILES_DIR}/free"
-    log_success "Free-Profile gelöscht"
+    log_success "Free-Profile deleted"
 fi
 
-# Lösche active symlink
+# Delete active symlink
 if [ -L "${CLAUDE_DIR}/settings.json" ] || [ -f "${CLAUDE_DIR}/settings.json" ]; then
     rm -f "${CLAUDE_DIR}/settings.json"
-    log_success "Aktive Settings gelöscht"
+    log_success "Active settings deleted"
 fi
 
-# Behalte Templates für Reset (optional)
-log_info "Templates in ~/.claude/ erhalten (für setup-claude)"
+# Keep templates for recovery
+log_info "Templates in ~/.claude/ kept (for setup-claude)"
+log_info "OAuth tokens in ~/.claude/.credentials.json KEPT"
 
 echo ""
-log_success "✓ Alle Claude-Profile gelöscht"
-log_warn "→ Führe setup-claude aus, um neu zu konfigurieren"
+log_success "✓ Profiles deleted"
+log_warn "→ Run: setup-claude (to reconfigure)"
 echo ""
