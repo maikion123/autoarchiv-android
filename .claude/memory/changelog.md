@@ -1,5 +1,63 @@
 ## Recent Changes
 
+### [2026-05-17] CRITICAL: Claude Pro Architecture - Shared OAuth + Isolated Models
+**Complete System Redesign (BREAKING CHANGE)**
+
+**The Real Requirement:** Both pro-claude AND free-claude MUST use Claude Code Pro with OAuth
+
+**Solution:** 
+- OAuth is SHARED (one login, both profiles use it)
+- Models are ISOLATED (Pro=Opus, Free=OpenRouter)
+
+**What Changed:**
+
+1. **OAuth is Shared:**
+   ```
+   ~/.claude/.credentials.json  ← SHARED between pro and free
+   ```
+   - User logs in ONCE with `pro-claude /login`
+   - Both profiles inherit the same OAuth tokens
+   - Fixes: "/login not remembered" issue
+
+2. **Models are Isolated:**
+   ```
+   ~/.claude/profiles/pro/settings.json  → model: opus
+   ~/.claude/profiles/free/settings.json → model: openrouter/free
+   ```
+
+3. **Free-Claude Environment:**
+   ```
+   ~/.claude/profiles/free/.env  → ANTHROPIC_BASE_URL + AUTH_TOKEN
+   ```
+   - Sourced BEFORE Claude Code starts
+   - Fixes: "model not found" errors
+
+**New Architecture:**
+```
+~/.claude/
+├── .credentials.json          (SHARED OAuth - both use this)
+├── settings.json              (symlink to active profile)
+├── profiles/
+│   ├── pro/settings.json      (model: opus)
+│   └── free/
+│       ├── settings.json      (model: openrouter/free)
+│       └── .env               (OpenRouter config)
+```
+
+**Migration:**
+```bash
+delete-claude
+setup-claude   # Creates shared + isolated structure
+pro-claude     # /login (browser) - saves tokens
+free-claude    # Uses same tokens automatically
+```
+
+**Fixes:**
+✅ Pro-Claude: /login is now remembered (shared .credentials.json)
+✅ Free-Claude: Models work (env vars sourced before start)
+✅ No cross-contamination (settings isolated)
+✅ Single OAuth for both (user logs in once)
+
 ### [2026-05-17] MAJOR: Complete Claude Profile System Redesign for True Isolation
 **Breaking Change - Complete System Redesign:**
 
