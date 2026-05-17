@@ -1,6 +1,5 @@
 #!/bin/bash
 # setup-claude: Benutzerfreundliches Setup für Claude Pro + Free
-# Wird als setup-claude ohne .mjs Endung aufgerufen
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-node "$SCRIPT_DIR/setup-claude.mjs" "$@"
+bash "$SCRIPT_DIR/setup-claude.mjs" "$@"

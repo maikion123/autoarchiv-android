@@ -1,6 +1,5 @@
 #!/bin/bash
 # delete-claude: Sichere Löschung aller Claude-Konfigurationen
-# Wird als delete-claude ohne .mjs Endung aufgerufen
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-node "$SCRIPT_DIR/delete-claude.mjs" "$@"
+bash "$SCRIPT_DIR/delete-claude.mjs" "$@"
