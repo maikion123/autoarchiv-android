@@ -185,6 +185,9 @@ id | agent_id | event_type | message | files | created_at
 - **Agent Workflow Docs:** `/srv/projects/autoarchiv/docs/AGENT_WORKFLOW.md`
 
 ## Recent Changes
+See `.claude/memory/changelog.md` for the full change history.
+
+### Summary (last major sessions)
 1. 2026-05-12 — iPhone CalDAV Sync:
    - Full CalDAV server at `/dav/` with PROPFIND/REPORT/GET for appointments + payments.
    - Auth uses `calendarToken` (no bcrypt per request — was causing iOS to drop account after ~minutes).

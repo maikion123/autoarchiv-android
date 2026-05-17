@@ -1,12 +1,10 @@
-- [Auto Documentation](auto_documentation.md) — Automatic changelog + agent dashboard updates after every commit
-- [Project Status & Architecture](project_status.md) — Current production setup, stack, deployment
-- [Changelog & Documentation Process](changelog.md) — All changes, when to update docs, templates
-- [Claude Setup System](claude_setup_system.md) — Complete setup: setup-claude, delete-claude, pro-claude, free-claude (user-isolated)
-- [Claude Setup Fixes](claude_setup_fixes_complete.md) — 2026-05-16: Model format & OpenRouter endpoint corrections
-- [Claude Code Setup (old)](claude_code_setup.md) — ⚠️ DEPRECATED — see claude_setup_system.md instead
-- [Live Agent Workflow](../../docs/AGENT_WORKFLOW.md) — How Claude Code, Codex, Kevin, and Maik update `/agents`
-- [Auth System Details](auth_system.md) — How backend auth works, endpoints, security
-- [Deployment Checklist](deployment_checklist.md) — Steps to go live, verification tests
+- [Project Status & Architecture](project_status.md) — Current production setup, stack, deployment, DB schema
+- [Auth System Details](auth_system.md) — How backend auth works, endpoints, security, session timeout
+- [Deployment Checklist](deployment_checklist.md) — Steps to go live, verification tests, emergency fixes
 - [Working Approach & Patterns](working_approach.md) — What works, how to debug, patterns that succeed
 - [Team & Collaboration](team_collaboration.md) — How multiple agents collaborate on this project
+- [Changelog & Documentation Process](changelog.md) — App-level changes and how/when to document them
+- [Auto Documentation](auto_documentation.md) — Auto-update changelog + agent dashboard after every commit
+- [Live Agent Workflow](../../docs/AGENT_WORKFLOW.md) — How Claude Code, Codex, Kevin, and Maik update `/agents`
 - [Parallel Work Insights](parallel_work_insights.md) — Lessons from 2026-05-11 sync: doc/code/PM2 drift prevention
+- [Claude Setup System](claude_setup_system.md) — scripts/pro-claude, free-claude, setup-claude, delete-claude (Kevin & Maik)
