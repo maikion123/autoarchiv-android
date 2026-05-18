@@ -7,6 +7,15 @@ metadata:
 
 ## Changelog
 
+### [2026-05-18] Fix: "Anmeldung erforderlich" Flash on F5 Reload for Authenticated Users ✅
+- **Problem:** Authenticated users saw "Anmeldung erforderlich" on F5 reload. Server has no localStorage → SSR rendered protection screen HTML → visible ~300-500ms until JS hydrated.
+- **Fix — 3 parts:**
+  1. Pre-hydration blank screen: `if (!hydrated) return <div className="min-h-screen bg-background" />` — server renders blank, client hydrates blank (no mismatch), then JS determines correct state.
+  2. Three-state gate after hydration: `checking + cachedAuth` → loading spinner; `checking + no cache` → protection screen; `unauthenticated` → protection + 60s countdown.
+  3. Use `cachedAuth` (from localStorage via `readAuthCache()`) for render decisions, not `hasCachedAuthRef`.
+- **Result:** Authenticated F5 → blank → spinner (~100ms) → content. No "Anmeldung erforderlich" for logged-in users.
+- **Security preserved:** Unauthenticated direct URL still sees protection screen (no cache = not logged in).
+
 ### [2026-05-18] Fix: Dashboard Flash on Welcome Page Buttons ✅
 - **Problem:** "Anmelden" + "Konto erstellen" buttons in PublicEntry used TanStack Router `<Link>`. SPA nav transition briefly rendered Dashboard (the "/" route component) via Outlet before /login or /register mounted.
 - **Fix:** Replace both `<Link>` with plain `<a href>` in `src/components/PublicEntry.tsx`. Full page reload = zero React transition = zero flash.
