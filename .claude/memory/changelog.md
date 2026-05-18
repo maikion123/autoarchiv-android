@@ -7,6 +7,25 @@ metadata:
 
 ## Changelog
 
+### [2026-05-18] Security: Zero Content Visibility + 60sec Auto-Redirect for Unauth Routes ✅ FINAL
+- **Critical Security Fix:** Unauthenticated content leak eliminated
+  - Problem: Cached auth triggered "authenticated" state before server verification, causing Outlet to render briefly with protected content visible
+  - Solution: ALWAYS verify server first. Never trust cache for render decisions.
+  - Never show Outlet until authState === "authenticated" AND server confirms
+  - Process: User navigates to /eingang (unauth) → authState = "checking" → protected screen ONLY → server rejects → stays on protected screen → auto-redirect after 60s
+  
+- **UX Improvement:** 60-second countdown timer on protection screen
+  - Unauth users see "Geschützter Bereich - Anmeldung erforderlich" message
+  - Countdown displays: "Automatische Umleitung in Xsec..."
+  - Manual buttons always available: "Zur Anmeldung" + "Zur Startseite"
+  - After 60s, auto-redirect to /login (replace: true)
+  - No content visible at any point, zero frame leak
+
+- **Result:** ✅ No more brief content visibility on /suche, /eingang, /termine, /zahlungen, /agents
+  - Protected routes now show protection message → countdown → redirect only
+  - Trade-off: F5 reload shows "checking" badge briefly (auth check required, cannot use stale cache)
+  - Better UX than any cached content leak
+
 ### [2026-05-18] Security Fix: Unauthenticated Content Leak + Auth Flash Fix + OpenCV Timeout
 - **Security 1: Unauthenticated Content Leak** ✅ FIXED
   - Problem: Unauthenticated user accessing /eingang, /suche, /termine saw content briefly before redirect
