@@ -71,6 +71,7 @@ export function AppShell() {
       setUserRole(cachedAuth.role || "user");
       setAuthState("authenticated");
       setAuthFailure(null);
+      hasCachedAuthRef.current = true;
     }
 
     if (authCheckedRef.current || authCheckInFlightRef.current) {
@@ -295,7 +296,8 @@ export function AppShell() {
   }
 
   // Show protected message only if truly unauthenticated, not during auth check with cache
-  if (authState !== "authenticated" && !hasCachedAuthRef.current) {
+  // Check both hasCachedAuthRef AND cachedAuth to handle edge cases
+  if (authState !== "authenticated" && !hasCachedAuthRef.current && !cachedAuth) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
         <div className="glass-strong w-full max-w-lg rounded-3xl border border-border/40 p-6">
