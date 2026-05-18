@@ -38,3 +38,9 @@ storage/*
 *.sln
 *.sw?
 .aider*
+
+# Python virtualenv
+python-scanner/.venv/
+**/.venv/
+__pycache__/
+*.pyc
