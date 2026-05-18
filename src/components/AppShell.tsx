@@ -295,54 +295,53 @@ export function AppShell() {
     );
   }
 
-  // Show protected message only if truly unauthenticated, not during auth check with cache
-  // Don't show during hydration phase (cachedAuth can't be read yet)
-  // Check both hasCachedAuthRef AND cachedAuth to handle edge cases
-  if (authState !== "authenticated" && !hasCachedAuthRef.current && !cachedAuth && hydrated) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
-        <div className="glass-strong w-full max-w-lg rounded-3xl border border-border/40 p-6">
-          <div className="flex items-center gap-3">
-            <span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-violet-500 to-cyan-400 text-white shadow-[0_0_18px_oklch(0.62_0.24_290/0.28)]">
-              <ShieldCheck className="h-5 w-5" />
-            </span>
-            <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">Geschützter Bereich</p>
-              <h1 className="text-xl font-semibold">
-                {authFailure === "error" ? "Zugriff konnte nicht geprüft werden" : "Anmeldung erforderlich"}
-              </h1>
+  // Security: Show protected message for all unauthenticated states
+  // EXCEPT when actively verifying an authenticated session (checking + hasCachedAuthRef)
+  if (authState !== "authenticated") {
+    const isVerifyingAuthenticatedSession = authState === "checking" && hasCachedAuthRef.current;
+
+    // If not verifying an authenticated session, show protected screen
+    if (!isVerifyingAuthenticatedSession) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+          <div className="glass-strong w-full max-w-lg rounded-3xl border border-border/40 p-6">
+            <div className="flex items-center gap-3">
+              <span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-violet-500 to-cyan-400 text-white shadow-[0_0_18px_oklch(0.62_0.24_290/0.28)]">
+                <ShieldCheck className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">Geschützter Bereich</p>
+                <h1 className="text-xl font-semibold">
+                  {authFailure === "error" ? "Zugriff konnte nicht geprüft werden" : "Anmeldung erforderlich"}
+                </h1>
+              </div>
+            </div>
+            <p className="mt-4 text-sm text-muted-foreground">
+              {authFailure === "error"
+                ? "Bitte Verbindung prüfen und die Seite erneut laden."
+                : "Dieser Bereich ist nur für angemeldete Nutzer freigegeben. Bitte melde dich an, um fortzufahren."}
+            </p>
+            <div className="mt-5 flex flex-wrap gap-3">
+              <Link
+                to="/login"
+                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-cyan-400 px-4 py-2.5 text-sm font-semibold text-white transition hover:brightness-110"
+              >
+                Zur Anmeldung
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link
+                to="/"
+                className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-background/40 px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-accent/40"
+              >
+                Zur Startseite
+              </Link>
             </div>
           </div>
-          <p className="mt-4 text-sm text-muted-foreground">
-            {authFailure === "error"
-              ? "Bitte Verbindung prüfen und die Seite erneut laden."
-              : "Dieser Bereich ist nur für angemeldete Nutzer freigegeben. Bitte melde dich an, um fortzufahren."}
-          </p>
-          <div className="mt-5 flex flex-wrap gap-3">
-            <Link
-              to="/login"
-              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-cyan-400 px-4 py-2.5 text-sm font-semibold text-white transition hover:brightness-110"
-            >
-              Zur Anmeldung
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-            <Link
-              to="/"
-              className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-background/40 px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-accent/40"
-            >
-              Zur Startseite
-            </Link>
-          </div>
         </div>
-      </div>
-    );
-  }
-
-  // During auth check with cached session, render content normally to avoid flash
-  if (authState === "checking" && hasCachedAuthRef.current) {
-    // Content is still being verified in background
-    // Show UI with "Sitzung wird bestätigt" indicator in header
-    // Render normally - the "checking" badge above shows verification is in progress
+      );
+    }
+    // If we're here: authState === "checking" && hasCachedAuthRef.current
+    // Continue rendering content with "Sitzung wird bestätigt" indicator
   }
 
   return (
