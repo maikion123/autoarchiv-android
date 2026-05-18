@@ -7,6 +7,12 @@ metadata:
 
 ## Changelog
 
+### [2026-05-18] Fix: Dashboard Flash on Welcome Page Buttons ✅
+- **Problem:** "Anmelden" + "Konto erstellen" buttons in PublicEntry used TanStack Router `<Link>`. SPA nav transition briefly rendered Dashboard (the "/" route component) via Outlet before /login or /register mounted.
+- **Fix:** Replace both `<Link>` with plain `<a href>` in `src/components/PublicEntry.tsx`. Full page reload = zero React transition = zero flash.
+- **Pattern:** Same as AppShell unauth redirect fix (window.location.replace / `<a href>`).
+- **Build:** ✅ 0 TS errors
+
 ### [2026-05-18] Security: Zero Content Visibility + 60sec Auto-Redirect for Unauth Routes ✅ FINAL (v3)
 
 **Fixes applied (3 iterations):**
