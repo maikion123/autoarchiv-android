@@ -8,13 +8,14 @@ metadata:
 ## Changelog
 
 ### [2026-05-18] AppShell Auth Flash Fix (Complete) + DocumentScanner OpenCV Timeout
-- **Bug 1: Auth Flash Screen on Reload** ✅ FIXED (final)
-  - Problem: F5 reload showed "Geschützter Bereich - Anmeldung erforderlich" flash
+- **Bug 1: Auth Flash Screen on Reload** ✅ FIXED (fully)
+  - Problem: F5 reload showed "Geschützter Bereich - Anmeldung erforderlich" flash on /suche, /eingang, /termine (NOT on /)
   - After upload: document disappeared momentarily when page reloaded
-  - Root cause: `hasCachedAuthRef.current` ref was not set when cachedAuth was applied, causing stale check
-  - Solution 1: Set `hasCachedAuthRef.current = true` immediately when cachedAuth is applied (line 74)
-  - Solution 2: Dual condition `!hasCachedAuthRef.current && !cachedAuth` protects against timing issues
-  - Impact: **F5 reload now eliminates flash completely** - page renders immediately with "Sitzung wird bestätigt" badge
+  - Root causes: (1) hasCachedAuthRef not set when cache applied, (2) hydration phase before cachedAuth readable
+  - Solution 1: Set `hasCachedAuthRef.current = true` when cachedAuth applied (line 74)
+  - Solution 2: Condition checks `hydrated === true` - skips protected message during hydration window
+  - Solution 3: Dual condition `!hasCachedAuthRef.current && !cachedAuth && hydrated` prevents false positives
+  - Impact: **F5 reload ALL routes now flash-free** (/suche, /eingang, /termine, /) - page renders immediately with "Sitzung wird bestätigt" badge
   
 - **Bug 2: DocumentScanner OpenCV Timeout on Mobile**
   - Problem: On Android/iOS, "OpenCV wird geladen..." stuck forever on slow/offline networks
