@@ -294,7 +294,8 @@ export function AppShell() {
     );
   }
 
-  if (authState !== "authenticated") {
+  // Show protected message only if truly unauthenticated, not during auth check with cache
+  if (authState !== "authenticated" && !hasCachedAuthRef.current) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
         <div className="glass-strong w-full max-w-lg rounded-3xl border border-border/40 p-6">
@@ -332,6 +333,13 @@ export function AppShell() {
         </div>
       </div>
     );
+  }
+
+  // During auth check with cached session, render content normally to avoid flash
+  if (authState === "checking" && hasCachedAuthRef.current) {
+    // Content is still being verified in background
+    // Show UI with "Sitzung wird bestätigt" indicator in header
+    // Render normally - the "checking" badge above shows verification is in progress
   }
 
   return (
