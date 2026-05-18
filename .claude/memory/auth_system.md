@@ -120,6 +120,34 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 
 **Used by:** AppShell.tsx on mount and before any authenticated operation
 
+---
+
+## AppShell Auth Guard Pattern (Updated 2026-05-18)
+
+### Three-state render logic (post-hydration):
+
+```
+isPublicPage → <Outlet /> (login/register/ntfy-setup — no guard)
+!hydrated    → blank div (prevent SSR protection screen flash)
+path="/" + !auth + !cachedAuth → <PublicEntry /> (welcome page)
+
+authState !== "authenticated":
+  checking + cachedAuth → "Sitzung wird verifiziert" spinner
+    (authenticated user on F5: brief spinner, then content)
+  else → protection screen + 60s countdown
+    (unauthenticated: no cache = not logged in)
+
+authState === "authenticated" → main layout with <Outlet />
+```
+
+### Key rules:
+- Server-first verification ONLY — never trust cache for render decisions
+- `cachedAuth` (from `readAuthCache()` / localStorage) used ONLY to decide spinner vs. protection screen
+- `hasCachedAuthRef.current` set only AFTER server confirms auth
+- All redirects for unauth use `window.location.replace("/login")` — SPA navigate() causes transition flash
+- All buttons on protection screen + PublicEntry use `<a href>` not `<Link>` — same reason
+- 60s countdown only on routes other than `/` and `/admin`
+
 ### Step 5: Logout (`POST /api/auth/logout`)
 **Input:** Cookie header
 
