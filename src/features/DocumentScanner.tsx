@@ -1,298 +1,314 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, RotateCcw, Trash2, Check, X, Loader2, AlertCircle } from "lucide-react";
+import {
+  Camera, RotateCcw, RotateCw, Trash2, Check, X,
+  Loader2, AlertCircle, ChevronUp, ChevronDown,
+  Sun, Contrast, Zap,
+} from "lucide-react";
 import { toast } from "sonner";
 
-declare global {
-  interface Window {
-    cv: any;
-  }
-}
+type Phase = "camera" | "editing" | "review" | "fallback";
+type Quality = "poor" | "ok" | "good" | null;
 
-type Phase = "loading" | "camera" | "review" | "fallback";
+interface ScannedPage {
+  id: string;
+  dataUrl: string;
+}
 
 interface DocumentScannerProps {
   onScanComplete: (files: File[], mode: "multi" | "single") => void;
   onClose: () => void;
 }
 
+async function dataUrlToFile(dataUrl: string, name: string): Promise<File> {
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  return new File([blob], name, { type: "image/jpeg" });
+}
+
 export default function DocumentScanner({ onScanComplete, onClose }: DocumentScannerProps) {
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [pages, setPages] = useState<File[]>([]);
+  const [phase, setPhase] = useState<Phase>("camera");
+  const [pages, setPages] = useState<ScannedPage[]>([]);
+  const [quality, setQuality] = useState<Quality>(null);
   const [autoCapture, setAutoCapture] = useState(false);
-  const [documentDetected, setDocumentDetected] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [useFallback, setUseFallback] = useState(false);
+  const [capturing, setCapturing] = useState(false);
+
+  // Editing state
+  const [editingImage, setEditingImage] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [editRotate, setEditRotate] = useState(0);
+  const [editBW, setEditBW] = useState(false);
+  const [editBrightness, setEditBrightness] = useState(1.0);
+  const [editContrast, setEditContrast] = useState(1.0);
+  const [editLoading, setEditLoading] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const tempCanvasRef = useRef<HTMLCanvasElement>(null);
-  const resultCanvasRef = useRef<HTMLCanvasElement>(null);
+  const captureCanvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const scannerRef = useRef<any>(null);
-  const intervalRef = useRef<number | null>(null);
-  const detectedCountRef = useRef(0);
+  const detectIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const cornersRef = useRef<number[][] | null>(null);
+  const goodCountRef = useRef(0);
   const fallbackInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize OpenCV + jscanify with 20-second timeout
-  useEffect(() => {
-    const initScanner = async () => {
-      if (window.cv?.Mat) {
-        try {
-          const { default: Jscanify } = await import("jscanify");
-          scannerRef.current = new Jscanify();
-          setPhase("camera");
-          console.log("[DocumentScanner] jscanify ready");
-          return;
-        } catch (err) {
-          console.error("[DocumentScanner] jscanify import failed:", err);
-          setPhase("fallback");
-          setUseFallback(true);
-          return;
-        }
-      }
+  // ── Camera ─────────────────────────────────────────────────────────────────
 
-      console.log("[DocumentScanner] Loading OpenCV from CDN...");
-      const script = document.createElement("script");
-      script.src = "https://docs.opencv.org/4.8.0/opencv.js";
-      script.async = true;
-      let timeoutHandle: NodeJS.Timeout | null = null;
-
-      const clearTimeout = () => {
-        if (timeoutHandle) {
-          globalThis.clearTimeout(timeoutHandle);
-          timeoutHandle = null;
-        }
-      };
-
-      script.onload = () => {
-        console.log("[DocumentScanner] OpenCV script loaded, waiting for cv.Mat...");
-        let waitCount = 0;
-        const waitForCv = setInterval(() => {
-          waitCount++;
-          if (window.cv?.Mat) {
-            clearInterval(waitForCv);
-            clearTimeout();
-            console.log("[DocumentScanner] cv.Mat ready after " + waitCount + " checks");
-            import("jscanify")
-              .then(({ default: Jscanify }) => {
-                scannerRef.current = new Jscanify();
-                setPhase("camera");
-                console.log("[DocumentScanner] jscanify initialized");
-              })
-              .catch((err) => {
-                console.error("[DocumentScanner] jscanify import failed:", err);
-                setPhase("fallback");
-                setUseFallback(true);
-              });
-          }
-        }, 100);
-
-        // Timeout after 15 seconds
-        timeoutHandle = globalThis.setTimeout(() => {
-          clearInterval(waitForCv);
-          console.error("[DocumentScanner] OpenCV cv.Mat timeout (15s)");
-          setError("OpenCV lädt nicht. Benutze Fallback...");
-          setPhase("fallback");
-          setUseFallback(true);
-        }, 15000);
-      };
-
-      script.onerror = () => {
-        clearTimeout();
-        console.error("[DocumentScanner] OpenCV CDN script error");
-        setError("OpenCV konnte nicht geladen werden");
-        setPhase("fallback");
-        setUseFallback(true);
-      };
-
-      document.head.appendChild(script);
-    };
-
-    initScanner();
-  }, []);
-
-  // Start camera and detection loop
-  const startCamera = useCallback(async () => {
-    if (!videoRef.current) return;
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "environment",
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-      });
-
-      videoRef.current.srcObject = stream;
-      streamRef.current = stream;
-
-      videoRef.current.onloadedmetadata = () => {
-        if (videoRef.current) {
-          videoRef.current.play().catch((err) => {
-            console.error("[DocumentScanner] play() failed:", err);
-          });
-          startDetectionLoop();
-        }
-      };
-    } catch (err) {
-      console.error("[DocumentScanner] getUserMedia failed:", err);
-      setError("Kamera nicht verfügbar. Bitte Berechtigung gewähren.");
-      setPhase("camera");
+  const stopDetectLoop = useCallback(() => {
+    if (detectIntervalRef.current !== null) {
+      clearInterval(detectIntervalRef.current);
+      detectIntervalRef.current = null;
     }
   }, []);
 
-  const startDetectionLoop = useCallback(() => {
-    if (intervalRef.current !== null) clearInterval(intervalRef.current);
-
-    intervalRef.current = window.setInterval(() => {
-      if (!videoRef.current || !tempCanvasRef.current || !resultCanvasRef.current) return;
-
+  const startDetectLoop = useCallback(() => {
+    stopDetectLoop();
+    detectIntervalRef.current = setInterval(async () => {
       const video = videoRef.current;
-      const temp = tempCanvasRef.current;
-      const result = resultCanvasRef.current;
+      const canvas = captureCanvasRef.current;
+      if (!video || !canvas || video.videoWidth === 0) return;
 
-      if (video.videoWidth === 0) return;
-
-      temp.width = video.videoWidth;
-      temp.height = video.videoHeight;
-      result.width = video.videoWidth;
-      result.height = video.videoHeight;
-
-      const tempCtx = temp.getContext("2d");
-      if (!tempCtx) return;
-
-      tempCtx.drawImage(video, 0, 0, temp.width, temp.height);
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d")!.drawImage(video, 0, 0);
+      const b64 = canvas.toDataURL("image/jpeg", 0.65);
 
       try {
-        if (scannerRef.current) {
-          const highlighted = scannerRef.current.highlightPaper(temp);
-          const resultCtx = result.getContext("2d");
-          if (resultCtx && highlighted) {
-            resultCtx.drawImage(highlighted, 0, 0, result.width, result.height);
-            setDocumentDetected(true);
+        const r = await fetch("/api/scan/detect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image: b64 }),
+          signal: AbortSignal.timeout(3000),
+        });
+        if (!r.ok) return;
+        const data = await r.json();
+        setQuality(data.quality ?? null);
+        cornersRef.current = data.detected ? data.corners : null;
 
-            // Auto-capture logic
-            if (autoCapture) {
-              detectedCountRef.current++;
-              if (detectedCountRef.current >= 4) {
-                detectedCountRef.current = 0;
-                capture();
-              }
+        if (autoCapture) {
+          if (data.quality === "good") {
+            goodCountRef.current++;
+            if (goodCountRef.current >= 3) {
+              goodCountRef.current = 0;
+              captureRef.current?.();
             }
           } else {
-            setDocumentDetected(false);
-            detectedCountRef.current = 0;
+            goodCountRef.current = 0;
           }
         }
-      } catch (err) {
-        // No paper detected or error
-        const resultCtx = result.getContext("2d");
-        if (resultCtx) {
-          resultCtx.drawImage(temp, 0, 0);
-        }
-        setDocumentDetected(false);
-        detectedCountRef.current = 0;
+      } catch {
+        // network / timeout — just skip this tick
       }
-    }, 50); // 20 fps for mobile performance
-  }, [autoCapture]);
+    }, 1500);
+  }, [stopDetectLoop, autoCapture]);
 
-  // Capture page with perspective correction
-  const capture = useCallback(() => {
-    if (!tempCanvasRef.current || !scannerRef.current) return;
+  const stopCamera = useCallback(() => {
+    stopDetectLoop();
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+  }, [stopDetectLoop]);
+
+  const startCamera = useCallback(async () => {
+    if (streamRef.current) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
+      });
+      if (!videoRef.current) { stream.getTracks().forEach((t) => t.stop()); return; }
+      videoRef.current.srcObject = stream;
+      streamRef.current = stream;
+      videoRef.current.onloadedmetadata = () => {
+        videoRef.current?.play().catch(() => {});
+        startDetectLoop();
+      };
+    } catch {
+      setPhase("fallback");
+    }
+  }, [startDetectLoop]);
+
+  useEffect(() => {
+    if (phase === "camera") {
+      startCamera();
+    } else {
+      stopDetectLoop();
+    }
+  }, [phase, startCamera, stopDetectLoop]);
+
+  useEffect(() => {
+    return () => stopCamera();
+  }, [stopCamera]);
+
+  // Re-start detect loop when autoCapture changes (to pick up new ref)
+  useEffect(() => {
+    if (phase === "camera" && streamRef.current) {
+      startDetectLoop();
+    }
+  }, [autoCapture, phase, startDetectLoop]);
+
+  // ── Capture ────────────────────────────────────────────────────────────────
+
+  const capture = useCallback(async () => {
+    const canvas = captureCanvasRef.current;
+    const video = videoRef.current;
+    if (!canvas || !video || video.videoWidth === 0 || capturing) return;
+    setCapturing(true);
+    stopDetectLoop();
 
     try {
-      const tempCanvas = tempCanvasRef.current;
-      const extracted = scannerRef.current.extractPaper(
-        tempCanvas,
-        tempCanvas.width,
-        tempCanvas.height
-      );
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d")!.drawImage(video, 0, 0);
+      const b64 = canvas.toDataURL("image/jpeg", 0.92);
 
-      if (!extracted) throw new Error("Extraction failed");
+      const r = await fetch("/api/scan/process", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: b64, corners: cornersRef.current, enhance: true }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
 
-      extracted.toBlob((blob: Blob | null) => {
-        if (!blob) {
-          toast.error("Foto konnte nicht verarbeitet werden");
-          return;
-        }
-
-        const file = new File([blob], `scan_${Date.now()}_p${pages.length + 1}.jpg`, {
-          type: "image/jpeg",
-        });
-
-        setPages((prev) => [...prev, file]);
-        setPhase("review");
-        detectedCountRef.current = 0;
-        toast.success("Seite gescannt");
-      }, "image/jpeg", 0.92);
+      setEditingImage(data.image);
+      setPreviewImage(data.image);
+      setEditRotate(0);
+      setEditBW(false);
+      setEditBrightness(1.0);
+      setEditContrast(1.0);
+      setPhase("editing");
     } catch (err) {
-      console.error("[DocumentScanner] capture failed:", err);
-      // Fallback: save raw frame without perspective correction
-      const tempCanvas = tempCanvasRef.current;
-      tempCanvas?.toBlob((blob: Blob | null) => {
-        if (!blob) return;
-        const file = new File([blob], `scan_${Date.now()}_p${pages.length + 1}.jpg`, {
-          type: "image/jpeg",
-        });
-        setPages((prev) => [...prev, file]);
-        setPhase("review");
-        toast.success("Seite gescannt (ohne Kantenerkennung)");
-      }, "image/jpeg", 0.92);
+      toast.error("Aufnahme fehlgeschlagen");
+      startDetectLoop();
+    } finally {
+      setCapturing(false);
     }
-  }, [pages.length]);
+  }, [capturing, stopDetectLoop, startDetectLoop]);
 
-  // Stop camera
-  const stopCamera = useCallback(() => {
-    if (intervalRef.current !== null) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
+  // Store capture in ref so detect-loop callback can call it
+  const captureRef = useRef(capture);
+  useEffect(() => { captureRef.current = capture; }, [capture]);
+
+  // ── Editing ────────────────────────────────────────────────────────────────
+
+  const applyEdits = useCallback(async (
+    img: string,
+    rotate: number,
+    bw: boolean,
+    brightness: number,
+    contrast: number,
+  ) => {
+    if (!img) return;
+    setEditLoading(true);
+    try {
+      const r = await fetch("/api/scan/adjust", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: img, rotate, grayscale: bw, brightness, contrast }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      setPreviewImage(data.image);
+    } catch {
+      toast.error("Bearbeitung fehlgeschlagen");
+    } finally {
+      setEditLoading(false);
     }
   }, []);
 
-  // Go back to camera for more pages
-  const goBackToCamera = useCallback(() => {
-    detectedCountRef.current = 0;
-    setPhase("camera");
-    startDetectionLoop();
-  }, [startDetectionLoop]);
+  // Debounce slider changes
+  const editDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerEditPreview = useCallback((
+    rotate: number, bw: boolean, brightness: number, contrast: number,
+  ) => {
+    if (editDebounceRef.current) clearTimeout(editDebounceRef.current);
+    editDebounceRef.current = setTimeout(() => {
+      if (editingImage) applyEdits(editingImage, rotate, bw, brightness, contrast);
+    }, 400);
+  }, [editingImage, applyEdits]);
 
-  // Delete page
-  const deletePage = (index: number) => {
-    setPages((prev) => prev.filter((_, i) => i !== index));
+  const saveEditedPage = useCallback(() => {
+    const src = previewImage || editingImage;
+    if (!src) return;
+    setPages((prev) => [...prev, { id: crypto.randomUUID(), dataUrl: src }]);
+    setEditingImage(null);
+    setPreviewImage(null);
+    setPhase("review");
+  }, [previewImage, editingImage]);
+
+  // ── Review ─────────────────────────────────────────────────────────────────
+
+  const movePage = (idx: number, dir: "up" | "down") => {
+    setPages((prev) => {
+      const next = [...prev];
+      const swap = dir === "up" ? idx - 1 : idx + 1;
+      if (swap < 0 || swap >= next.length) return prev;
+      [next[idx], next[swap]] = [next[swap], next[idx]];
+      return next;
+    });
   };
 
-  // Submit pages
-  const submitPages = useCallback(
-    (mode: "multi" | "single") => {
-      if (pages.length === 0) {
-        toast.error("Bitte mindestens eine Seite scannen");
-        return;
-      }
+  const deletePage = (idx: number) => {
+    setPages((prev) => prev.filter((_, i) => i !== idx));
+  };
 
-      stopCamera();
-      onScanComplete(pages, mode);
+  const submitPages = useCallback(
+    async (mode: "multi" | "single") => {
+      if (!pages.length) { toast.error("Keine Seiten vorhanden"); return; }
+      try {
+        const files = await Promise.all(
+          pages.map((p, i) => dataUrlToFile(p.dataUrl, `scan_${Date.now()}_p${i + 1}.jpg`)),
+        );
+        stopCamera();
+        onScanComplete(files, mode);
+      } catch {
+        toast.error("Fehler beim Verarbeiten der Seiten");
+      }
     },
-    [pages, stopCamera, onScanComplete]
+    [pages, stopCamera, onScanComplete],
   );
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      stopCamera();
-    };
-  }, [stopCamera]);
+  // ── Fallback ───────────────────────────────────────────────────────────────
 
-  // Start camera when phase becomes "camera"
-  useEffect(() => {
-    if (phase === "camera" && videoRef.current) {
-      startCamera();
-    }
-  }, [phase, startCamera]);
+  const handleFallbackFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const newPages = files.map((f) => ({
+      id: crypto.randomUUID(),
+      dataUrl: URL.createObjectURL(f),
+    }));
+    setPages((prev) => [...prev, ...newPages]);
+    setPhase("review");
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  const qualityBorderClass =
+    quality === "good"
+      ? "border-green-400"
+      : quality === "ok"
+        ? "border-orange-400"
+        : quality === "poor"
+          ? "border-red-500"
+          : "border-white/20";
+
+  const qualityLabel =
+    quality === "good"
+      ? "✓ Dokument erkannt"
+      : quality === "ok"
+        ? "Dokument teilweise erkannt"
+        : quality === "poor"
+          ? "Dokument nicht erkannt"
+          : "Suche Dokument...";
+
+  const qualityLabelClass =
+    quality === "good"
+      ? "bg-green-500/90 text-white"
+      : quality === "ok"
+        ? "bg-orange-500/90 text-white"
+        : quality === "poor"
+          ? "bg-red-600/90 text-white"
+          : "bg-black/60 text-gray-300";
 
   return (
     <AnimatePresence>
@@ -302,236 +318,339 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
         exit={{ opacity: 0 }}
         className="fixed inset-0 z-50 bg-black"
       >
-        {/* Loading Phase */}
-        {phase === "loading" && (
-          <div className="flex h-full items-center justify-center">
-            <div className="text-center">
-              <Loader2 className="mx-auto mb-4 h-12 w-12 animate-spin text-white" />
-              <p className="text-white">OpenCV wird geladen...</p>
-              <p className="mt-2 text-sm text-gray-400">Dies kann bis zu 15 Sekunden dauern</p>
-            </div>
-          </div>
-        )}
+        {/* Hidden canvas for frame capture */}
+        <canvas ref={captureCanvasRef} className="hidden" />
 
-        {/* Camera Phase */}
+        {/* ── CAMERA PHASE ─────────────────────────────────────────────── */}
         {phase === "camera" && (
           <div className="relative h-full w-full overflow-hidden">
-            {/* Hidden video + temp canvas */}
             <video
               ref={videoRef}
-              className="absolute inset-0 hidden h-full w-full object-cover"
+              className="h-full w-full object-cover"
               playsInline
               muted
               autoPlay
             />
-            <canvas
-              ref={tempCanvasRef}
-              className="absolute inset-0 hidden h-full w-full"
+
+            {/* Quality frame overlay */}
+            <div
+              className={`absolute inset-4 rounded-xl border-4 pointer-events-none transition-colors duration-300 ${qualityBorderClass}`}
             />
 
-            {/* Result canvas - the visible output */}
-            <canvas
-              ref={resultCanvasRef}
-              className="absolute inset-0 h-full w-full object-cover"
-            />
-
-            {/* Overlay UI */}
-            <div className="absolute inset-0 flex flex-col justify-between p-4">
-              {/* Top bar */}
-              <div className="flex items-center justify-between">
-                <div className="text-white">
-                  <span className="text-lg font-semibold">{pages.length} Seite{pages.length !== 1 ? "n" : ""}</span>
-                </div>
-
+            {/* Top bar */}
+            <div className="absolute left-0 right-0 top-0 flex items-center justify-between p-4">
+              <span className="rounded-full bg-black/60 px-3 py-1 text-sm font-semibold text-white">
+                {pages.length} Seite{pages.length !== 1 ? "n" : ""}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setAutoCapture((v) => !v);
+                    goodCountRef.current = 0;
+                  }}
+                  className={`rounded-full px-3 py-1 text-sm font-semibold transition ${
+                    autoCapture
+                      ? "bg-emerald-500 text-white"
+                      : "bg-black/60 text-gray-200"
+                  }`}
+                >
+                  <Zap className="inline-block h-3 w-3 mr-1" />
+                  Auto
+                </button>
                 <button
                   onClick={onClose}
-                  className="rounded-full bg-black/50 p-2 text-white hover:bg-black/70"
+                  className="rounded-full bg-black/60 p-2 text-white"
                 >
-                  <X className="h-6 w-6" />
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Quality badge */}
+            <div className="absolute left-1/2 bottom-36 -translate-x-1/2">
+              <span className={`rounded-full px-4 py-2 text-sm font-semibold ${qualityLabelClass}`}>
+                {qualityLabel}
+              </span>
+            </div>
+
+            {/* Bottom bar */}
+            <div className="absolute bottom-0 left-0 right-0 flex flex-col items-center gap-4 pb-10">
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={capture}
+                disabled={capturing}
+                className="h-18 w-18 flex items-center justify-center rounded-full bg-white shadow-lg disabled:opacity-50"
+                style={{ height: 72, width: 72 }}
+              >
+                {capturing ? (
+                  <Loader2 className="h-8 w-8 animate-spin text-black" />
+                ) : (
+                  <Camera className="h-8 w-8 text-black" />
+                )}
+              </motion.button>
+
+              {pages.length > 0 && (
+                <button
+                  onClick={() => setPhase("review")}
+                  className="rounded-xl bg-blue-600 px-8 py-2 font-semibold text-white"
+                >
+                  Überprüfen ({pages.length})
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── EDITING PHASE ────────────────────────────────────────────── */}
+        {phase === "editing" && (
+          <div className="flex h-full flex-col bg-black">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4">
+              <button
+                onClick={() => { setPhase("camera"); }}
+                className="rounded-full bg-white/10 p-2 text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+              <span className="font-semibold text-white">Bild bearbeiten</span>
+              <button
+                onClick={saveEditedPage}
+                disabled={editLoading}
+                className="rounded-xl bg-emerald-600 px-4 py-2 font-semibold text-white disabled:opacity-50"
+              >
+                Speichern
+              </button>
+            </div>
+
+            {/* Preview */}
+            <div className="relative flex-1 overflow-hidden bg-black">
+              {editLoading && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50">
+                  <Loader2 className="h-8 w-8 animate-spin text-white" />
+                </div>
+              )}
+              {previewImage && (
+                <img
+                  src={previewImage}
+                  alt="Vorschau"
+                  className="h-full w-full object-contain"
+                />
+              )}
+            </div>
+
+            {/* Controls */}
+            <div className="space-y-4 bg-gray-950 p-4 pb-8">
+              {/* Rotate row */}
+              <div className="flex items-center justify-center gap-4">
+                <button
+                  onClick={() => {
+                    const r = ((editRotate - 90) + 360) % 360;
+                    setEditRotate(r);
+                    triggerEditPreview(r, editBW, editBrightness, editContrast);
+                  }}
+                  className="flex flex-col items-center gap-1 rounded-xl bg-white/10 px-5 py-3 text-white"
+                >
+                  <RotateCcw className="h-5 w-5" />
+                  <span className="text-xs">Links</span>
+                </button>
+                <button
+                  onClick={() => {
+                    const r = (editRotate + 90) % 360;
+                    setEditRotate(r);
+                    triggerEditPreview(r, editBW, editContrast, editBrightness);
+                  }}
+                  className="flex flex-col items-center gap-1 rounded-xl bg-white/10 px-5 py-3 text-white"
+                >
+                  <RotateCw className="h-5 w-5" />
+                  <span className="text-xs">Rechts</span>
+                </button>
+                <button
+                  onClick={() => {
+                    const next = !editBW;
+                    setEditBW(next);
+                    triggerEditPreview(editRotate, next, editBrightness, editContrast);
+                  }}
+                  className={`flex flex-col items-center gap-1 rounded-xl px-5 py-3 ${
+                    editBW ? "bg-white text-black" : "bg-white/10 text-white"
+                  }`}
+                >
+                  <Contrast className="h-5 w-5" />
+                  <span className="text-xs">S/W</span>
                 </button>
               </div>
 
-              {/* Middle: Detection badge and auto-capture toggle */}
-              <div className="flex items-center justify-center gap-4">
-                {/* Auto-Capture Toggle */}
-                <motion.button
-                  onClick={() => setAutoCapture(!autoCapture)}
-                  className={`rounded-full px-4 py-2 font-semibold transition ${
-                    autoCapture
-                      ? "bg-emerald-500 text-white"
-                      : "bg-black/50 text-gray-200 hover:bg-black/70"
-                  }`}
-                >
-                  {autoCapture ? "Auto: AN" : "Auto: AUS"}
-                </motion.button>
-
-                {/* Detection Badge */}
-                <motion.div
-                  animate={{ scale: documentDetected ? 1.05 : 1 }}
-                  className={`rounded-full px-4 py-2 font-semibold transition ${
-                    documentDetected
-                      ? "bg-emerald-500 text-white"
-                      : "bg-amber-500 text-white"
-                  }`}
-                >
-                  {documentDetected ? "✓ Erkannt" : "Suche..."}
-                </motion.div>
+              {/* Brightness */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-sm text-gray-300">
+                    <Sun className="h-4 w-4" /> Helligkeit
+                  </div>
+                  <span className="text-xs text-gray-400">{editBrightness.toFixed(1)}×</span>
+                </div>
+                <input
+                  type="range"
+                  min={0.5}
+                  max={2.0}
+                  step={0.1}
+                  value={editBrightness}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value);
+                    setEditBrightness(v);
+                    triggerEditPreview(editRotate, editBW, v, editContrast);
+                  }}
+                  className="w-full accent-white"
+                />
               </div>
 
-              {/* Bottom: Capture button */}
-              <div className="flex flex-col items-center gap-4">
-                {error && (
-                  <motion.div className="flex items-center gap-2 rounded-lg bg-red-500/20 px-4 py-2 text-red-200">
-                    <AlertCircle className="h-4 w-4" />
-                    <span className="text-sm">{error}</span>
-                  </motion.div>
-                )}
+              {/* Contrast */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-sm text-gray-300">
+                    <Contrast className="h-4 w-4" /> Kontrast
+                  </div>
+                  <span className="text-xs text-gray-400">{editContrast.toFixed(1)}×</span>
+                </div>
+                <input
+                  type="range"
+                  min={0.5}
+                  max={2.0}
+                  step={0.1}
+                  value={editContrast}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value);
+                    setEditContrast(v);
+                    triggerEditPreview(editRotate, editBW, editBrightness, v);
+                  }}
+                  className="w-full accent-white"
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
-                <motion.button
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={capture}
-                  disabled={!scannerRef.current}
-                  className="rounded-full bg-white p-4 text-black shadow-lg hover:bg-gray-100 disabled:opacity-50"
+        {/* ── REVIEW PHASE ─────────────────────────────────────────────── */}
+        {phase === "review" && (
+          <div className="flex h-full flex-col overflow-y-auto bg-black">
+            <div className="flex items-center justify-between p-4">
+              <h2 className="text-xl font-bold text-white">
+                {pages.length} Seite{pages.length !== 1 ? "n" : ""}
+              </h2>
+              <button onClick={onClose} className="rounded-full bg-white/10 p-2 text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Page list */}
+            <div className="flex-1 px-4">
+              {pages.map((page, idx) => (
+                <motion.div
+                  key={page.id}
+                  layout
+                  className="mb-3 flex items-center gap-3 rounded-xl bg-gray-900 p-2"
                 >
-                  <Camera className="h-8 w-8" />
-                </motion.button>
+                  <img
+                    src={page.dataUrl}
+                    alt={`Seite ${idx + 1}`}
+                    className="h-20 w-16 flex-shrink-0 rounded-lg object-cover"
+                  />
+                  <div className="flex flex-1 flex-col items-start gap-1">
+                    <span className="text-sm font-semibold text-white">Seite {idx + 1}</span>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <button
+                      onClick={() => movePage(idx, "up")}
+                      disabled={idx === 0}
+                      className="rounded bg-white/10 p-1 text-white disabled:opacity-30"
+                    >
+                      <ChevronUp className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => movePage(idx, "down")}
+                      disabled={idx === pages.length - 1}
+                      className="rounded bg-white/10 p-1 text-white disabled:opacity-30"
+                    >
+                      <ChevronDown className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => deletePage(idx)}
+                    className="rounded-full bg-red-600/80 p-2 text-white"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </motion.div>
+              ))}
+            </div>
 
+            {/* Action buttons */}
+            <div className="space-y-3 p-4 pb-8">
+              <button
+                onClick={() => setPhase("camera")}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-white/10 py-3 font-semibold text-white"
+              >
+                <Camera className="h-4 w-4" />
+                Weitere Seite
+              </button>
+              <div className="grid grid-cols-2 gap-3">
                 <button
-                  onClick={() => setPhase("review")}
-                  disabled={pages.length === 0}
-                  className="rounded-lg bg-blue-600 px-6 py-2 font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                  onClick={() => submitPages("single")}
+                  disabled={!pages.length}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 font-semibold text-white disabled:opacity-50"
                 >
-                  Überprüfen ({pages.length})
+                  <Check className="h-4 w-4" />
+                  Einzeln
+                </button>
+                <button
+                  onClick={() => submitPages("multi")}
+                  disabled={!pages.length}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 font-semibold text-white disabled:opacity-50"
+                >
+                  <Check className="h-4 w-4" />
+                  Als PDF
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Fallback Phase - Simple file input */}
+        {/* ── FALLBACK PHASE ────────────────────────────────────────────── */}
         {phase === "fallback" && (
-          <div className="flex h-full items-center justify-center p-4">
-            <div className="max-w-sm rounded-2xl bg-gray-900 p-6 text-center">
+          <div className="flex h-full flex-col items-center justify-center gap-6 p-6">
+            <div className="rounded-2xl bg-gray-900 p-8 text-center">
               <AlertCircle className="mx-auto mb-4 h-12 w-12 text-amber-500" />
-              <h2 className="mb-2 text-xl font-bold text-white">OpenCV nicht verfügbar</h2>
+              <h2 className="mb-2 text-xl font-bold text-white">Kamera nicht verfügbar</h2>
               <p className="mb-6 text-sm text-gray-400">
-                Live-Kantenerkennung funktioniert nicht. Verwende stattdessen die native Kamera.
+                Kamera-Berechtigung fehlt oder nicht unterstützt. Verwende native Dateiauswahl.
               </p>
-
               <button
                 onClick={() => fallbackInputRef.current?.click()}
-                className="w-full rounded-lg bg-blue-600 px-4 py-3 font-semibold text-white hover:bg-blue-700"
+                className="w-full rounded-xl bg-blue-600 py-3 font-semibold text-white"
               >
-                Foto aufnehmen
+                Foto aufnehmen / Datei wählen
               </button>
-
               <input
                 ref={fallbackInputRef}
                 type="file"
                 accept="image/*"
                 capture="environment"
                 multiple
-                onChange={(e) => {
-                  const files = Array.from(e.target.files || []);
-                  if (files.length > 0) {
-                    console.log("[DocumentScanner] Fallback files selected:", files.length);
-                    setPages((prev) => [...prev, ...files]);
-                    setPhase("review");
-                  }
-                }}
+                onChange={handleFallbackFiles}
                 className="hidden"
               />
-
               {pages.length > 0 && (
                 <button
                   onClick={() => setPhase("review")}
-                  className="mt-3 w-full rounded-lg bg-gray-700 px-4 py-3 font-semibold text-white hover:bg-gray-600"
+                  className="mt-3 w-full rounded-xl bg-gray-700 py-3 font-semibold text-white"
                 >
                   Überprüfen ({pages.length})
                 </button>
               )}
-
               <button
                 onClick={onClose}
-                className="mt-3 w-full rounded-lg border border-gray-600 px-4 py-3 text-white hover:bg-gray-800"
+                className="mt-3 w-full rounded-xl border border-gray-700 py-3 text-white"
               >
                 Schließen
               </button>
-            </div>
-          </div>
-        )}
-
-        {/* Review Phase */}
-        {phase === "review" && (
-          <div className="relative h-full w-full overflow-y-auto bg-black p-4">
-            <div className="mx-auto max-w-2xl">
-              {/* Header */}
-              <div className="mb-6 flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-white">
-                  {pages.length} Seite{pages.length !== 1 ? "n" : ""}
-                </h2>
-                <button
-                  onClick={onClose}
-                  className="rounded-full bg-black/50 p-2 text-white hover:bg-black/70"
-                >
-                  <X className="h-6 w-6" />
-                </button>
-              </div>
-
-              {/* Page thumbnails */}
-              <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-3">
-                {pages.map((file, idx) => (
-                  <motion.div
-                    key={idx}
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="group relative overflow-hidden rounded-lg bg-gray-800"
-                  >
-                    <img
-                      src={URL.createObjectURL(file)}
-                      alt={`Seite ${idx + 1}`}
-                      className="aspect-video h-full w-full object-cover"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/0 transition group-hover:bg-black/60">
-                      <button
-                        onClick={() => deletePage(idx)}
-                        className="rounded-full bg-red-600 p-2 text-white opacity-0 transition group-hover:opacity-100"
-                      >
-                        <Trash2 className="h-5 w-5" />
-                      </button>
-                    </div>
-                    <div className="absolute bottom-1 right-1 rounded bg-black/70 px-2 py-1 text-xs font-semibold text-white">
-                      S. {idx + 1}
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-
-              {/* Buttons */}
-              <div className="space-y-3">
-                <button
-                  onClick={() => goBackToCamera()}
-                  className="w-full rounded-lg bg-gray-700 px-4 py-3 font-semibold text-white hover:bg-gray-600"
-                >
-                  <RotateCcw className="mb-1 inline-block h-4 w-4" /> Weitere Seite scannen
-                </button>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={() => submitPages("single")}
-                    className="rounded-lg bg-blue-600 px-4 py-3 font-semibold text-white hover:bg-blue-700"
-                  >
-                    <Check className="mb-1 inline-block h-4 w-4" /> Einzeln
-                  </button>
-                  <button
-                    onClick={() => submitPages("multi")}
-                    className="rounded-lg bg-emerald-600 px-4 py-3 font-semibold text-white hover:bg-emerald-700"
-                  >
-                    <Check className="mb-1 inline-block h-4 w-4" /> Als PDF
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
         )}

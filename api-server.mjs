@@ -5262,6 +5262,75 @@ app.post('/api/admin/documents/:id/reanalyze', requireAdmin, async (req, res) =>
   }
 });
 
+// ── DOCUMENT SCANNER PROXY ────────────────────────────────────────────────────
+// Proxies to Python scikit-image scanner service on port 3002
+
+const SCANNER_URL = 'http://127.0.0.1:3002';
+
+async function proxyToScanner(path, body) {
+  const res = await fetch(`${SCANNER_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Scanner service error ${res.status}: ${text}`);
+  }
+  return res.json();
+}
+
+// POST /api/scan/detect — frame analysis (red/green quality indicator)
+app.post('/api/scan/detect', requireAuth, express.json({ limit: '5mb' }), async (req, res) => {
+  try {
+    const { image } = req.body;
+    if (!image) return res.status(400).json({ error: 'image required' });
+    const result = await proxyToScanner('/detect', { image });
+    return res.json(result);
+  } catch (err) {
+    console.error('[scan/detect]', err.message);
+    return res.status(503).json({ error: 'Scanner nicht verfügbar', quality: 'poor', detected: false, confidence: 0 });
+  }
+});
+
+// POST /api/scan/process — perspective correction after capture
+app.post('/api/scan/process', requireAuth, express.json({ limit: '20mb' }), async (req, res) => {
+  try {
+    const { image, corners, enhance } = req.body;
+    if (!image) return res.status(400).json({ error: 'image required' });
+    const result = await proxyToScanner('/process', { image, corners: corners || null, enhance: enhance !== false });
+    return res.json(result);
+  } catch (err) {
+    console.error('[scan/process]', err.message);
+    return res.status(503).json({ error: 'Verarbeitung fehlgeschlagen' });
+  }
+});
+
+// POST /api/scan/adjust — rotate / crop / colorize
+app.post('/api/scan/adjust', requireAuth, express.json({ limit: '20mb' }), async (req, res) => {
+  try {
+    const { image, rotate, grayscale, enhance, brightness, contrast, crop } = req.body;
+    if (!image) return res.status(400).json({ error: 'image required' });
+    const result = await proxyToScanner('/adjust', { image, rotate, grayscale, enhance, brightness, contrast, crop });
+    return res.json(result);
+  } catch (err) {
+    console.error('[scan/adjust]', err.message);
+    return res.status(503).json({ error: 'Anpassung fehlgeschlagen' });
+  }
+});
+
+// GET /api/scan/health — scanner service status
+app.get('/api/scan/health', requireAuth, async (req, res) => {
+  try {
+    const r = await fetch(`${SCANNER_URL}/health`, { signal: AbortSignal.timeout(3000) });
+    const data = await r.json();
+    return res.json({ ...data, available: true });
+  } catch {
+    return res.json({ available: false, status: 'offline' });
+  }
+});
+
 // ── START ─────────────────────────────────────────────────────────────────────
 transporter.verify()
   .then(() => console.log(`✓ SMTP verbunden (${SMTP_HOST}:${SMTP_PORT})`))
