@@ -4851,6 +4851,31 @@ app.patch('/api/auth/profile', requireAuth, (req, res) => {
   }
 });
 
+// ── POST /api/auth/reset-calendar-token ──────────────────────────────────────
+app.post('/api/auth/reset-calendar-token', requireAuth, (req, res) => {
+  const userId = currentUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Authentifizierung erforderlich' });
+
+  const newToken = buildSuggestedCalendarToken();
+  try {
+    const result = db.prepare(
+      "UPDATE users SET calendar_token = ?, updated_at = datetime('now') WHERE id = ?"
+    ).run(newToken, userId);
+
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Benutzer nicht gefunden' });
+    }
+
+    return res.status(200).json({
+      calendarToken: newToken,
+      calendarFeedUrl: buildCalendarFeedUrl(newToken),
+    });
+  } catch (err) {
+    console.error('[calendar] reset token error:', errorSummary(err));
+    return res.status(500).json({ error: 'Token konnte nicht erneuert werden' });
+  }
+});
+
 // ── PATCH /api/auth/change-password ────────────────────────────────────────────
 app.patch('/api/auth/change-password', requireAuth, (req, res) => {
   const { currentPassword, newPassword } = req.body;
