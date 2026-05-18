@@ -719,7 +719,6 @@ export default function AdminPage() {
                     <th className="py-3 pr-3">Prüfung</th>
                     <th className="py-3 pr-3">Verifiziert</th>
                     <th className="py-3 pr-3">Letztes Dokument</th>
-                    <th className="py-3 pr-3">Aktion</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -739,19 +738,11 @@ export default function AdminPage() {
                       <td className="py-3 pr-3">{user.reviewCount}</td>
                       <td className="py-3 pr-3">{user.emailVerified ? "Ja" : "Nein"}</td>
                       <td className="py-3 pr-3 text-muted-foreground">{fmtDateTime(user.lastDocumentAt)}</td>
-                      <td className="py-3 pr-3">
-                        <button
-                          className="bg-red-500 text-white hover:bg-red-600 rounded-lg px-3 py-1.5 text-sm font-semibold"
-                          onClick={() => openDeleteConfirm(user.id, user.email)}
-                        >
-                          Papierkorb
-                        </button>
-                      </td>
                     </tr>
                   ))}
                   {filteredUsers.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
+                      <td colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
                         Kein User passt zum Filter.
                       </td>
                     </tr>
