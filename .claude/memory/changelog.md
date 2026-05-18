@@ -7,6 +7,13 @@ metadata:
 
 ## Changelog
 
+### [2026-05-18] Fix: iCalendar .ics Feed Missing Functions ✅
+- **Problem:** User calendar subscription URL (`/calendar/:token.ics`) returned `ReferenceError: localDateKey is not defined`.
+- **Root cause:** Two helper functions used in `buildPaymentCalendarIcs()` were never defined: `localDateKey()` and `paymentDisplayAmount()`.
+- **Fix:** Added `localDateKey(value)` to convert dates to `YYYY-MM-DD` format; added `paymentDisplayAmount(value)` wrapper to `formatEuroAmount()`.
+- **Result:** `.ics` feed now generates valid RFC 5545 calendar events.
+- **Files:** `api-server.mjs` (+13 lines)
+
 ### [2026-05-18] Replace CalDAV UI with iCalendar .ics Subscription Feed ✅
 - **What changed:** Removed CalDAV-style profile UI (server/username/password/DAVx5 instructions). Replaced with clean iCal subscription UX.
 - **Backend:** `POST /api/auth/reset-calendar-token` — generates new cryptographically-random `calendar_token`, invalidates old ICS URL, returns new `calendarFeedUrl`. Existing `/calendar/:token.ics` feed unchanged (RFC 5545 compliant, UTC, VALARM, proper escaping).
