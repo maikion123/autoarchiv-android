@@ -32,9 +32,11 @@ export function AppShell() {
   const [authState, setAuthState] = useState<"checking" | "authenticated" | "unauthenticated">("checking");
   const [authFailure, setAuthFailure] = useState<"unauthorized" | "error" | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [autoRedirectCountdown, setAutoRedirectCountdown] = useState<number | null>(null);
   const isPublicPage = path === "/login" || path === "/register" || path === "/ntfy-setup";
   const authCheckedRef = useRef(false);
   const authCheckInFlightRef = useRef(false);
+  const redirectTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     setHydrated(true);
@@ -230,6 +232,29 @@ export function AppShell() {
     };
   }, [isPublicPage, authState]);
 
+  // Auto-redirect to /login after 60 seconds when unauthenticated
+  useEffect(() => {
+    if (!isPublicPage && authState === "unauthenticated") {
+      setAutoRedirectCountdown(60);
+      redirectTimerRef.current = setInterval(() => {
+        setAutoRedirectCountdown(prev => {
+          if (prev === null || prev <= 1) {
+            navigate({ to: "/login", replace: true });
+            return null;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => {
+        if (redirectTimerRef.current) {
+          clearInterval(redirectTimerRef.current);
+          redirectTimerRef.current = null;
+        }
+        setAutoRedirectCountdown(null);
+      };
+    }
+  }, [isPublicPage, authState, navigate]);
+
   useEffect(() => {
     const handleProfileUpdated = (event: Event) => {
       const detail = (event as CustomEvent<{ displayName?: string | null; ntfyTopic?: string | null }>).detail;
@@ -309,6 +334,11 @@ export function AppShell() {
                 ? "Bitte Verbindung prüfen und die Seite erneut laden."
                 : "Dieser Bereich ist nur für angemeldete Nutzer freigegeben. Bitte melde dich an, um fortzufahren."}
             </p>
+            {autoRedirectCountdown !== null && (
+              <p className="mt-3 text-xs text-amber-600">
+                Automatische Umleitung zu Anmeldung in {autoRedirectCountdown}s...
+              </p>
+            )}
             <div className="mt-5 flex flex-wrap gap-3">
               <Link
                 to="/login"
