@@ -7,7 +7,14 @@ metadata:
 
 ## Changelog
 
-### [2026-05-18] AppShell Auth Flash Fix (Complete) + DocumentScanner OpenCV Timeout
+### [2026-05-18] Security Fix: Unauthenticated Content Leak + Auth Flash Fix + OpenCV Timeout
+- **Security 1: Unauthenticated Content Leak** ✅ FIXED
+  - Problem: Unauthenticated user accessing /eingang, /suche, /termine saw content briefly before redirect
+  - Data/UI leak to unauthorized users
+  - Root cause: Outlet rendered during auth checking, no protection until hydration complete
+  - Solution: Protected-Message for ALL unauthenticated states EXCEPT (checking && hasCachedAuthRef)
+  - Impact: Unauth direct access → Protected-Screen immediately, zero content leak
+
 - **Bug 1: Auth Flash Screen on Reload** ✅ FIXED (fully)
   - Problem: F5 reload showed "Geschützter Bereich - Anmeldung erforderlich" flash on /suche, /eingang, /termine (NOT on /)
   - After upload: document disappeared momentarily when page reloaded
