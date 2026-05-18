@@ -6,13 +6,13 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 ---
 # AutoArchiv: Privates Dokumentenarchiv
 
-## Current Status (as of 2026-05-12, Abend)
+## Current Status (as of 2026-05-18, Evening)
 **Production Live:** https://nextkm.de  
-**Git Commits Ahead:** includes session timeout security fix + OCR/upload stability improvements  
+**Git Commits Ahead:** includes session timeout, OCR stability, auth flash fixes, iCalendar feed, admin overhaul, scanner optimization
 **Auth System:** ✅ Functional (bcrypt + JWT + real SMTP OTP + logout cookie fix + Nginx cookie proxying + central AppShell auth guard + login wait for `/api/auth/me`)
 **Logo Replacement:** ✅ Complete (nextKM logo across all components + favicon)
 **Termine (Calendar):** ✅ Live (`/termine` route with combined month calendar, selected-day agenda, clickable upcoming rows, and quick add/edit/delete for appointments + payments + document fristen)
-**Document Upload:** ✅ Restored and iPhone camera upload fixed (`/eingang` route, PDF/image upload, local IndexedDB archive, free local OCR/text analysis with fallback)
+**Document Upload & Scanner:** ✅ Optimized (2026-05-18). `/eingang` route with native scanner UX: 300ms live detection loop with canvas polygon overlay (green/orange/red), confidence badge, auto-capture animation, post-capture interactive crop UI with draggable corners, Python Flask threading for concurrent requests. Smooth phone photo capture + OCR with free local Tesseract, local IndexedDB archive.
 **Session Management:** ✅ 30-minute inactivity timeout implemented (server-side session tracking, auto-logout on inactivity, cannot be bypassed by client)
 **Logout UI:** ✅ Enhanced logout buttons (desktop + mobile headers with improved visibility)
 **Live Agent Dashboard:** ✅ Live (`/agents` route, `/api/agents/*` API, SSE stream, CLI logging via `npm run agent:*`)

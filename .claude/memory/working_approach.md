@@ -86,12 +86,52 @@ nc -vz smtp.gmail.com 465
 **Why:** Write-Ahead Log files are temporary, created by SQLite during writes  
 **Fix:** Don't commit them. They're in .gitignore and will auto-cleanup. Safe to ignore.
 
+### Document Scanner (Native App UX - 2026-05-18)
+**Architecture:** Python Flask microservice (`python-scanner/scanner.py` on port 3002) + React component (`src/features/DocumentScanner.tsx`)
+
+**Detection Loop (Optimized):**
+- Interval: `setTimeout(300ms)` with `detectingRef` boolean guard (prevents overlapping requests, not just interval-based)
+- Each tick: video frame → JPEG 0.55 → POST `/api/scan/detect`
+- Response: `{detected, corners: [[x,y]×4], confidence: 0–1, quality: "poor"|"ok"|"good"}`
+- Confidence badge displayed live: e.g. "82% Konfidenz"
+
+**Canvas Polygon Overlay:**
+- `requestAnimationFrame` draw loop overlays detected quad on live video
+- Color: green (good) / orange (ok) / red (poor)
+- Corner circles + glow effect + subtle fill
+- Coordinates scaled video-native → CSS display pixels
+
+**Auto-Capture:**
+- Threshold: 3 consecutive "good" detections (quality > 0.35 confidence)
+- Time to capture: ~0.9s (was 4.5s with old 1500ms interval)
+- Shutter button pulses green via Framer Motion when pending
+
+**Post-Capture Crop UI:**
+- SVG-based interactive crop overlay on perspective-corrected image
+- 2 draggable corner handles (top-left, bottom-right) + move entire rect
+- Fractional coordinates [0,1] for robust image scaling
+- "Zuschneiden" button toggles mode, "Bestätigen" submits to `/api/scan/adjust?crop`
+- Cropped image becomes base for subsequent rotate/brightness edits
+
+**Python Backend:**
+- Flask runs `threaded=True` to handle concurrent detect + process requests
+- Eliminates request queuing at 300ms polling rate
+- Restart: `python /srv/projects/autoarchiv/python-scanner/scanner.py`
+
+**API Endpoints (proxy via `/api/scan/*`):**
+- `POST /detect` — live quality analysis (JPEG frame → confidence + corners)
+- `POST /process` — perspective correction (frame + corners + enhance → corrected image)
+- `POST /adjust` — rotate, grayscale, brightness, contrast, **crop** (image + edits → adjusted)
+
+**Important:** Crop coordinates sent as `{x, y, w, h}` in image pixels (natural dimensions). Frontend converts fractional [0,1] → pixel coords via `img.naturalWidth / img.naturalHeight`.
+
 ### Document Upload + Free OCR
-**Current design:** `/eingang` uploads PDF/image files in the browser, calls authenticated `POST /api/analyze-document`, then stores metadata + original blob in browser IndexedDB via `src/lib/db.ts`.
+**Current design:** `/eingang` route uses DocumentScanner (native UX) or file fallback, calls authenticated `POST /api/analyze-document`, then stores metadata + original blob in browser IndexedDB via `src/lib/db.ts`.
 
 **Server analysis path:**
 - Digital PDFs: `pdfjs-dist/legacy/build/pdf.mjs` extracts embedded text from the first 8 pages.
-- Images: local `/usr/bin/tesseract` runs with `deu+eng` language data and `--psm 6`.
+- Images: local `/usr/bin/tesseract` runs with `deu+eng` language data and `--psm 6`. Auto-rotated + preprocessed with `sharp` before OCR.
+- Multiple OCR passes compared; variant with real invoice/date lines wins (not just longest text).
 - Metadata is rule-based in `api-server.mjs`: sender, type, amount, due date, expiry date, folder, importance, tags.
 - If extraction fails or no file content is sent, filename/MIME fallback keeps upload usable.
 
@@ -99,9 +139,9 @@ nc -vz smtp.gmail.com 465
 
 **Useful checks:**
 ```bash
-which tesseract
-tesseract --version
+which tesseract; tesseract --version
 ls /usr/share/tesseract-ocr/5/tessdata
+curl http://127.0.0.1:3002/health  # Scanner service health
 node --check api-server.mjs
 npm run build
 ```
