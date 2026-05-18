@@ -7,7 +7,24 @@ metadata:
 
 ## Changelog
 
-### [2026-05-18] Security: Zero Content Visibility + 60sec Auto-Redirect for Unauth Routes ✅ FINAL
+### [2026-05-18] Security: Zero Content Visibility + 60sec Auto-Redirect for Unauth Routes ✅ FINAL (v3)
+
+**Fixes applied (3 iterations):**
+1. Root cause: cached auth → immediate "authenticated" state before server verify → Outlet rendered content. Fixed: server-first only.
+2. SPA navigate() transition → Outlet briefly rendered during /login load. Fixed: `window.location.replace()` + `<a href>` buttons.
+3. Instant 2s redirect instead of 60s: `loadUserInfo` called replace() immediately after auth check (~2s). Fixed: removed instant redirect from auth check, countdown timer owns redirect only.
+
+**Final behavior:**
+- Unauth user → protection screen immediately (SSR, no content visible)
+- Auth check returns unauth (~1-2s) → countdown starts at 60
+- Screen shows "Automatische Umleitung in Xs..." 
+- After 60s → `window.location.replace("/login")` (full reload, no SPA transition)
+- "Zur Anmeldung" button → `<a href="/login">` (full reload, no SPA transition)
+- Routes "/" and "/admin" excluded from countdown (show protection, no auto-redirect)
+
+**Files modified:** `src/components/AppShell.tsx` only
+
+### [2026-05-18] Security: Zero Content Visibility + 60sec Auto-Redirect for Unauth Routes (deprecated — see v3 above)
 - **Critical Security Fix:** Unauthenticated content leak eliminated
   - Problem: Cached auth triggered "authenticated" state before server verification, causing Outlet to render briefly with protected content visible
   - Solution: ALWAYS verify server first. Never trust cache for render decisions.
