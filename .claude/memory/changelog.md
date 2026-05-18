@@ -7,6 +7,16 @@ metadata:
 
 ## Changelog
 
+### [2026-05-18] DocumentScanner Optimization: Fast Detection + Crop UI ✅
+- **Live Detection (300ms + In-flight Guard):** Detect loop changed from `setInterval(1500ms)` → `setTimeout(300ms)` with boolean guard. Prevents overlapping requests, JPEG quality reduced 0.65→0.55 for smaller payloads. Confidence value now captured.
+- **Canvas Polygon Overlay:** New `overlayCanvasRef` with `requestAnimationFrame` draw loop. Detected corners rendered as animated green/orange/red polygon with corner circles, glow, subtle fill. Correctly scaled from video-native → CSS-display pixels.
+- **Real-time Quality Feedback:** Labels updated to "Kein Dokument" / "Zu weit weg" / "Dokument erkannt" / "Bereit zum Scannen ✓". Confidence badge shows percentage (e.g. "82% Konfidenz").
+- **Auto-Capture Animation:** Pulsing green ring on shutter button when auto-capture pending (3 consecutive "good" detections = ~0.9s instead of 4.5s).
+- **Post-Capture Crop UI:** SVG-based interactive crop with 2 draggable corner handles (TL/BR). Fractional coords [0,1] for robust scaling. "Zuschneiden" button toggles mode, "Bestätigen" submits to `/api/scan/adjust?crop`. Cropped image becomes basis for rotate/brightness edits.
+- **Python Backend Threading:** Flask now runs `threaded=True` to handle concurrent detect+process requests without queuing.
+- **Files:** `src/features/DocumentScanner.tsx` (+300 lines), `python-scanner/scanner.py` (1 line)
+- **Result:** Native scanner app feel — fast, smooth live detection with real-time polygon feedback, interactive crop before save.
+
 ### [2026-05-18] Fix: iCalendar .ics Feed Missing Functions ✅
 - **Problem:** User calendar subscription URL (`/calendar/:token.ics`) returned `ReferenceError: localDateKey is not defined`.
 - **Root cause:** Two helper functions used in `buildPaymentCalendarIcs()` were never defined: `localDateKey()` and `paymentDisplayAmount()`.
