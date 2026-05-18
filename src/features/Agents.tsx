@@ -92,8 +92,8 @@ export default function AgentsPage() {
   };
 
   useEffect(() => {
-    load();
-    const fallback = window.setInterval(() => load({ silent: true }), 30_000);
+    load({ silent: true });
+    const fallback = window.setInterval(() => load({ silent: true }), 15_000);
     const source = new EventSource("/api/agents/stream");
 
     source.addEventListener("open", () => setConnected(true));
