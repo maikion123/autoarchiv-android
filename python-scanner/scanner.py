@@ -357,4 +357,4 @@ def adjust():
 
 if __name__ == "__main__":
     log.info("Document Scanner service starting on port 3002")
-    app.run(host="0.0.0.0", port=3002, debug=False)
+    app.run(host="0.0.0.0", port=3002, debug=False, threaded=True)

@@ -3,9 +3,47 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Camera, RotateCcw, RotateCw, Trash2, Check, X,
   Loader2, AlertCircle, ChevronUp, ChevronDown,
-  Sun, Contrast, Zap, ZapOff, Flashlight,
+  Sun, Contrast, Zap, ZapOff, Flashlight, Crop,
 } from "lucide-react";
 import { toast } from "sonner";
+
+// Canvas polygon drawing helper
+function drawPolygon(
+  ctx: CanvasRenderingContext2D,
+  corners: number[][],
+  sx: number,
+  sy: number,
+  quality: "poor" | "ok" | "good" | null
+) {
+  if (!quality) return;
+  const color = quality === "good" ? "#4ade80" : quality === "ok" ? "#fb923c" : "#ef4444";
+  const pts = corners.map(([x, y]) => [x * sx, y * sy]);
+
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+
+  // Fill with subtle tint
+  ctx.fillStyle = quality === "good" ? "rgba(74,222,128,0.08)" : "rgba(251,146,60,0.08)";
+  ctx.fill();
+
+  // Outer glow
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 12;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Corner circles
+  for (const [x, y] of pts) {
+    ctx.beginPath();
+    ctx.arc(x, y, 6, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+}
 
 type Phase = "camera" | "editing" | "review" | "fallback";
 type Quality = "poor" | "ok" | "good" | null;
@@ -33,6 +71,14 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
   const [quality, setQuality] = useState<Quality>(null);
   const [flashMode, setFlashMode] = useState<FlashMode>("off");
   const [capturing, setCapturing] = useState(false);
+  const [confidence, setConfidence] = useState(0);
+  const [autoCapturePending, setAutoCapturePending] = useState(false);
+
+  // Crop state
+  const [cropMode, setCropMode] = useState(false);
+  const [cropRect, setCropRect] = useState<{x:number,y:number,w:number,h:number} | null>(null);
+  const [cropDragging, setCropDragging] = useState<"tl"|"br"|"move"|null>(null);
+  const [dragStart, setDragStart] = useState<{mx:number,my:number,rect:{x:number,y:number,w:number,h:number}} | null>(null);
 
   // Editing state
   const [editingImage, setEditingImage] = useState<string | null>(null);
@@ -45,11 +91,16 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const captureCanvasRef = useRef<HTMLCanvasElement>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const detectIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const detectIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const detectingRef = useRef(false);
+  const confidenceRef = useRef(0);
   const cornersRef = useRef<number[][] | null>(null);
   const goodCountRef = useRef(0);
   const fallbackInputRef = useRef<HTMLInputElement>(null);
+  const previewImgRef = useRef<HTMLImageElement>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
   // Ref so detect-loop always reads current auto-capture state (no stale closure)
   const autoCaptureRef = useRef(false);
 
@@ -61,22 +112,34 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
 
   const stopDetectLoop = useCallback(() => {
     if (detectIntervalRef.current !== null) {
-      clearInterval(detectIntervalRef.current);
+      clearTimeout(detectIntervalRef.current);
       detectIntervalRef.current = null;
     }
   }, []);
 
   const startDetectLoop = useCallback(() => {
     stopDetectLoop();
-    detectIntervalRef.current = setInterval(async () => {
+
+    const runDetect = async () => {
+      if (detectingRef.current) {
+        // Request still in-flight, skip this tick
+        detectIntervalRef.current = setTimeout(runDetect, 300);
+        return;
+      }
+
+      detectingRef.current = true;
       const video = videoRef.current;
       const canvas = captureCanvasRef.current;
-      if (!video || !canvas || video.videoWidth === 0) return;
+      if (!video || !canvas || video.videoWidth === 0) {
+        detectingRef.current = false;
+        detectIntervalRef.current = setTimeout(runDetect, 300);
+        return;
+      }
 
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       canvas.getContext("2d")!.drawImage(video, 0, 0);
-      const b64 = canvas.toDataURL("image/jpeg", 0.65);
+      const b64 = canvas.toDataURL("image/jpeg", 0.55);
 
       try {
         const r = await fetch("/api/scan/detect", {
@@ -85,26 +148,44 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
           body: JSON.stringify({ image: b64 }),
           signal: AbortSignal.timeout(3000),
         });
-        if (!r.ok) return;
+        if (!r.ok) throw new Error("detect failed");
         const data = await r.json();
         setQuality(data.quality ?? null);
         cornersRef.current = data.detected ? data.corners : null;
+        confidenceRef.current = data.detected ? data.confidence : 0;
+        setConfidence(data.detected ? data.confidence : 0);
 
-        if (autoCaptureRef.current) {
-          if (data.quality === "good") {
-            goodCountRef.current++;
-            if (goodCountRef.current >= 3) {
+        if (data.detected) {
+          if (autoCaptureRef.current) {
+            if (data.quality === "good") {
+              goodCountRef.current++;
+              setAutoCapturePending(goodCountRef.current >= 1 && goodCountRef.current < 3);
+              if (goodCountRef.current >= 3) {
+                goodCountRef.current = 0;
+                setAutoCapturePending(false);
+                captureRef.current?.();
+              }
+            } else {
               goodCountRef.current = 0;
-              captureRef.current?.();
+              setAutoCapturePending(false);
             }
           } else {
             goodCountRef.current = 0;
+            setAutoCapturePending(false);
           }
+        } else {
+          goodCountRef.current = 0;
+          setAutoCapturePending(false);
         }
       } catch {
         // network / timeout — skip tick
       }
-    }, 1500);
+
+      detectingRef.current = false;
+      detectIntervalRef.current = setTimeout(runDetect, 300);
+    };
+
+    runDetect();
   }, [stopDetectLoop]);
 
   const stopCamera = useCallback(() => {
@@ -148,6 +229,32 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
   useEffect(() => {
     return () => stopCamera();
   }, [stopCamera]);
+
+  // Canvas polygon overlay for live detection
+  useEffect(() => {
+    if (phase !== "camera") return;
+    let rafId: number;
+    const draw = () => {
+      const canvas = overlayCanvasRef.current;
+      const video = videoRef.current;
+      if (canvas && video && video.videoWidth > 0) {
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+        const ctx = canvas.getContext("2d")!;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const corners = cornersRef.current;
+        if (corners && corners.length === 4) {
+          const scaleX = canvas.width / video.videoWidth;
+          const scaleY = canvas.height / video.videoHeight;
+          drawPolygon(ctx, corners, scaleX, scaleY, quality);
+        }
+      }
+      rafId = requestAnimationFrame(draw);
+    };
+    rafId = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(rafId);
+  }, [phase, quality]);
 
   // ── Torch ─────────────────────────────────────────────────────────────────
 
@@ -205,6 +312,8 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
       setEditBW(false);
       setEditBrightness(1.0);
       setEditContrast(1.0);
+      setCropMode(false);
+      setCropRect(null);
       setPhase("editing");
     } catch (err) {
       toast.error("Aufnahme fehlgeschlagen");
@@ -266,6 +375,70 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
     setPhase("review");
   }, [previewImage, editingImage]);
 
+  // Crop handlers
+  const startCropDrag = useCallback((e: React.PointerEvent<SVGSVGElement>, handle: "tl"|"br"|"move") => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setCropDragging(handle);
+    setDragStart({ mx: e.clientX, my: e.clientY, rect: cropRect! });
+  }, [cropRect]);
+
+  const handleCropPointerMove = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+    if (!cropDragging || !dragStart) return;
+    const svg = e.currentTarget;
+    const bbox = svg.getBoundingClientRect();
+    const dx = (e.clientX - dragStart.mx) / bbox.width;
+    const dy = (e.clientY - dragStart.my) / bbox.height;
+    const r = { ...dragStart.rect };
+    if (cropDragging === "tl") {
+      r.x = Math.max(0, Math.min(r.x + dx, r.x + r.w - 0.05));
+      r.y = Math.max(0, Math.min(r.y + dy, r.y + r.h - 0.05));
+      r.w = dragStart.rect.x + dragStart.rect.w - r.x;
+      r.h = dragStart.rect.y + dragStart.rect.h - r.y;
+    } else if (cropDragging === "br") {
+      r.w = Math.max(0.05, Math.min(dx + dragStart.rect.w, 1 - r.x));
+      r.h = Math.max(0.05, Math.min(dy + dragStart.rect.h, 1 - r.y));
+    } else {
+      r.x = Math.max(0, Math.min(r.x + dx, 1 - r.w));
+      r.y = Math.max(0, Math.min(r.y + dy, 1 - r.h));
+    }
+    setCropRect(r);
+  }, [cropDragging, dragStart]);
+
+  const handleCropPointerUp = useCallback(() => {
+    setCropDragging(null);
+    setDragStart(null);
+  }, []);
+
+  const applyCrop = useCallback(async () => {
+    if (!cropRect || !editingImage || !previewImgRef.current) return;
+    setEditLoading(true);
+    try {
+      const img = previewImgRef.current;
+      const crop = {
+        x: Math.round(cropRect.x * img.naturalWidth),
+        y: Math.round(cropRect.y * img.naturalHeight),
+        w: Math.round(cropRect.w * img.naturalWidth),
+        h: Math.round(cropRect.h * img.naturalHeight),
+      };
+      const r = await fetch("/api/scan/adjust", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: editingImage, crop }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      setEditingImage(data.image);
+      setPreviewImage(data.image);
+      setCropMode(false);
+      setCropRect(null);
+    } catch {
+      toast.error("Zuschneiden fehlgeschlagen");
+    } finally {
+      setEditLoading(false);
+    }
+  }, [cropRect, editingImage]);
+
   // ── Review ─────────────────────────────────────────────────────────────────
 
   const movePage = (idx: number, dir: "up" | "down") => {
@@ -324,12 +497,12 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
 
   const qualityLabel =
     quality === "good"
-      ? "✓ Dokument erkannt"
+      ? "Bereit zum Scannen ✓"
       : quality === "ok"
-        ? "Dokument teilweise erkannt"
+        ? "Dokument erkannt"
         : quality === "poor"
-          ? "Dokument nicht erkannt"
-          : "Suche Dokument...";
+          ? "Zu weit weg"
+          : "Kein Dokument";
 
   const qualityLabelClass =
     quality === "good"
@@ -362,7 +535,13 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
               autoPlay
             />
 
-            {/* Quality frame overlay */}
+            {/* Canvas polygon overlay for live detection */}
+            <canvas
+              ref={overlayCanvasRef}
+              className="absolute inset-0 w-full h-full pointer-events-none"
+            />
+
+            {/* Quality frame overlay (fallback) */}
             <div
               className={`absolute inset-4 rounded-xl border-4 pointer-events-none transition-colors duration-300 ${qualityBorderClass}`}
             />
@@ -397,16 +576,34 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
               </div>
             </div>
 
-            {/* Quality badge */}
-            <div className="absolute left-1/2 bottom-36 -translate-x-1/2">
+            {/* Quality badge + confidence */}
+            <div className="absolute left-1/2 bottom-36 -translate-x-1/2 flex flex-col items-center gap-2">
               <span className={`rounded-full px-4 py-2 text-sm font-semibold ${qualityLabelClass}`}>
                 {qualityLabel}
               </span>
+              {confidence > 0 && (
+                <span className="rounded-full bg-black/40 px-2 py-0.5 text-xs text-white/70">
+                  {Math.round(confidence * 100)}% Konfidenz
+                </span>
+              )}
             </div>
 
             {/* Bottom bar */}
             <div className="absolute bottom-0 left-0 right-0 flex flex-col items-center gap-4 pb-10">
               <motion.button
+                animate={
+                  autoCapturePending
+                    ? {
+                        scale: [1, 1.08, 1],
+                        boxShadow: [
+                          "0 0 0 0 rgba(74,222,128,0)",
+                          "0 0 0 12px rgba(74,222,128,0.4)",
+                          "0 0 0 0 rgba(74,222,128,0)",
+                        ],
+                      }
+                    : {}
+                }
+                transition={autoCapturePending ? { repeat: Infinity, duration: 0.7 } : {}}
                 whileTap={{ scale: 0.9 }}
                 onClick={capture}
                 disabled={capturing}
@@ -454,23 +651,91 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
             </div>
 
             {/* Preview */}
-            <div className="relative flex-1 overflow-hidden bg-black">
+            <div ref={previewContainerRef} className="relative flex-1 overflow-hidden bg-black">
               {editLoading && (
                 <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50">
                   <Loader2 className="h-8 w-8 animate-spin text-white" />
                 </div>
               )}
               {previewImage && (
-                <img
-                  src={previewImage}
-                  alt="Vorschau"
-                  className="h-full w-full object-contain"
-                />
+                <>
+                  <img
+                    ref={previewImgRef}
+                    src={previewImage}
+                    alt="Vorschau"
+                    className="h-full w-full object-contain"
+                  />
+                  {cropMode && cropRect && (
+                    <svg
+                      className="absolute inset-0 w-full h-full"
+                      style={{ touchAction: "none" }}
+                      onPointerMove={handleCropPointerMove}
+                      onPointerUp={handleCropPointerUp}
+                      onPointerLeave={handleCropPointerUp}
+                    >
+                      <defs>
+                        <mask id="crop-mask">
+                          <rect width="100%" height="100%" fill="white" />
+                          <rect
+                            x={`${cropRect.x * 100}%`} y={`${cropRect.y * 100}%`}
+                            width={`${cropRect.w * 100}%`} height={`${cropRect.h * 100}%`}
+                            fill="black"
+                          />
+                        </mask>
+                      </defs>
+                      <rect width="100%" height="100%" fill="rgba(0,0,0,0.5)" mask="url(#crop-mask)" />
+                      <rect
+                        x={`${cropRect.x * 100}%`} y={`${cropRect.y * 100}%`}
+                        width={`${cropRect.w * 100}%`} height={`${cropRect.h * 100}%`}
+                        fill="none" stroke="white" strokeWidth="1.5" strokeDasharray="6,3"
+                        style={{ cursor: "move" }}
+                        onPointerDown={(e) => startCropDrag(e, "move")}
+                      />
+                      <circle cx={`${cropRect.x * 100}%`} cy={`${cropRect.y * 100}%`} r="10"
+                        fill="white" style={{ cursor: "nwse-resize" }}
+                        onPointerDown={(e) => startCropDrag(e, "tl")} />
+                      <circle cx={`${(cropRect.x + cropRect.w) * 100}%`} cy={`${(cropRect.y + cropRect.h) * 100}%`} r="10"
+                        fill="white" style={{ cursor: "nwse-resize" }}
+                        onPointerDown={(e) => startCropDrag(e, "br")} />
+                    </svg>
+                  )}
+                </>
               )}
             </div>
 
             {/* Controls */}
             <div className="space-y-4 bg-gray-950 p-4 pb-8">
+              {/* Crop row */}
+              <div className="flex items-center justify-center gap-4">
+                <button
+                  onClick={() => {
+                    if (cropMode) {
+                      setCropMode(false);
+                      setCropRect(null);
+                    } else {
+                      setCropMode(true);
+                      setCropRect({ x: 0.05, y: 0.05, w: 0.90, h: 0.90 });
+                    }
+                  }}
+                  className={`flex flex-col items-center gap-1 rounded-xl px-5 py-3 ${
+                    cropMode ? "bg-white text-black" : "bg-white/10 text-white"
+                  }`}
+                >
+                  <Crop className="h-5 w-5" />
+                  <span className="text-xs">{cropMode ? "Abbrechen" : "Zuschneiden"}</span>
+                </button>
+                {cropMode && (
+                  <button
+                    onClick={applyCrop}
+                    disabled={editLoading}
+                    className="flex flex-col items-center gap-1 rounded-xl bg-emerald-600 px-5 py-3 text-white disabled:opacity-50"
+                  >
+                    <Check className="h-5 w-5" />
+                    <span className="text-xs">Bestätigen</span>
+                  </button>
+                )}
+              </div>
+
               {/* Rotate row */}
               <div className="flex items-center justify-center gap-4">
                 <button
