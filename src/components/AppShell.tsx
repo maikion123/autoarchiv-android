@@ -66,26 +66,15 @@ export function AppShell() {
       return;
     }
 
-    if (cachedAuth && authState !== "authenticated") {
-      setUserEmail(cachedAuth.email);
-      setUserRole(cachedAuth.role || "user");
-      setAuthState("authenticated");
-      setAuthFailure(null);
-      hasCachedAuthRef.current = true;
-    }
-
     if (authCheckedRef.current || authCheckInFlightRef.current) {
       return;
     }
 
     let cancelled = false;
     authCheckInFlightRef.current = true;
-    if (!hasCachedAuthRef.current) {
-      setAuthState("checking");
-    }
+    setAuthState("checking");
     console.debug("[AppShell] Auth check start", {
       isPublicPage,
-      hasCachedAuth: hasCachedAuthRef.current,
     });
 
     const loadUserInfo = async () => {
@@ -111,6 +100,7 @@ export function AppShell() {
             setAuthFailure("error");
             console.warn("[AppShell] Auth check failed without redirect:", auth.error || "unknown");
           }
+          clearAuthCache();
           return;
         }
 
@@ -137,9 +127,7 @@ export function AppShell() {
         setNtfyTopic(null);
         setAuthState("unauthenticated");
         setAuthFailure("error");
-        if (!hasCachedAuthRef.current) {
-          clearAuthCache();
-        }
+        clearAuthCache();
       } finally {
         authCheckInFlightRef.current = false;
       }
@@ -150,7 +138,7 @@ export function AppShell() {
     return () => {
       cancelled = true;
     };
-  }, [cachedAuth, hydrated, isPublicPage, navigate, authState, path]);
+  }, [hydrated, isPublicPage, navigate, path]);
 
   const handleLogout = useCallback(async () => {
     try {
