@@ -96,6 +96,12 @@ interface AdminUserDocument {
   mime_type: string;
 }
 
+interface AdminFolder {
+  id: string;
+  name: string;
+  parent_id: string | null;
+}
+
 async function fetchJson(path: string) {
   const res = await fetch(path, { credentials: "include", cache: "no-store" });
   const data = await res.json().catch(() => ({}));
@@ -189,6 +195,10 @@ export default function AdminPage() {
   const [logsAction, setLogsAction] = useState("");
   const [userDocuments, setUserDocuments] = useState<AdminUserDocument[]>([]);
   const [userDocumentsLoading, setUserDocumentsLoading] = useState(false);
+  const [adminFolders, setAdminFolders] = useState<AdminFolder[]>([]);
+  const [showDocDeleteConfirm, setShowDocDeleteConfirm] = useState(false);
+  const [docDeleteId, setDocDeleteId] = useState<string | null>(null);
+  const [deletingDocument, setDeletingDocument] = useState(false);
   const [navigationDraft, setNavigationDraft] = useState<NavigationDraft>({
     label: "",
     path: "",
@@ -316,6 +326,9 @@ export default function AdminPage() {
     if (activeSection === "logs" && logs.length === 0 && !logsLoading) {
       loadLogs(logsAction);
     }
+    if ((activeSection === "documents" || activeSection === "reviews") && adminFolders.length === 0) {
+      loadAdminFolders();
+    }
   }, [activeSection]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -331,6 +344,7 @@ export default function AdminPage() {
   useEffect(() => {
     if (!selectedDocument) return;
     setActiveSection(selectedDocument.reviewStatus === "review_required" || selectedDocument.status === "review" ? "reviews" : "documents");
+    if (adminFolders.length === 0) loadAdminFolders(); // eslint-disable-line react-hooks/exhaustive-deps
     setDocumentDraft({
       folderPath: selectedDocument.folderPath || "",
       status: selectedDocument.status || "analyzed",
@@ -532,6 +546,35 @@ export default function AdminPage() {
     finally { setUserDocumentsLoading(false); }
   };
 
+  const loadAdminFolders = async () => {
+    try {
+      const data = await fetchJson("/api/admin/folders");
+      setAdminFolders(data.folders || []);
+    } catch {}
+  };
+
+  const handleDeleteDocument = async () => {
+    if (!docDeleteId) return;
+    setDeletingDocument(true);
+    try {
+      const res = await fetch(`/api/admin/documents/${docDeleteId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Löschen fehlgeschlagen");
+      setShowDocDeleteConfirm(false);
+      setDocDeleteId(null);
+      if (selectedDocumentId === docDeleteId) setSelectedDocumentId(null);
+      await load({ silent: true });
+    } catch (err: any) {
+      setError(err?.message || "Löschen fehlgeschlagen");
+      setShowDocDeleteConfirm(false);
+    } finally {
+      setDeletingDocument(false);
+    }
+  };
+
   if (!loading && accessDenied) {
     return (
       <div className="space-y-4">
@@ -710,15 +753,15 @@ export default function AdminPage() {
               />
             </div>
             <div className="mt-4 overflow-x-auto">
-              <table className="w-full min-w-[760px] text-left text-sm">
+              <table className="w-full min-w-[640px] text-left text-sm">
                 <thead className="text-xs uppercase tracking-wider text-muted-foreground">
                   <tr className="border-b border-border/40">
-                    <th className="py-3 pr-3">E-Mail</th>
-                    <th className="py-3 pr-3">Rolle</th>
-                    <th className="py-3 pr-3">Dokumente</th>
-                    <th className="py-3 pr-3">Prüfung</th>
-                    <th className="py-3 pr-3">Verifiziert</th>
-                    <th className="py-3 pr-3">Letztes Dokument</th>
+                    <th className="py-3 pr-4">E-Mail</th>
+                    <th className="py-3 pr-4 whitespace-nowrap">Rolle</th>
+                    <th className="py-3 pr-4 whitespace-nowrap">Dok.</th>
+                    <th className="py-3 pr-4 whitespace-nowrap">Prüfung</th>
+                    <th className="py-3 pr-4 whitespace-nowrap">Verifiziert</th>
+                    <th className="py-3 pr-4 whitespace-nowrap">Letztes Dok.</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -728,21 +771,21 @@ export default function AdminPage() {
                       onClick={() => setSelectedUserId(user.id)}
                       className={`border-b border-border/20 transition hover:bg-background/40 ${selectedUserId === user.id ? "bg-background/50" : "cursor-pointer"}`}
                     >
-                      <td className="py-3 pr-3 font-medium">{user.email}</td>
-                      <td className="py-3 pr-3">
-                        <span className={`rounded-full px-2.5 py-1 text-xs ${user.role === "admin" ? "bg-violet-500/15 text-violet-200" : "bg-muted/40 text-muted-foreground"}`}>
+                      <td className="py-3 pr-4 font-medium break-all">{user.email}</td>
+                      <td className="py-3 pr-4">
+                        <span className={`rounded-full px-2.5 py-1 text-xs whitespace-nowrap ${user.role === "admin" ? "bg-violet-500/15 text-violet-200" : "bg-muted/40 text-muted-foreground"}`}>
                           {user.role}
                         </span>
                       </td>
-                      <td className="py-3 pr-3">{user.documentCount}</td>
-                      <td className="py-3 pr-3">{user.reviewCount}</td>
-                      <td className="py-3 pr-3">{user.emailVerified ? "Ja" : "Nein"}</td>
-                      <td className="py-3 pr-3 text-muted-foreground">{fmtDateTime(user.lastDocumentAt)}</td>
+                      <td className="py-3 pr-4">{user.documentCount}</td>
+                      <td className="py-3 pr-4">{user.reviewCount}</td>
+                      <td className="py-3 pr-4">{user.emailVerified ? "✓" : "—"}</td>
+                      <td className="py-3 pr-4 text-muted-foreground whitespace-nowrap">{fmtDateTime(user.lastDocumentAt)}</td>
                     </tr>
                   ))}
                   {filteredUsers.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
+                      <td colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
                         Kein User passt zum Filter.
                       </td>
                     </tr>
@@ -836,16 +879,17 @@ export default function AdminPage() {
               />
             </div>
             <div className="mt-4 overflow-x-auto">
-              <table className="w-full min-w-[900px] text-left text-sm">
+              <table className="w-full min-w-[780px] text-left text-sm">
                 <thead className="text-xs uppercase tracking-wider text-muted-foreground">
                   <tr className="border-b border-border/40">
-                    <th className="py-3 pr-3">Datei</th>
-                    <th className="py-3 pr-3">User</th>
-                    <th className="py-3 pr-3">Status</th>
-                    <th className="py-3 pr-3">Ordner</th>
-                    <th className="py-3 pr-3">Absender</th>
-                    <th className="py-3 pr-3">Typ</th>
-                    <th className="py-3 pr-3">Aktualisiert</th>
+                    <th className="py-3 pr-4 min-w-[160px]">Datei</th>
+                    <th className="py-3 pr-4">User</th>
+                    <th className="py-3 pr-4 whitespace-nowrap">Status</th>
+                    <th className="py-3 pr-4">Ordner</th>
+                    <th className="py-3 pr-4">Absender</th>
+                    <th className="py-3 pr-4">Typ</th>
+                    <th className="py-3 pr-4 whitespace-nowrap">Aktualisiert</th>
+                    <th className="py-3 pr-0 min-w-[120px]">Aktionen</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -855,22 +899,40 @@ export default function AdminPage() {
                       onClick={() => setSelectedDocumentId(doc.id)}
                       className={`border-b border-border/20 transition hover:bg-background/40 ${selectedDocumentId === doc.id ? "bg-background/50" : "cursor-pointer"}`}
                     >
-                      <td className="py-3 pr-3 font-medium">{doc.filename}</td>
-                      <td className="py-3 pr-3 text-muted-foreground">{doc.userEmail}</td>
-                      <td className="py-3 pr-3">
-                        <span className="rounded-full bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground">
+                      <td className="py-3 pr-4 font-medium max-w-[200px] truncate">{doc.filename}</td>
+                      <td className="py-3 pr-4 text-muted-foreground max-w-[160px] truncate">{doc.userEmail}</td>
+                      <td className="py-3 pr-4">
+                        <span className="rounded-full bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground whitespace-nowrap">
                           {doc.reviewStatus || doc.status}
                         </span>
                       </td>
-                      <td className="py-3 pr-3 text-muted-foreground">{doc.folderPath}</td>
-                      <td className="py-3 pr-3">{doc.absender}</td>
-                      <td className="py-3 pr-3">{doc.dokumenttyp}</td>
-                      <td className="py-3 pr-3 text-muted-foreground">{fmtDateTime(doc.updatedAt)}</td>
+                      <td className="py-3 pr-4 text-muted-foreground max-w-[140px] truncate">{doc.folderPath}</td>
+                      <td className="py-3 pr-4 max-w-[120px] truncate">{doc.absender}</td>
+                      <td className="py-3 pr-4 max-w-[120px] truncate">{doc.dokumenttyp}</td>
+                      <td className="py-3 pr-4 text-muted-foreground whitespace-nowrap">{fmtDateTime(doc.updatedAt)}</td>
+                      <td className="py-3 pr-0" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedDocumentId(doc.id)}
+                            className="rounded-lg border border-border/40 bg-background/50 px-2.5 py-1.5 text-xs font-semibold text-foreground whitespace-nowrap hover:bg-accent/40"
+                          >
+                            Bearbeiten
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setDocDeleteId(doc.id); setShowDocDeleteConfirm(true); }}
+                            className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-2.5 py-1.5 text-xs font-semibold text-rose-100 whitespace-nowrap hover:bg-rose-500/20"
+                          >
+                            Löschen
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                   {filteredDocuments.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                      <td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
                         Kein Dokument passt zum Filter.
                       </td>
                     </tr>
@@ -891,7 +953,18 @@ export default function AdminPage() {
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
                   <label className="space-y-2 text-sm">
                     <span className="text-muted-foreground">Ordner</span>
-                    <input value={documentDraft.folderPath} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, folderPath: e.target.value }))} className="w-full rounded-xl border border-border/40 bg-background/60 px-3 py-2.5 font-mono text-sm" />
+                    <input
+                      value={documentDraft.folderPath}
+                      onChange={(e) => setDocumentDraft((prev) => ({ ...prev, folderPath: e.target.value }))}
+                      list="admin-folders-datalist"
+                      className="w-full rounded-xl border border-border/40 bg-background/60 px-3 py-2.5 font-mono text-sm"
+                      placeholder="Ordner auswählen oder eingeben…"
+                    />
+                    <datalist id="admin-folders-datalist">
+                      {adminFolders.map((f) => (
+                        <option key={f.id} value={f.id} label={f.parent_id ? `  └ ${f.name}` : f.name} />
+                      ))}
+                    </datalist>
                   </label>
                   <label className="space-y-2 text-sm">
                     <span className="text-muted-foreground">Fälligkeit</span>
@@ -949,6 +1022,13 @@ export default function AdminPage() {
                   <button type="button" disabled={reanalyzing} onClick={() => reanalyzeDocument(selectedDocument.id)} className="rounded-xl border border-border/60 bg-background/50 px-4 py-2.5 text-sm font-semibold text-foreground disabled:opacity-50">
                     {reanalyzing ? "Analysiert..." : "Neu analysieren"}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => { setDocDeleteId(selectedDocument.id); setShowDocDeleteConfirm(true); }}
+                    className="rounded-xl bg-rose-600/80 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-600"
+                  >
+                    Löschen
+                  </button>
                 </div>
               </>
             ) : (
@@ -977,17 +1057,17 @@ export default function AdminPage() {
             </div>
 
             <div className="mt-4 overflow-x-auto">
-              <table className="w-full min-w-[920px] text-left text-sm">
+              <table className="w-full min-w-[860px] text-left text-sm">
                 <thead className="text-xs uppercase tracking-wider text-muted-foreground">
                   <tr className="border-b border-border/40">
-                    <th className="py-3 pr-3">Label</th>
-                    <th className="py-3 pr-3">Pfad</th>
-                    <th className="py-3 pr-3">Icon</th>
-                    <th className="py-3 pr-3">Bereich</th>
-                    <th className="py-3 pr-3">Rolle</th>
-                    <th className="py-3 pr-3">Sichtbar</th>
-                    <th className="py-3 pr-3">Reihenfolge</th>
-                    <th className="py-3 pr-3">Aktionen</th>
+                    <th className="py-3 pr-4 min-w-[100px]">Label</th>
+                    <th className="py-3 pr-4 min-w-[120px]">Pfad</th>
+                    <th className="py-3 pr-4">Icon</th>
+                    <th className="py-3 pr-4">Bereich</th>
+                    <th className="py-3 pr-4">Rolle</th>
+                    <th className="py-3 pr-4">Sichtbar</th>
+                    <th className="py-3 pr-4">Reihenf.</th>
+                    <th className="py-3 pr-0 min-w-[220px]">Aktionen</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -997,29 +1077,29 @@ export default function AdminPage() {
                       onClick={() => setSelectedNavigationId(item.id)}
                       className={`border-b border-border/20 transition hover:bg-background/40 ${selectedNavigationId === item.id ? "bg-background/50" : "cursor-pointer"}`}
                     >
-                      <td className="py-3 pr-3 font-medium">{item.label}</td>
-                      <td className="py-3 pr-3 font-mono text-xs text-muted-foreground">{item.path}</td>
-                      <td className="py-3 pr-3 text-muted-foreground">{item.icon}</td>
-                      <td className="py-3 pr-3 text-muted-foreground">{item.section}</td>
-                      <td className="py-3 pr-3">
-                        <span className={`rounded-full px-2.5 py-1 text-xs ${item.roleRequired === "admin" ? "bg-violet-500/15 text-violet-200" : "bg-muted/40 text-muted-foreground"}`}>
+                      <td className="py-3 pr-4 font-medium">{item.label}</td>
+                      <td className="py-3 pr-4 font-mono text-xs text-muted-foreground">{item.path}</td>
+                      <td className="py-3 pr-4 text-muted-foreground">{item.icon}</td>
+                      <td className="py-3 pr-4 text-muted-foreground">{item.section}</td>
+                      <td className="py-3 pr-4">
+                        <span className={`rounded-full px-2.5 py-1 text-xs whitespace-nowrap ${item.roleRequired === "admin" ? "bg-violet-500/15 text-violet-200" : "bg-muted/40 text-muted-foreground"}`}>
                           {item.roleRequired}
                         </span>
                       </td>
-                      <td className="py-3 pr-3">{item.visible ? "Ja" : "Nein"}</td>
-                      <td className="py-3 pr-3">{item.sortOrder}</td>
-                      <td className="py-3 pr-3">
-                        <div className="flex items-center gap-2">
+                      <td className="py-3 pr-4">{item.visible ? "Ja" : "Nein"}</td>
+                      <td className="py-3 pr-4">{item.sortOrder}</td>
+                      <td className="py-3 pr-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <button type="button" onClick={(e) => { e.stopPropagation(); moveNavigationItem(item.id, -1); }} className="rounded-lg border border-border/40 bg-background/50 p-2 text-muted-foreground hover:text-foreground" title="Nach oben">
                             <ChevronUp className="h-4 w-4" />
                           </button>
                           <button type="button" onClick={(e) => { e.stopPropagation(); moveNavigationItem(item.id, 1); }} className="rounded-lg border border-border/40 bg-background/50 p-2 text-muted-foreground hover:text-foreground" title="Nach unten">
                             <ChevronDown className="h-4 w-4" />
                           </button>
-                          <button type="button" onClick={(e) => { e.stopPropagation(); setSelectedNavigationId(item.id); }} className="rounded-lg border border-border/40 bg-background/50 px-3 py-2 text-xs font-semibold text-foreground">
+                          <button type="button" onClick={(e) => { e.stopPropagation(); setSelectedNavigationId(item.id); }} className="rounded-lg border border-border/40 bg-background/50 px-3 py-2 text-xs font-semibold text-foreground whitespace-nowrap">
                             Bearbeiten
                           </button>
-                          <button type="button" onClick={(e) => { e.stopPropagation(); deleteNavigationItem(item.id); }} className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-100">
+                          <button type="button" onClick={(e) => { e.stopPropagation(); deleteNavigationItem(item.id); }} className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-100 whitespace-nowrap">
                             Löschen
                           </button>
                         </div>
@@ -1173,10 +1253,51 @@ export default function AdminPage() {
       )}
 
       {activeSection === "reviews" && selectedDocument && (
-        <AdminSidePanel title="Dokumentdetails" subtitle="Der ausgewählte Prüf-Fall.">
+        <AdminSidePanel title="Dokumentaktion" subtitle="Prüf-Fall bearbeiten, verschieben oder löschen.">
           <div className="text-lg font-semibold">{selectedDocument.filename}</div>
           <div className="mt-1 text-sm text-muted-foreground">{selectedDocument.userEmail}</div>
-          <div className="mt-1 text-sm text-muted-foreground">{selectedDocument.folderPath}</div>
+          <div className="mt-1 text-sm text-muted-foreground">
+            Status: {selectedDocument.reviewStatus || selectedDocument.status} · Confidence {selectedDocument.confidence == null ? "—" : selectedDocument.confidence.toFixed(2)}
+          </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <label className="space-y-2 text-sm">
+              <span className="text-muted-foreground">Ordner</span>
+              <input
+                value={documentDraft.folderPath}
+                onChange={(e) => setDocumentDraft((prev) => ({ ...prev, folderPath: e.target.value }))}
+                list="admin-folders-datalist"
+                className="w-full rounded-xl border border-border/40 bg-background/60 px-3 py-2.5 font-mono text-sm"
+                placeholder="Ordner auswählen oder eingeben…"
+              />
+            </label>
+            <label className="space-y-2 text-sm">
+              <span className="text-muted-foreground">Review-Status</span>
+              <select value={documentDraft.reviewStatus} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, reviewStatus: e.target.value }))} className="w-full rounded-xl border border-border/40 bg-background/60 px-3 py-2.5">
+                <option value="auto_ready">auto_ready</option>
+                <option value="review_required">review_required</option>
+                <option value="analysis_failed">analysis_failed</option>
+              </select>
+            </label>
+            <label className="sm:col-span-2 space-y-2 text-sm">
+              <span className="text-muted-foreground">Begründung</span>
+              <textarea value={documentDraft.reviewReason} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, reviewReason: e.target.value }))} className="min-h-20 w-full rounded-xl border border-border/40 bg-background/60 px-3 py-2.5" />
+            </label>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button type="button" disabled={savingDocument} onClick={() => saveDocument(selectedDocument.id)} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">
+              {savingDocument ? "Speichert..." : "Speichern"}
+            </button>
+            <button type="button" disabled={reanalyzing} onClick={() => reanalyzeDocument(selectedDocument.id)} className="rounded-xl border border-border/60 bg-background/50 px-4 py-2.5 text-sm font-semibold text-foreground disabled:opacity-50">
+              {reanalyzing ? "Analysiert..." : "Neu analysieren"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setDocDeleteId(selectedDocument.id); setShowDocDeleteConfirm(true); }}
+              className="rounded-xl bg-rose-600/80 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-600"
+            >
+              Löschen
+            </button>
+          </div>
         </AdminSidePanel>
       )}
       {activeSection === "logs" && (
@@ -1256,6 +1377,39 @@ export default function AdminPage() {
             </div>
           )}
         </section>
+      )}
+
+      {showDocDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="bg-background rounded-2xl border border-rose-500/30 p-6 max-w-md w-full shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="rounded-xl bg-rose-500/15 p-2">
+                <AlertTriangle className="h-5 w-5 text-rose-400" />
+              </div>
+              <h3 className="text-lg font-semibold">Dokument löschen</h3>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Das Dokument wird als gelöscht markiert und aus dem Archiv entfernt. Diese Aktion kann <strong>nicht</strong> rückgängig gemacht werden.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => { setShowDocDeleteConfirm(false); setDocDeleteId(null); }}
+                className="rounded-xl border border-border/60 bg-background/50 px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-accent/40"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteDocument}
+                disabled={deletingDocument}
+                className="rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-40"
+              >
+                {deletingDocument ? "Löscht..." : "Endgültig löschen"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showDeleteConfirm && (

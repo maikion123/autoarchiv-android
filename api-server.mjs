@@ -5359,6 +5359,46 @@ app.get('/api/admin/users/:id/documents', requireAdmin, (req, res) => {
   return res.status(200).json({ documents: docs, total: Number(total) });
 });
 
+// ── ADMIN: FOLDERS LIST ───────────────────────────────────────────────────────
+
+app.get('/api/admin/folders', requireAdmin, (_req, res) => {
+  const rows = db.prepare('SELECT id, name, parent_id FROM document_folders ORDER BY id ASC').all();
+  return res.status(200).json({ folders: rows });
+});
+
+// ── ADMIN: DOCUMENT DELETE ────────────────────────────────────────────────────
+
+app.delete('/api/admin/documents/:id', requireAdmin, async (req, res) => {
+  const doc = db.prepare(`
+    SELECT d.*, u.email
+    FROM documents d
+    JOIN users u ON u.id = d.user_id
+    WHERE d.id = ? AND d.status != 'deleted'
+  `).get(req.params.id);
+  if (!doc) return res.status(404).json({ error: 'Dokument nicht gefunden' });
+
+  db.prepare("UPDATE documents SET status = 'deleted', updated_at = ? WHERE id = ?")
+    .run(new Date().toISOString(), doc.id);
+  db.prepare('DELETE FROM documents_fts WHERE document_id = ?').run(doc.id);
+
+  try {
+    const movedPath = await moveDocumentFileToReadablePath(doc, { status: 'deleted', folderPath: doc.folder_path });
+    if (movedPath && movedPath !== doc.storage_path) {
+      db.prepare('UPDATE documents SET storage_path = ?, updated_at = ? WHERE id = ?')
+        .run(movedPath, new Date().toISOString(), doc.id);
+    }
+  } catch (fsErr) {
+    console.error('[admin] document delete file move error:', fsErr.message);
+  }
+
+  log('ADMIN_DOCUMENT_DELETED', {
+    userId: currentUserId(req),
+    detail: `docId=${doc.id} filename=${doc.filename} owner=${doc.email}`,
+  });
+
+  return res.status(200).json({ message: 'Dokument gelöscht' });
+});
+
 // ── DOCUMENT SCANNER PROXY ────────────────────────────────────────────────────
 // Proxies to Python scikit-image scanner service on port 3002
 
