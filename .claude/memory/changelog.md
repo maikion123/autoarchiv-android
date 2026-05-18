@@ -81,6 +81,23 @@ metadata:
   - Solution: 15-second timeout → fallback to native file input (capture=environment)
   - Impact: Graceful degradation - users can still capture photos without live detection
 
+### [2026-05-18] DocumentScanner Rewrite — Python scikit-image Microservice ✅
+
+- **Problem Fixed:** jscanify/OpenCV CDN approach: 15s load time, unstable on mobile, no editing step, no page reorder
+- **New Architecture:**
+  - `python-scanner/scanner.py` — Flask on port 3002, endpoints: `/detect` (Canny+contours), `/process` (perspective warp), `/adjust` (rotate/crop/B&W)
+  - `api-server.mjs` lines 5265–5334 — proxy `/api/scan/{detect,process,adjust,health}` (requireAuth)
+  - `src/features/DocumentScanner.tsx` — complete rewrite, no jscanify/OpenCV
+- **New Scanner Flow:**
+  1. Camera starts immediately (no CDN load)
+  2. Detection loop every 1.5s → red/orange/green quality border overlay
+  3. Capture → `/api/scan/process` → perspective-corrected image
+  4. Editing phase: rotate ±90°, S/W toggle, brightness/contrast sliders → `/api/scan/adjust`
+  5. Review: thumbnail list, ChevronUp/Down reorder, delete, "Als PDF" / "Einzeln"
+  6. Fallback: file input when camera unavailable
+- **Auto-Capture:** 3 consecutive "good" detections (~4.5s) → auto-capture
+- **Build Status:** ✅ 0 TS errors, 2467 modules
+
 ### [2026-05-18] DocumentScanner Rewrite with jscanify Live Detection
 - **Problem Fixed:** Previous DocumentScanner was incomplete (jscanify installed but unused, no live detection, no perspective correction, no iOS/Android optimization)
 - **Solution:** Complete rewrite with:

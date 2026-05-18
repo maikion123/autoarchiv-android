@@ -5262,6 +5262,103 @@ app.post('/api/admin/documents/:id/reanalyze', requireAdmin, async (req, res) =>
   }
 });
 
+// ── ADMIN: USER DELETE ────────────────────────────────────────────────────────
+
+app.delete('/api/admin/users/:id', requireAdmin, async (req, res) => {
+  const adminUser = getUserById(currentUserId(req));
+  const target = getUserById(req.params.id);
+
+  if (!target) return res.status(404).json({ error: 'Benutzer nicht gefunden' });
+
+  if (target.id === adminUser.id) {
+    return res.status(400).json({ error: 'Eigenen Account nicht löschbar' });
+  }
+
+  if (isAdminUser(target)) {
+    const adminCount = db.prepare(
+      "SELECT COUNT(*) AS c FROM users WHERE role = 'admin'"
+    ).get().c;
+    if (adminCount <= 1) {
+      return res.status(400).json({ error: 'Letzten Admin nicht löschbar' });
+    }
+  }
+
+  const userSlug = userStorageSlug(target.email);
+  const userStorageDir = join(STORAGE_PATH, 'users', userSlug);
+
+  db.prepare('DELETE FROM users WHERE id = ?').run(target.id);
+
+  try {
+    const { rm } = await import('fs/promises');
+    await rm(userStorageDir, { recursive: true, force: true });
+  } catch (fsErr) {
+    console.error('[admin] storage delete error:', fsErr.message);
+  }
+
+  log('ADMIN_USER_DELETED', {
+    userId: adminUser.id,
+    detail: `target=${target.id} email=${target.email}`,
+  });
+
+  return res.status(200).json({ message: 'Benutzer gelöscht' });
+});
+
+// ── ADMIN: AUDIT LOGS ─────────────────────────────────────────────────────────
+
+app.get('/api/admin/logs', requireAdmin, (req, res) => {
+  const limit = Math.min(parseInt(String(req.query.limit || '100'), 10), 500);
+  const offset = parseInt(String(req.query.offset || '0'), 10);
+  const action = req.query.action ? String(req.query.action) : null;
+
+  const rows = action
+    ? db.prepare(`
+        SELECT l.id, l.user_id, l.action, l.ip, l.detail, l.created_at,
+               u.email AS user_email
+        FROM auth_logs l
+        LEFT JOIN users u ON u.id = l.user_id
+        WHERE l.action = ?
+        ORDER BY l.created_at DESC
+        LIMIT ? OFFSET ?
+      `).all(action, limit, offset)
+    : db.prepare(`
+        SELECT l.id, l.user_id, l.action, l.ip, l.detail, l.created_at,
+               u.email AS user_email
+        FROM auth_logs l
+        LEFT JOIN users u ON u.id = l.user_id
+        ORDER BY l.created_at DESC
+        LIMIT ? OFFSET ?
+      `).all(limit, offset);
+
+  const total = action
+    ? db.prepare('SELECT COUNT(*) AS c FROM auth_logs WHERE action = ?').get(action).c
+    : db.prepare('SELECT COUNT(*) AS c FROM auth_logs').get().c;
+
+  return res.status(200).json({ logs: rows, total: Number(total) });
+});
+
+// ── ADMIN: USER DOCUMENTS ─────────────────────────────────────────────────────
+
+app.get('/api/admin/users/:id/documents', requireAdmin, (req, res) => {
+  const user = getUserById(req.params.id);
+  if (!user) return res.status(404).json({ error: 'Benutzer nicht gefunden' });
+
+  const limit = Math.min(parseInt(String(req.query.limit || '20'), 10), 100);
+  const offset = parseInt(String(req.query.offset || '0'), 10);
+
+  const docs = db.prepare(`
+    SELECT id, filename, folder_path, status, created_at, size, mime_type
+    FROM documents
+    WHERE user_id = ?
+    ORDER BY created_at DESC
+    LIMIT ? OFFSET ?
+  `).all(req.params.id, limit, offset);
+
+  const total = db.prepare('SELECT COUNT(*) AS c FROM documents WHERE user_id = ?')
+    .get(req.params.id).c;
+
+  return res.status(200).json({ documents: docs, total: Number(total) });
+});
+
 // ── DOCUMENT SCANNER PROXY ────────────────────────────────────────────────────
 // Proxies to Python scikit-image scanner service on port 3002
 

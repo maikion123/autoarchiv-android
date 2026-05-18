@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, ArrowRight, RefreshCw, ShieldCheck, Users, FileText, CircleCheckBig, CircleAlert, ChevronUp, ChevronDown, Plus } from "lucide-react";
+import { AlertTriangle, ArrowRight, RefreshCw, ShieldCheck, Users, FileText, CircleCheckBig, CircleAlert, ChevronUp, ChevronDown, Plus, ScrollText, Loader2, FileBox } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { fmtDateTime } from "../lib/format";
 import { IconPicker } from "../components/IconPicker";
@@ -74,6 +74,28 @@ interface NavigationDraft {
   isExternal: boolean;
 }
 
+type AdminSection = "overview" | "users" | "documents" | "reviews" | "navigation" | "logs";
+
+interface AdminLog {
+  id: string;
+  user_id: string | null;
+  user_email: string | null;
+  action: string;
+  ip: string | null;
+  detail: string | null;
+  created_at: string;
+}
+
+interface AdminUserDocument {
+  id: string;
+  filename: string;
+  folder_path: string;
+  status: string;
+  created_at: string;
+  size: number;
+  mime_type: string;
+}
+
 async function fetchJson(path: string) {
   const res = await fetch(path, { credentials: "include", cache: "no-store" });
   const data = await res.json().catch(() => ({}));
@@ -111,10 +133,11 @@ export default function AdminPage() {
     setShowDeleteConfirm(false);
     setDeleteUserId(null);
     setDeleteUserEmail('');
+    setDeleteConfirmInput('');
   };
 
   const handleDeleteUser = async () => {
-    if (!deleteUserId) return;
+    if (!deleteUserId || deleteConfirmInput !== deleteUserEmail) return;
     try {
       const res = await fetch(`/api/admin/users/${deleteUserId}`, {
         method: "DELETE",
@@ -125,12 +148,15 @@ export default function AdminPage() {
       setShowDeleteConfirm(false);
       setDeleteUserId(null);
       setDeleteUserEmail('');
+      setDeleteConfirmInput('');
+      if (selectedUserId === deleteUserId) { setSelectedUserId(null); setUserDocuments([]); }
       await load({ silent: true });
     } catch (err: any) {
       setError(err?.message || "Löschung fehlgeschlagen");
       setShowDeleteConfirm(false);
       setDeleteUserId(null);
       setDeleteUserEmail('');
+      setDeleteConfirmInput('');
     }
   };
 
@@ -153,9 +179,16 @@ export default function AdminPage() {
   const [savingDocument, setSavingDocument] = useState(false);
   const [reanalyzing, setReanalyzing] = useState(false);
   const [savingNavigation, setSavingNavigation] = useState(false);
-  const [activeSection, setActiveSection] = useState<"overview" | "users" | "documents" | "reviews" | "navigation">("overview");
+  const [activeSection, setActiveSection] = useState<AdminSection>("overview");
   const [userSearch, setUserSearch] = useState("");
   const [documentSearch, setDocumentSearch] = useState("");
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
+  const [logs, setLogs] = useState<AdminLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsTotal, setLogsTotal] = useState(0);
+  const [logsAction, setLogsAction] = useState("");
+  const [userDocuments, setUserDocuments] = useState<AdminUserDocument[]>([]);
+  const [userDocumentsLoading, setUserDocumentsLoading] = useState(false);
   const [navigationDraft, setNavigationDraft] = useState<NavigationDraft>({
     label: "",
     path: "",
@@ -280,13 +313,20 @@ export default function AdminPage() {
   );
 
   useEffect(() => {
+    if (activeSection === "logs" && logs.length === 0 && !logsLoading) {
+      loadLogs(logsAction);
+    }
+  }, [activeSection]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
     if (!selectedUser) return;
     setActiveSection("users");
     setUserDraft({
       role: selectedUser.role,
       emailVerified: selectedUser.emailVerified,
     });
-  }, [selectedUser]);
+    loadUserDocuments(selectedUser.id);
+  }, [selectedUser]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!selectedDocument) return;
@@ -469,6 +509,29 @@ export default function AdminPage() {
     await saveNavigationItem(itemId, { sortOrder: nextSort });
   }
 
+  const loadLogs = async (action = "") => {
+    setLogsLoading(true);
+    try {
+      const url = action
+        ? `/api/admin/logs?action=${encodeURIComponent(action)}&limit=100`
+        : "/api/admin/logs?limit=100";
+      const data = await fetchJson(url);
+      setLogs(data.logs || []);
+      setLogsTotal(Number(data.total || 0));
+    } catch {}
+    finally { setLogsLoading(false); }
+  };
+
+  const loadUserDocuments = async (userId: string) => {
+    setUserDocumentsLoading(true);
+    setUserDocuments([]);
+    try {
+      const data = await fetchJson(`/api/admin/users/${userId}/documents?limit=20`);
+      setUserDocuments(data.documents || []);
+    } catch {}
+    finally { setUserDocumentsLoading(false); }
+  };
+
   if (!loading && accessDenied) {
     return (
       <div className="space-y-4">
@@ -494,12 +557,13 @@ export default function AdminPage() {
     { label: "Admins", value: summary.users.admins.toLocaleString("de-DE"), hint: `${summary.system.visionReview ? "Vision an" : "Vision aus"}`, icon: CircleCheckBig },
   ] : [];
 
-  const sectionCounts = {
+  const sectionCounts: Record<AdminSection, number | string> = {
     overview: summary?.documents.total ?? documents.length,
     users: users.length,
     documents: recentDocs.length,
     reviews: reviewDocs.length,
     navigation: navigationItems.length,
+    logs: logsTotal > 0 ? logsTotal : "",
   };
 
   return (
@@ -553,21 +617,24 @@ export default function AdminPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/40 bg-background/40 p-2">
-        {[
+        {([
           ["overview", "Übersicht"],
           ["users", "User"],
           ["documents", "Dokumente"],
           ["reviews", "Prüfung"],
           ["navigation", "Navigation"],
-        ].map(([key, label]) => (
+          ["logs", "Logs"],
+        ] as [AdminSection, string][]).map(([key, label]) => (
           <button
             key={key}
             type="button"
-            onClick={() => setActiveSection(key as any)}
+            onClick={() => setActiveSection(key)}
             className={`rounded-xl px-4 py-2 text-sm font-medium transition ${activeSection === key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-accent/40"}`}
           >
             {label}
-            <span className="ml-2 text-[11px] opacity-70">{sectionCounts[key as keyof typeof sectionCounts]}</span>
+            {sectionCounts[key] !== "" && (
+              <span className="ml-2 text-[11px] opacity-70">{sectionCounts[key]}</span>
+            )}
           </button>
         ))}
       </div>
@@ -694,12 +761,12 @@ export default function AdminPage() {
             </div>
           </div>
 
-          <AdminSidePanel title="Benutzeraktion" subtitle="Rolle und Verifikation direkt ändern.">
+          <AdminSidePanel title="Benutzeraktion" subtitle="Rolle, Verifikation und Dokumente.">
             {selectedUser ? (
               <>
                 <div className="text-lg font-semibold">{selectedUser.email}</div>
                 <div className="mt-1 text-sm text-muted-foreground">
-                  Dokumente: {selectedUser.documentCount} · Prüfung: {selectedUser.reviewCount}
+                  {selectedUser.documentCount} Dok. · {selectedUser.reviewCount} Prüfung · seit {fmtDateTime(selectedUser.createdAt)}
                 </div>
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
                   <label className="space-y-2 text-sm">
@@ -726,9 +793,33 @@ export default function AdminPage() {
                   <button type="button" disabled={savingUser} onClick={() => saveUser(selectedUser.id)} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">
                     {savingUser ? "Speichert..." : "Speichern"}
                   </button>
-                  <button type="button" onClick={() => setSelectedUserId(null)} className="rounded-xl border border-border/60 bg-background/50 px-4 py-2.5 text-sm font-semibold text-foreground">
-                    Auswahl schließen
+                  <button type="button" onClick={() => { setSelectedUserId(null); setUserDocuments([]); }} className="rounded-xl border border-border/60 bg-background/50 px-4 py-2.5 text-sm font-semibold text-foreground">
+                    Schließen
                   </button>
+                  <button type="button" onClick={() => openDeleteConfirm(selectedUser.id, selectedUser.email)} className="rounded-xl bg-rose-600/80 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-600">
+                    Löschen
+                  </button>
+                </div>
+                <div className="mt-5">
+                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <FileBox className="h-3.5 w-3.5" /> Letzte Dokumente
+                  </div>
+                  {userDocumentsLoading ? (
+                    <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" /> Lädt...
+                    </div>
+                  ) : userDocuments.length === 0 ? (
+                    <div className="mt-2 text-sm text-muted-foreground">Keine Dokumente.</div>
+                  ) : (
+                    <div className="mt-2 space-y-1">
+                      {userDocuments.map((doc) => (
+                        <div key={doc.id} className="flex items-center justify-between rounded-lg bg-muted/20 px-3 py-2 text-xs">
+                          <span className="truncate max-w-[160px] font-medium">{doc.filename}</span>
+                          <span className="ml-2 shrink-0 rounded-full bg-muted/40 px-2 py-0.5 text-[10px] text-muted-foreground">{doc.status}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </>
             ) : (
@@ -1097,27 +1188,124 @@ export default function AdminPage() {
           <div className="mt-1 text-sm text-muted-foreground">{selectedDocument.folderPath}</div>
         </AdminSidePanel>
       )}
+      {activeSection === "logs" && (
+        <section className="glass rounded-2xl border-glow p-5">
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <div>
+              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                <ScrollText className="h-4 w-4" /> Audit-Log
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">{logsTotal} Einträge insgesamt</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <select
+                value={logsAction}
+                onChange={(e) => { setLogsAction(e.target.value); loadLogs(e.target.value); }}
+                className="rounded-xl border border-border/40 bg-background/60 px-3 py-2 text-sm"
+              >
+                <option value="">Alle Aktionen</option>
+                <option value="LOGIN_SUCCESS">Login</option>
+                <option value="LOGIN_FAILED">Login fehlgeschlagen</option>
+                <option value="LOGOUT">Logout</option>
+                <option value="REGISTER_COMPLETED">Registrierung</option>
+                <option value="ADMIN_USER_DELETED">User gelöscht</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => loadLogs(logsAction)}
+                className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-background/50 px-3 py-2 text-sm font-medium"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${logsLoading ? "animate-spin" : ""}`} />
+              </button>
+            </div>
+          </div>
+          {logsLoading ? (
+            <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Logs laden...
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[700px] text-left text-sm">
+                <thead className="text-xs uppercase tracking-wider text-muted-foreground">
+                  <tr className="border-b border-border/40">
+                    <th className="py-3 pr-3">Datum</th>
+                    <th className="py-3 pr-3">Aktion</th>
+                    <th className="py-3 pr-3">Benutzer</th>
+                    <th className="py-3 pr-3">IP</th>
+                    <th className="py-3">Detail</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {logs.map((log) => (
+                    <tr key={log.id} className="border-b border-border/20 hover:bg-background/30">
+                      <td className="py-2 pr-3 text-muted-foreground whitespace-nowrap">{fmtDateTime(log.created_at)}</td>
+                      <td className="py-2 pr-3">
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                          log.action.includes("FAILED") || log.action.includes("ERROR") || log.action.includes("DELETED")
+                            ? "bg-rose-500/15 text-rose-200"
+                            : log.action.includes("SUCCESS") || log.action.includes("COMPLETED")
+                              ? "bg-emerald-500/15 text-emerald-200"
+                              : "bg-muted/40 text-muted-foreground"
+                        }`}>
+                          {log.action}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-3 text-muted-foreground">{log.user_email || log.user_id || "—"}</td>
+                      <td className="py-2 pr-3 text-muted-foreground">{log.ip || "—"}</td>
+                      <td className="py-2 text-muted-foreground truncate max-w-[200px]">{log.detail || "—"}</td>
+                    </tr>
+                  ))}
+                  {logs.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-sm text-muted-foreground">Keine Einträge.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
       {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-          <div className="bg-background rounded-xl border border-border/40 p-6 max-w-md w-full">
-            <h3 className="text-lg font-semibold">Benutzer löschen?</h3>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Möchtest du den Benutzer <strong>{deleteUserEmail}</strong> wirklich dauerhaft löschen? Diese Aktion kann nicht rückgängig gemacht werden.
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="bg-background rounded-2xl border border-rose-500/30 p-6 max-w-md w-full shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="rounded-xl bg-rose-500/15 p-2">
+                <AlertTriangle className="h-5 w-5 text-rose-400" />
+              </div>
+              <h3 className="text-lg font-semibold">Benutzer dauerhaft löschen</h3>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Alle Daten und Dateien von <strong className="text-foreground">{deleteUserEmail}</strong> werden unwiderruflich gelöscht. Diese Aktion kann <strong>nicht</strong> rückgängig gemacht werden.
             </p>
+            <div className="mt-4">
+              <label className="text-sm text-muted-foreground">
+                Gib die E-Mail-Adresse zur Bestätigung ein:
+              </label>
+              <input
+                type="text"
+                value={deleteConfirmInput}
+                onChange={(e) => setDeleteConfirmInput(e.target.value)}
+                placeholder={deleteUserEmail}
+                className="mt-2 w-full rounded-xl border border-border/40 bg-background/60 px-3 py-2.5 text-sm focus:border-rose-500/50 focus:outline-none"
+              />
+            </div>
             <div className="mt-6 flex justify-end gap-3">
               <button
                 type="button"
                 onClick={cancelDelete}
-                className="rounded-xl border border-border/60 bg-background/50 px-4 py-2.5 text-sm font-semibold text-foreground"
+                className="rounded-xl border border-border/60 bg-background/50 px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-accent/40"
               >
                 Abbrechen
               </button>
               <button
                 type="button"
                 onClick={handleDeleteUser}
-                className="rounded-xl bg-rose-500/15 px-4 py-2.5 text-sm font-semibold text-rose-100"
+                disabled={deleteConfirmInput !== deleteUserEmail}
+                className="rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                Ja, löschen
+                Endgültig löschen
               </button>
             </div>
           </div>
