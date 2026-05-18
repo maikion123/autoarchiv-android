@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import { ArrowRight, FileSearch2, Inbox, Sparkles, Upload } from "lucide-react";
 import logoImg from "../assets/logo.png";
@@ -32,19 +31,19 @@ export function PublicEntry() {
           </p>
 
           <div className="flex flex-wrap gap-3">
-            <Link
-              to="/login"
+            <a
+              href="/login"
               className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-cyan-400 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_0_20px_oklch(0.62_0.24_290/0.28)] transition hover:brightness-110"
             >
               Anmelden
               <ArrowRight className="h-4 w-4" />
-            </Link>
-            <Link
-              to="/register"
+            </a>
+            <a
+              href="/register"
               className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-background/40 px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-accent/40"
             >
               Konto erstellen
-            </Link>
+            </a>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
