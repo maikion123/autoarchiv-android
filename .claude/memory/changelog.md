@@ -7,6 +7,20 @@ metadata:
 
 ## Changelog
 
+### [2026-05-18] AppShell Auth Flash Fix + DocumentScanner OpenCV Timeout
+- **Bug 1: Auth Flash Screen on Reload**
+  - Problem: On every F5 reload, "Geschützter Bereich - Anmeldung erforderlich" flashed briefly
+  - Also: After document upload, page reloaded and flash appeared (document seemed to disappear)
+  - Root cause: AppShell showed protected message during auth verification, even with valid cached sessions
+  - Solution: Only show protected message if NO cached session exists + authState not authenticated
+  - Impact: Smooth reload/upload without interruption, "Sitzung wird bestätigt" shows instead
+  
+- **Bug 2: DocumentScanner OpenCV Timeout on Mobile**
+  - Problem: On Android/iOS, "OpenCV wird geladen..." stuck forever on slow/offline networks
+  - Root cause: CDN load fails silently, `window.cv` never becomes available, user stuck
+  - Solution: 15-second timeout → fallback to native file input (capture=environment)
+  - Impact: Graceful degradation - users can still capture photos without live detection
+
 ### [2026-05-18] DocumentScanner Rewrite with jscanify Live Detection
 - **Problem Fixed:** Previous DocumentScanner was incomplete (jscanify installed but unused, no live detection, no perspective correction, no iOS/Android optimization)
 - **Solution:** Complete rewrite with:
