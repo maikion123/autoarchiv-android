@@ -9,7 +9,7 @@ declare global {
   }
 }
 
-type Phase = "loading" | "camera" | "review";
+type Phase = "loading" | "camera" | "review" | "fallback";
 
 interface DocumentScannerProps {
   onScanComplete: (files: File[], mode: "multi" | "single") => void;
@@ -22,6 +22,7 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
   const [autoCapture, setAutoCapture] = useState(false);
   const [documentDetected, setDocumentDetected] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [useFallback, setUseFallback] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const tempCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -30,35 +31,80 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
   const scannerRef = useRef<any>(null);
   const intervalRef = useRef<number | null>(null);
   const detectedCountRef = useRef(0);
+  const fallbackInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize OpenCV + jscanify
+  // Initialize OpenCV + jscanify with 20-second timeout
   useEffect(() => {
     const initScanner = async () => {
       if (window.cv?.Mat) {
-        const { default: Jscanify } = await import("jscanify");
-        scannerRef.current = new Jscanify();
-        setPhase("camera");
-        return;
+        try {
+          const { default: Jscanify } = await import("jscanify");
+          scannerRef.current = new Jscanify();
+          setPhase("camera");
+          console.log("[DocumentScanner] jscanify ready");
+          return;
+        } catch (err) {
+          console.error("[DocumentScanner] jscanify import failed:", err);
+          setPhase("fallback");
+          setUseFallback(true);
+          return;
+        }
       }
 
+      console.log("[DocumentScanner] Loading OpenCV from CDN...");
       const script = document.createElement("script");
       script.src = "https://docs.opencv.org/4.8.0/opencv.js";
       script.async = true;
+      let timeoutHandle: NodeJS.Timeout | null = null;
+
+      const clearTimeout = () => {
+        if (timeoutHandle) {
+          globalThis.clearTimeout(timeoutHandle);
+          timeoutHandle = null;
+        }
+      };
+
       script.onload = () => {
+        console.log("[DocumentScanner] OpenCV script loaded, waiting for cv.Mat...");
+        let waitCount = 0;
         const waitForCv = setInterval(() => {
+          waitCount++;
           if (window.cv?.Mat) {
             clearInterval(waitForCv);
-            import("jscanify").then(({ default: Jscanify }) => {
-              scannerRef.current = new Jscanify();
-              setPhase("camera");
-            });
+            clearTimeout();
+            console.log("[DocumentScanner] cv.Mat ready after " + waitCount + " checks");
+            import("jscanify")
+              .then(({ default: Jscanify }) => {
+                scannerRef.current = new Jscanify();
+                setPhase("camera");
+                console.log("[DocumentScanner] jscanify initialized");
+              })
+              .catch((err) => {
+                console.error("[DocumentScanner] jscanify import failed:", err);
+                setPhase("fallback");
+                setUseFallback(true);
+              });
           }
         }, 100);
+
+        // Timeout after 15 seconds
+        timeoutHandle = globalThis.setTimeout(() => {
+          clearInterval(waitForCv);
+          console.error("[DocumentScanner] OpenCV cv.Mat timeout (15s)");
+          setError("OpenCV lädt nicht. Benutze Fallback...");
+          setPhase("fallback");
+          setUseFallback(true);
+        }, 15000);
       };
+
       script.onerror = () => {
-        setError("OpenCV konnte nicht geladen werden. Netzwerk-Problem?");
-        setPhase("camera");
+        clearTimeout();
+        console.error("[DocumentScanner] OpenCV CDN script error");
+        setError("OpenCV konnte nicht geladen werden");
+        setPhase("fallback");
+        setUseFallback(true);
       };
+
       document.head.appendChild(script);
     };
 
@@ -359,6 +405,59 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
                   Überprüfen ({pages.length})
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Fallback Phase - Simple file input */}
+        {phase === "fallback" && (
+          <div className="flex h-full items-center justify-center p-4">
+            <div className="max-w-sm rounded-2xl bg-gray-900 p-6 text-center">
+              <AlertCircle className="mx-auto mb-4 h-12 w-12 text-amber-500" />
+              <h2 className="mb-2 text-xl font-bold text-white">OpenCV nicht verfügbar</h2>
+              <p className="mb-6 text-sm text-gray-400">
+                Live-Kantenerkennung funktioniert nicht. Verwende stattdessen die native Kamera.
+              </p>
+
+              <button
+                onClick={() => fallbackInputRef.current?.click()}
+                className="w-full rounded-lg bg-blue-600 px-4 py-3 font-semibold text-white hover:bg-blue-700"
+              >
+                Foto aufnehmen
+              </button>
+
+              <input
+                ref={fallbackInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                multiple
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || []);
+                  if (files.length > 0) {
+                    console.log("[DocumentScanner] Fallback files selected:", files.length);
+                    setPages((prev) => [...prev, ...files]);
+                    setPhase("review");
+                  }
+                }}
+                className="hidden"
+              />
+
+              {pages.length > 0 && (
+                <button
+                  onClick={() => setPhase("review")}
+                  className="mt-3 w-full rounded-lg bg-gray-700 px-4 py-3 font-semibold text-white hover:bg-gray-600"
+                >
+                  Überprüfen ({pages.length})
+                </button>
+              )}
+
+              <button
+                onClick={onClose}
+                className="mt-3 w-full rounded-lg border border-gray-600 px-4 py-3 text-white hover:bg-gray-800"
+              >
+                Schließen
+              </button>
             </div>
           </div>
         )}
