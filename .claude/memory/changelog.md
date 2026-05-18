@@ -7,6 +7,47 @@ metadata:
 
 ## Changelog
 
+### [2026-05-18] Replace CalDAV UI with iCalendar .ics Subscription Feed ✅
+- **What changed:** Removed CalDAV-style profile UI (server/username/password/DAVx5 instructions). Replaced with clean iCal subscription UX.
+- **Backend:** `POST /api/auth/reset-calendar-token` — generates new cryptographically-random `calendar_token`, invalidates old ICS URL, returns new `calendarFeedUrl`. Existing `/calendar/:token.ics` feed unchanged (RFC 5545 compliant, UTC, VALARM, proper escaping).
+- **Frontend (`src/routes/profil.tsx`):** Personalized ICS URL (read-only, select-all on click) + "Link kopieren" (copy+confirm) + "Neuen Link generieren" (2-step confirm, warns subscriptions break) + Erinnerungsfrist selector (controls VALARM TRIGGER offset) + German setup instructions for Android (Google Calendar web → Per URL) and iPhone (Einstellungen → Kalender → Kalenderabo hinzufügen).
+- **Removed:** `caldavLastSync` state, CalDAV server/password fields, DAVx5 note. No DB migration needed (`calendar_token` already exists + backfilled).
+- **Files:** `api-server.mjs` (+25 lines), `src/routes/profil.tsx` (372→new)
+
+### [2026-05-18] Admin: Document Actions in Docs Tab, Mobile Improvements ✅
+- **Documents tab:** Folder picker via datalist (autocomplete from system folders), inline Bearbeiten/Löschen buttons, delete confirmation modal, side panel now has full action controls.
+- **Backend:** `GET /api/admin/folders` (flat folder list for picker), `DELETE /api/admin/documents/:id` (file move + audit log).
+- **Tables:** Action columns wider (`min-w`, `whitespace-nowrap`, `flex-wrap`); all tables reduced `min-w` for mobile; navigation table action column `min-w-[220px]`, buttons `flex-wrap gap-1.5`.
+- **Files:** `api-server.mjs` (+40 lines), `src/features/Admin.tsx` (+250/-56 lines)
+
+### [2026-05-18] Scanner: z-index, Flash Modes, Camera Restart Fixes, Better Detection ✅
+- **z-index:** `z-50` → `z-[9999]` — scanner now covers bottom nav fully.
+- **Flash button:** Single button cycles `Blitz Aus` → `Auto-capture` → `Taschenlampe` via `flashMode ("off"|"auto"|"torch")` state. Removed stale-closure bug by reading `autoCaptureRef.current` in setInterval (loop no longer restarts on toggle).
+- **Camera restart fix:** After editing→camera transition, if stream exists just call `startDetectLoop()` instead of returning early.
+- **Brightness/contrast:** Fixed arg swap in rotate-right handler.
+- **Python scanner:** Multi-sigma Canny (0.5/1.5/3.0) + `find_contours` + `approximate_polygon` for real quad detection of folded/angled documents. Lower quality thresholds (`good>0.35`, `ok>0.15`). Bbox fallback kept.
+- **Files:** `python-scanner/scanner.py` (+174/-69 lines), `src/features/DocumentScanner.tsx` (+77/-69 lines)
+
+### [2026-05-18] Agents: Silent Initial Load, 15s Auto-Refresh, No Toast on Open ✅
+- **Fix:** Removed "Verbindung hergestellt" toast on page open. Agents load silently on first open. Auto-refresh every 15s (was broken/noisy).
+- **Files:** `src/features/Agents.tsx` (2 lines)
+
+### [2026-05-18] Admin Panel Overhaul + Security Hardening ✅
+- **Backend (`api-server.mjs`):**
+  - `DELETE /api/admin/users/:id` — self-delete protection, last-admin protection, cascade DB delete + filesystem cleanup, logs `ADMIN_USER_DELETED` to `auth_logs`.
+  - `GET /api/admin/logs` — audit trail with action filter + pagination.
+  - `GET /api/admin/users/:id/documents` — user file listing for detail panel.
+- **Frontend (`src/features/Admin.tsx`):**
+  - "Logs" tab (lazy-loaded): filterable by action, color-coded severity badges, refresh button.
+  - Typing-confirm delete modal: user must type email to confirm deletion.
+  - User detail panel: shows last 20 documents inline.
+  - Delete button in detail panel only (not table row — see next entry).
+  - Self-delete + last-admin errors surface as inline messages.
+- **Follow-up fix (`cd047c9`):** Removed "Papierkorb" delete button from table rows — delete only available in side panel. Reduces accidental deletes.
+- **Files:** `api-server.mjs` (+97 lines), `src/features/Admin.tsx` (+230/-21 lines)
+
+---
+
 ### [2026-05-18] Fix: "Anmeldung erforderlich" Flash on F5 Reload for Authenticated Users ✅
 - **Problem:** Authenticated users saw "Anmeldung erforderlich" on F5 reload. Server has no localStorage → SSR rendered protection screen HTML → visible ~300-500ms until JS hydrated.
 - **Fix — 3 parts:**

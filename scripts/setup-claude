@@ -27,16 +27,28 @@ echo ""
 # Step 1: Choose method for Free-Claude
 echo "📌 Free-Claude Setup:"
 echo ""
-echo "Choose how to run Claude Code for free:"
-echo "  1) Ollama - Local (100% free, private, needs ~8GB RAM + decent CPU)"
-echo "  2) OpenRouter - Cloud (~free, needs $5-10 initial credit)"
+echo "Choose how to run Claude Code:"
+echo "  1) Claude Pro (OAuth) - Use your existing Claude.ai Pro account"
+echo "  2) Ollama - Local (100% free, private, needs ~8GB RAM + decent CPU)"
+echo "  3) OpenRouter - Cloud (~free, needs \$5-10 initial credit)"
 echo ""
-read -p "Choose method (1 or 2): " -r METHOD_CHOICE
+read -p "Choose method (1, 2 or 3): " -r METHOD_CHOICE
 
 mkdir -p "$CONFIG_DIR"
 
 case "$METHOD_CHOICE" in
-    1|ollama)
+    1|pro)
+        echo ""
+        log_info "Setting up Claude Pro (OAuth)..."
+        echo ""
+        echo "pro" > "${CONFIG_DIR}/method"
+        log_success "Claude Pro configured"
+        log_info "free-claude will use your Claude.ai Pro account via OAuth"
+        log_info "Make sure you're logged in: pro-claude → /login"
+        echo ""
+        ;;
+
+    2|ollama)
         echo ""
         log_info "Setting up Ollama..."
         echo ""
@@ -75,7 +87,7 @@ case "$METHOD_CHOICE" in
         echo ""
         ;;
 
-    2|openrouter)
+    3|openrouter)
         echo ""
         log_info "Setting up OpenRouter..."
         echo ""
@@ -86,17 +98,28 @@ case "$METHOD_CHOICE" in
             log_warn "API Key format may be invalid (should start with sk-or-v1-)"
         fi
 
+        # Choose model
+        echo ""
+        echo "Popular free models on OpenRouter:"
+        echo "  • deepseek/deepseek-chat (very capable)"
+        echo "  • qwen/qwen-3.6-free (fast)"
+        echo "  • meta-llama/llama-3.2-1b (lightweight)"
+        echo ""
+        read -p "Model (or press Enter for deepseek/deepseek-chat): " -r MODEL_NAME
+        MODEL_NAME="${MODEL_NAME:-deepseek/deepseek-chat}"
+
         # Save config
         echo "OPENROUTER_API_KEY=$API_KEY" > "${CONFIG_DIR}/openrouter"
+        echo "OPENROUTER_MODEL=$MODEL_NAME" >> "${CONFIG_DIR}/openrouter"
         chmod 600 "${CONFIG_DIR}/openrouter"
         echo "openrouter" > "${CONFIG_DIR}/method"
 
-        log_success "OpenRouter API Key saved"
+        log_success "OpenRouter configured: $MODEL_NAME"
         echo ""
         log_info "Setup tips:"
         echo "  • Add ~$5-10 credit to unlock ~1,000 free daily requests"
-        echo "  • Free models: deepseek/deepseek-chat, qwen/qwen-3.6-free"
-        echo "  • Change model in Claude Code: /model"
+        echo "  • Change model: free-claude-model"
+        echo "  • Or in Claude Code: /model"
         echo ""
         ;;
 
@@ -156,8 +179,25 @@ echo ""
 echo "2. Free-Claude ($(grep -s . "${CONFIG_DIR}/method" 2>/dev/null || echo "not configured")):"
 echo "   $ free-claude"
 echo ""
+echo "📋 Environment Variable Handling:"
+echo ""
+METHOD=$(grep -s . "${CONFIG_DIR}/method" 2>/dev/null || echo "")
+if [ "$METHOD" = "openrouter" ]; then
+    echo "   Free-Claude (OpenRouter):"
+    echo "   • ANTHROPIC_BASE_URL=https://openrouter.ai/api/v1"
+    echo "   • ANTHROPIC_AUTH_TOKEN=<your-openrouter-api-key>"
+    echo "   • ANTHROPIC_API_KEY=\"\" (explicitly empty per OpenRouter docs)"
+elif [ "$METHOD" = "ollama" ]; then
+    echo "   Free-Claude (Ollama):"
+    echo "   • ANTHROPIC_BASE_URL=http://localhost:11434/v1"
+    echo "   • ANTHROPIC_API_KEY=ollama"
+fi
+echo ""
+echo "   Pro-Claude:"
+echo "   • All above variables are unset to use Claude Pro directly"
+echo ""
 echo "💡 Tips:"
-echo "   • Change model: /model"
-echo "   • Switch methods: run setup-claude again"
-echo "   • Both use the same OAuth session"
+echo "   • Change model: /model or free-claude-model"
+echo "   • Switch pro ↔ free: environment variables auto-managed"
+echo "   • Swap profiles: use pro-claude or free-claude commands"
 echo ""

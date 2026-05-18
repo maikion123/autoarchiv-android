@@ -1,5 +1,160 @@
 #!/bin/bash
-# free-claude-model: Wähle und speichere ein OpenRouter Free-Modell
+# free-claude-model: Interactive model selection from OpenRouter free models
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-bash "$SCRIPT_DIR/select-openrouter-model.sh" "$@"
+set -euo pipefail
+
+readonly HOME_DIR=$(eval echo ~$(whoami))
+readonly CONFIG_DIR="${HOME_DIR}/.config/claude-free"
+readonly CONFIG_FILE="${CONFIG_DIR}/method"
+
+# Colors
+readonly GREEN='\033[0;32m'
+readonly BLUE='\033[0;34m'
+readonly CYAN='\033[0;36m'
+readonly YELLOW='\033[1;33m'
+readonly RED='\033[0;31m'
+readonly NC='\033[0m'
+
+log_error() { echo -e "${RED}❌${NC} $*" >&2; }
+log_success() { echo -e "${GREEN}✓${NC} $*"; }
+log_info() { echo -e "${BLUE}ℹ${NC} $*"; }
+log_highlight() { echo -e "${CYAN}→${NC} $*"; }
+
+# Check if OpenRouter is configured
+if [ ! -f "$CONFIG_FILE" ] || [ "$(cat "$CONFIG_FILE")" != "openrouter" ]; then
+    log_error "OpenRouter is not configured"
+    log_info "Run: setup-claude"
+    exit 1
+fi
+
+if [ ! -f "${CONFIG_DIR}/openrouter" ]; then
+    log_error "OpenRouter config not found"
+    exit 1
+fi
+
+source "${CONFIG_DIR}/openrouter"
+
+if [ -z "${OPENROUTER_MODEL:-}" ]; then
+    log_error "OPENROUTER_MODEL not set"
+    log_info "Run: setup-claude to configure OpenRouter"
+    exit 1
+fi
+
+echo ""
+log_info "Current model: ${YELLOW}$OPENROUTER_MODEL${NC}"
+echo ""
+log_info "Scanning OpenRouter for all available free models..."
+echo ""
+
+# Fetch free models from OpenRouter API
+MODELS_JSON=$(curl -s "https://openrouter.ai/api/v1/models" 2>/dev/null || echo "{\"data\":[]}")
+
+# Parse and filter free models, create selection menu
+declare -a FREE_MODELS
+declare -a MODEL_IDS
+
+# Add paid variation as first options
+FREE_MODELS+=("DeepSeek v4 Flash (paid)")
+MODEL_IDS+=("deepseek/deepseek-v4-flash")
+
+FREE_MODELS+=("DeepSeek v3.2 (paid)")
+MODEL_IDS+=("deepseek/deepseek-v3.2")
+
+# Add "openrouter/free" as option (auto-select)
+FREE_MODELS+=("OpenRouter Free (auto-select fastest)")
+MODEL_IDS+=("openrouter/free")
+
+# Parse JSON and extract free models with ":free" suffix
+if command -v jq &> /dev/null; then
+    # Try to get all models with ":free" in their ID and 0 pricing
+    while IFS= read -r model_id; do
+        if [ -n "$model_id" ]; then
+            FREE_MODELS+=("$model_id")
+            MODEL_IDS+=("$model_id")
+        fi
+    done < <(echo "$MODELS_JSON" | jq -r '.data[] | select(.id | contains(":free")) | .id' 2>/dev/null | sort)
+fi
+
+# If no free models found via API, use fallback list
+if [ ${#MODEL_IDS[@]} -le 1 ]; then
+    log_highlight "API scan found no models, using fallback list..."
+    # Comprehensive fallback: known free models from OpenRouter
+    FREE_MODELS+=("deepseek/deepseek-v4-flash:free")
+    MODEL_IDS+=("deepseek/deepseek-v4-flash:free")
+
+    FREE_MODELS+=("deepseek/deepseek-v3:free")
+    MODEL_IDS+=("deepseek/deepseek-v3:free")
+
+    FREE_MODELS+=("google/gemma-4-31b-it:free")
+    MODEL_IDS+=("google/gemma-4-31b-it:free")
+
+    FREE_MODELS+=("google/gemma-4-26b-a4b-it:free")
+    MODEL_IDS+=("google/gemma-4-26b-a4b-it:free")
+
+    FREE_MODELS+=("nvidia/nemotron-3-super-120b-a12b:free")
+    MODEL_IDS+=("nvidia/nemotron-3-super-120b-a12b:free")
+
+    FREE_MODELS+=("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")
+    MODEL_IDS+=("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")
+
+    FREE_MODELS+=("baidu/cobuddy:free")
+    MODEL_IDS+=("baidu/cobuddy:free")
+
+    FREE_MODELS+=("poolside/laguna-xs.2:free")
+    MODEL_IDS+=("poolside/laguna-xs.2:free")
+
+    FREE_MODELS+=("poolside/laguna-m.1:free")
+    MODEL_IDS+=("poolside/laguna-m.1:free")
+
+    FREE_MODELS+=("arcee-ai/trinity-large-thinking:free")
+    MODEL_IDS+=("arcee-ai/trinity-large-thinking:free")
+
+    FREE_MODELS+=("minimax/minimax-m2.5:free")
+    MODEL_IDS+=("minimax/minimax-m2.5:free")
+fi
+
+# Display menu
+TOTAL_MODELS=$((${#FREE_MODELS[@]} - 1))  # Subtract 1 to not count "openrouter/free"
+log_highlight "Found ${TOTAL_MODELS} free models from OpenRouter:"
+echo ""
+for i in "${!FREE_MODELS[@]}"; do
+    num=$((i + 1))
+    if [ "$OPENROUTER_MODEL" = "${MODEL_IDS[$i]}" ]; then
+        echo -e "${YELLOW}[$num]${NC} ${FREE_MODELS[$i]} ${GREEN}(current)${NC}"
+    else
+        echo -e "${BLUE}[$num]${NC} ${FREE_MODELS[$i]}"
+    fi
+done
+
+echo ""
+read -p "Select model (number 1-${#FREE_MODELS[@]}) or press Enter to keep current: " -r SELECTION
+
+if [ -z "$SELECTION" ]; then
+    log_info "No change made"
+    exit 0
+fi
+
+# Validate selection
+if ! [[ "$SELECTION" =~ ^[0-9]+$ ]] || [ "$SELECTION" -lt 1 ] || [ "$SELECTION" -gt "${#FREE_MODELS[@]}" ]; then
+    log_error "Invalid selection: $SELECTION"
+    exit 1
+fi
+
+# Get selected model (convert 1-based to 0-based index)
+NEW_MODEL="${MODEL_IDS[$((SELECTION - 1))]}"
+
+if [ "$NEW_MODEL" = "$OPENROUTER_MODEL" ]; then
+    log_info "Same model selected, no change made"
+    exit 0
+fi
+
+# Update the config file
+TEMP_FILE="${CONFIG_DIR}/openrouter.tmp"
+grep -v "^OPENROUTER_MODEL=" "${CONFIG_DIR}/openrouter" > "$TEMP_FILE" || true
+echo "OPENROUTER_MODEL=$NEW_MODEL" >> "$TEMP_FILE"
+mv "$TEMP_FILE" "${CONFIG_DIR}/openrouter"
+chmod 600 "${CONFIG_DIR}/openrouter"
+
+log_success "Model changed to: ${YELLOW}$NEW_MODEL${NC}"
+echo ""
+log_info "Next run of ${CYAN}free-claude${NC} will use this model"

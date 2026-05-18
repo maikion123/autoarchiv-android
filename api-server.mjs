@@ -800,6 +800,21 @@ function formatIcsDateTime(isoValue) {
   return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 }
 
+function localDateKey(value) {
+  if (!value) return '';
+  const str = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  try {
+    const date = new Date(str);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString().slice(0, 10);
+    }
+  } catch (e) {
+    // Fallthrough
+  }
+  return '';
+}
+
 function formatIcsDate(value) {
   const normalized = localDateKey(value);
   return normalized ? normalized.replace(/-/g, '') : '';
@@ -3131,6 +3146,10 @@ function formatEuroAmount(value) {
   return typeof value === 'number' && Number.isFinite(value)
     ? `${value.toFixed(2).replace('.', ',')} EUR`
     : null;
+}
+
+function paymentDisplayAmount(value) {
+  return formatEuroAmount(value) || '—';
 }
 
 function formatDisplayDate(value) {
