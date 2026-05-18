@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, Camera, FileCheck2, Sparkles, Loader2, Check, X, Tag, Eye, FolderPlus } from "lucide-react";
+import { Upload, Camera, FileCheck2, Sparkles, Loader2, Check, X, Tag, Eye, FolderPlus, Scan } from "lucide-react";
 import { useArchive } from "../lib/store";
 import { savePayment, uid, type Importance, type ArchivedDoc } from "../lib/db";
 import { createFolder, DEFAULT_FOLDER_TREE, flattenFolderTree, loadFolderTree, type FolderNode } from "../lib/folders";
 import { fmtBytes, fmtEUR, fmtDate } from "../lib/format";
 import { toast } from "sonner";
 import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
+import DocumentScanner from "./DocumentScanner";
 
 type Stage = "queued" | "analyzing" | "ready" | "archived" | "error";
 
@@ -124,6 +125,7 @@ export default function EingangPage() {
   const [folderPaths, setFolderPaths] = useState<string[]>([]);
   const [previewingDoc, setPreviewingDoc] = useState<ArchivedDoc | null>(null);
   const [pendingCameraFiles, setPendingCameraFiles] = useState<File[]>([]);
+  const [showScanner, setShowScanner] = useState(false);
 
   const reloadFolders = useCallback(async () => {
       const tree = await loadFolderTree();
@@ -289,6 +291,76 @@ export default function EingangPage() {
     setQueue((q) => [...items, ...q]);
     items.forEach((it) => analyze(it));
   }, [analyze]);
+
+  const analyzeMultiPageScan = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
+
+    const filename = `Mehrseitiger Scan ${new Date().toLocaleDateString("de-DE")}.pdf`;
+    const item: QueueItem = {
+      id: uid(),
+      file: files[0],
+      serverFilename: filename,
+      serverMimeType: "application/pdf",
+      serverSize: files.reduce((sum, file) => sum + file.size, 0),
+      stage: "queued",
+    };
+    setQueue((q) => [item, ...q]);
+    setQueue((q) => q.map((x) => x.id === item.id ? { ...x, stage: "analyzing" } : x));
+
+    try {
+      const pages = await Promise.all(files.map(async (file) => ({
+        filename: file.name || "foto.jpg",
+        mimeType: "image/jpeg",
+        data: await imageToScanBase64(file),
+      })));
+      const uploadRes = await fetch("/api/documents/upload-pages", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename, pages }),
+      });
+      const data = await uploadRes.json().catch(() => {
+        throw new Error("Serverantwort konnte nicht gelesen werden");
+      });
+      if (!uploadRes.ok) {
+        console.warn("[Eingang] Multi-page upload failed", {
+          status: uploadRes.status,
+          filename,
+          pages: pages.length,
+        });
+        const authHint = uploadRes.status === 401 || uploadRes.status === 403
+          ? "Sitzung abgelaufen. Bitte neu anmelden."
+          : null;
+        throw new Error(authHint || data?.error || "Mehrseitiger Scan fehlgeschlagen");
+      }
+      if (data?.error) throw new Error(data.error);
+      console.debug("[Eingang] Multi-page upload success", { filename, pages: pages.length });
+      applyUploadResult(item.id, data);
+      toast.success(`${files.length} Seiten als Dokument hochgeladen`);
+    } catch (err: any) {
+      const msg = err?.message || "Mehrseitiger Scan fehlgeschlagen";
+      setQueue((q) => q.map((x) => x.id === item.id ? { ...x, stage: "error", error: msg } : x));
+      toast.error(msg);
+    }
+  }, [applyUploadResult]);
+
+  const handleScannedFiles = useCallback((files: File[], mode: "multi" | "single") => {
+    console.debug("[Eingang] scanned files", {
+      count: files.length,
+      mode,
+      files: files.map((file) => ({ name: file.name, type: file.type, size: file.size })),
+    });
+
+    if (mode === "multi" && files.length > 1) {
+      analyzeMultiPageScan(files);
+    } else {
+      // Single path: each file separately
+      const items: QueueItem[] = files.map((f) => ({ id: uid(), file: f, stage: "queued" }));
+      setQueue((q) => [...items, ...q]);
+      items.forEach((it) => analyze(it));
+      toast.success(`${files.length} gescannte Seite${files.length !== 1 ? "n" : ""} zur Analyse hinzugefügt`);
+    }
+  }, [analyze, analyzeMultiPageScan]);
 
   const handleCameraChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     try {
@@ -461,7 +533,7 @@ export default function EingangPage() {
         <p className="mt-1 text-sm text-muted-foreground">Hochladen — die KI sortiert für dich.</p>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
         <div {...getRootProps()}
           className={`glass border-glow relative cursor-pointer overflow-hidden rounded-2xl p-5 text-center transition md:p-8 ${isDragActive ? "scale-[1.01] shadow-[0_0_40px_oklch(0.62_0.24_290/0.5)]" : ""}`}>
           <input {...getInputProps()} />
@@ -485,6 +557,16 @@ export default function EingangPage() {
           <div className="mt-1 text-xs text-muted-foreground hidden md:block">Sammelt bis zu 5 Fotos vor der Analyse</div>
           <div className="mt-1 text-xs text-muted-foreground md:hidden">{pendingCameraFiles.length}/{MAX_CAMERA_PHOTOS} Fotos gesammelt</div>
         </label>
+
+        <button
+          type="button"
+          onClick={() => setShowScanner(true)}
+          className="glass border-glow relative cursor-pointer overflow-hidden rounded-2xl p-5 text-center transition hover:shadow-[0_0_30px_oklch(0.72_0.16_130/0.4)] md:p-8"
+        >
+          <Scan className="mx-auto h-9 w-9 text-emerald-500 md:h-10 md:w-10" />
+          <div className="mt-2 text-base font-semibold md:mt-3">Dokument scannen</div>
+          <div className="mt-1 text-xs text-muted-foreground">Smartphone‑Scanner mit Kantenerkennung</div>
+        </button>
       </div>
 
       {pendingCameraFiles.length > 0 && (
@@ -619,6 +701,13 @@ export default function EingangPage() {
         doc={previewingDoc}
         onClose={() => setPreviewingDoc(null)}
       />
+
+      {showScanner && (
+        <DocumentScanner
+          onScanComplete={handleScannedFiles}
+          onClose={() => setShowScanner(false)}
+        />
+      )}
     </div>
   );
 }

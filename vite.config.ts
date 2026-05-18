@@ -10,6 +10,11 @@ export default defineConfig({
   vite: {
     server: {
       allowedHosts: ['nextkm.de', 'www.nextkm.de', 'localhost']
-    }
+    },
+    build: {
+      rollupOptions: {
+        external: ['canvas'],
+      },
+    },
   }
 });
