@@ -3,12 +3,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Camera, RotateCcw, RotateCw, Trash2, Check, X,
   Loader2, AlertCircle, ChevronUp, ChevronDown,
-  Sun, Contrast, Zap,
+  Sun, Contrast, Zap, ZapOff, Flashlight,
 } from "lucide-react";
 import { toast } from "sonner";
 
 type Phase = "camera" | "editing" | "review" | "fallback";
 type Quality = "poor" | "ok" | "good" | null;
+type FlashMode = "off" | "auto" | "torch";
 
 interface ScannedPage {
   id: string;
@@ -30,7 +31,7 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
   const [phase, setPhase] = useState<Phase>("camera");
   const [pages, setPages] = useState<ScannedPage[]>([]);
   const [quality, setQuality] = useState<Quality>(null);
-  const [autoCapture, setAutoCapture] = useState(false);
+  const [flashMode, setFlashMode] = useState<FlashMode>("off");
   const [capturing, setCapturing] = useState(false);
 
   // Editing state
@@ -49,6 +50,12 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
   const cornersRef = useRef<number[][] | null>(null);
   const goodCountRef = useRef(0);
   const fallbackInputRef = useRef<HTMLInputElement>(null);
+  // Ref so detect-loop always reads current auto-capture state (no stale closure)
+  const autoCaptureRef = useRef(false);
+
+  useEffect(() => {
+    autoCaptureRef.current = flashMode === "auto";
+  }, [flashMode]);
 
   // ── Camera ─────────────────────────────────────────────────────────────────
 
@@ -83,7 +90,7 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
         setQuality(data.quality ?? null);
         cornersRef.current = data.detected ? data.corners : null;
 
-        if (autoCapture) {
+        if (autoCaptureRef.current) {
           if (data.quality === "good") {
             goodCountRef.current++;
             if (goodCountRef.current >= 3) {
@@ -95,10 +102,10 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
           }
         }
       } catch {
-        // network / timeout — just skip this tick
+        // network / timeout — skip tick
       }
     }, 1500);
-  }, [stopDetectLoop, autoCapture]);
+  }, [stopDetectLoop]);
 
   const stopCamera = useCallback(() => {
     stopDetectLoop();
@@ -109,7 +116,11 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
   }, [stopDetectLoop]);
 
   const startCamera = useCallback(async () => {
-    if (streamRef.current) return;
+    if (streamRef.current) {
+      // Stream still alive (e.g. returning from editing phase) — just restart loop
+      startDetectLoop();
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
@@ -138,12 +149,31 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
     return () => stopCamera();
   }, [stopCamera]);
 
-  // Re-start detect loop when autoCapture changes (to pick up new ref)
-  useEffect(() => {
-    if (phase === "camera" && streamRef.current) {
-      startDetectLoop();
+  // ── Torch ─────────────────────────────────────────────────────────────────
+
+  const applyTorch = useCallback(async (on: boolean) => {
+    if (!streamRef.current) return;
+    const track = streamRef.current.getVideoTracks()[0];
+    if (!track) return;
+    try {
+      const caps = track.getCapabilities() as MediaTrackCapabilities & { torch?: boolean };
+      if (caps.torch) {
+        await track.applyConstraints({ advanced: [{ torch: on } as MediaTrackConstraintSet] });
+      }
+    } catch {
+      // device doesn't support torch — silently ignore
     }
-  }, [autoCapture, phase, startDetectLoop]);
+  }, []);
+
+  const cycleFlash = useCallback(() => {
+    setFlashMode((prev) => {
+      const next: FlashMode = prev === "off" ? "auto" : prev === "auto" ? "torch" : "off";
+      goodCountRef.current = 0;
+      if (next === "torch") applyTorch(true);
+      else applyTorch(false);
+      return next;
+    });
+  }, [applyTorch]);
 
   // ── Capture ────────────────────────────────────────────────────────────────
 
@@ -316,7 +346,7 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 bg-black"
+        className="fixed inset-0 z-[9999] bg-black"
       >
         {/* Hidden canvas for frame capture */}
         <canvas ref={captureCanvasRef} className="hidden" />
@@ -343,19 +373,20 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
                 {pages.length} Seite{pages.length !== 1 ? "n" : ""}
               </span>
               <div className="flex items-center gap-2">
+                {/* Flash cycle button: Aus → Auto → Taschenlampe */}
                 <button
-                  onClick={() => {
-                    setAutoCapture((v) => !v);
-                    goodCountRef.current = 0;
-                  }}
-                  className={`rounded-full px-3 py-1 text-sm font-semibold transition ${
-                    autoCapture
-                      ? "bg-emerald-500 text-white"
-                      : "bg-black/60 text-gray-200"
+                  onClick={cycleFlash}
+                  className={`rounded-full px-3 py-1 text-sm font-semibold transition flex items-center gap-1 ${
+                    flashMode === "off"
+                      ? "bg-black/60 text-gray-400"
+                      : flashMode === "auto"
+                        ? "bg-emerald-500 text-white"
+                        : "bg-yellow-400 text-black"
                   }`}
                 >
-                  <Zap className="inline-block h-3 w-3 mr-1" />
-                  Auto
+                  {flashMode === "off" && <><ZapOff className="h-3 w-3" /><span>Blitz Aus</span></>}
+                  {flashMode === "auto" && <><Zap className="h-3 w-3" /><span>Auto</span></>}
+                  {flashMode === "torch" && <><Flashlight className="h-3 w-3" /><span>Dauerhaft</span></>}
                 </button>
                 <button
                   onClick={onClose}
@@ -457,7 +488,7 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
                   onClick={() => {
                     const r = (editRotate + 90) % 360;
                     setEditRotate(r);
-                    triggerEditPreview(r, editBW, editContrast, editBrightness);
+                    triggerEditPreview(r, editBW, editBrightness, editContrast);
                   }}
                   className="flex flex-col items-center gap-1 rounded-xl bg-white/10 px-5 py-3 text-white"
                 >
