@@ -95,9 +95,7 @@ export function AppShell() {
         setAuthState("unauthenticated");
         if (auth.status === "unauthorized") {
             setAuthFailure("unauthorized");
-            if (path !== "/" && path !== "/admin") {
-              window.location.replace("/login");
-            }
+            // No immediate redirect — 60s countdown timer handles it
           } else {
             setAuthFailure("error");
             console.warn("[AppShell] Auth check failed without redirect:", auth.error || "unknown");
@@ -232,9 +230,9 @@ export function AppShell() {
     };
   }, [isPublicPage, authState]);
 
-  // Auto-redirect to /login after 60 seconds when unauthenticated
+  // Auto-redirect to /login after 60 seconds when unauthenticated (not on / or /admin)
   useEffect(() => {
-    if (!isPublicPage && authState === "unauthenticated") {
+    if (!isPublicPage && authState === "unauthenticated" && path !== "/" && path !== "/admin") {
       setAutoRedirectCountdown(60);
       redirectTimerRef.current = setInterval(() => {
         setAutoRedirectCountdown(prev => {
@@ -253,7 +251,7 @@ export function AppShell() {
         setAutoRedirectCountdown(null);
       };
     }
-  }, [isPublicPage, authState, navigate]);
+  }, [isPublicPage, authState, path]);
 
   useEffect(() => {
     const handleProfileUpdated = (event: Event) => {
