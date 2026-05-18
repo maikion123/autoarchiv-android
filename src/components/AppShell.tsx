@@ -96,7 +96,7 @@ export function AppShell() {
         if (auth.status === "unauthorized") {
             setAuthFailure("unauthorized");
             if (path !== "/" && path !== "/admin") {
-              navigate({ to: "/login", replace: true });
+              window.location.replace("/login");
             }
           } else {
             setAuthFailure("error");
@@ -239,7 +239,7 @@ export function AppShell() {
       redirectTimerRef.current = setInterval(() => {
         setAutoRedirectCountdown(prev => {
           if (prev === null || prev <= 1) {
-            navigate({ to: "/login", replace: true });
+            window.location.replace("/login");
             return null;
           }
           return prev - 1;
@@ -340,19 +340,19 @@ export function AppShell() {
               </p>
             )}
             <div className="mt-5 flex flex-wrap gap-3">
-              <Link
-                to="/login"
+              <a
+                href="/login"
                 className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-cyan-400 px-4 py-2.5 text-sm font-semibold text-white transition hover:brightness-110"
               >
                 Zur Anmeldung
                 <ArrowRight className="h-4 w-4" />
-              </Link>
-              <Link
-                to="/"
+              </a>
+              <a
+                href="/"
                 className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-background/40 px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-accent/40"
               >
                 Zur Startseite
-              </Link>
+              </a>
             </div>
           </div>
         </div>
