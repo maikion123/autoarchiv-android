@@ -205,6 +205,9 @@
   }
   .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
 
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
   @keyframes pulse-glow {
     0%, 100% { box-shadow: 0 0 0 0 oklch(0.62 0.24 290 / 0.5); }
     50% { box-shadow: 0 0 30px 6px oklch(0.62 0.24 290 / 0.25); }
