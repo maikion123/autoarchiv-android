@@ -587,6 +587,14 @@ export default function ArchivPage() {
     loadFolderTree().then(setFolders).catch(console.error).finally(() => setFoldersLoading(false));
   }, []);
 
+  // Manage modal-open class on preview modal
+  useEffect(() => {
+    if (previewDoc) {
+      document.documentElement.classList.add("modal-open");
+      return () => document.documentElement.classList.remove("modal-open");
+    }
+  }, [previewDoc]);
+
   // FTS with 300ms debounce
   useEffect(() => {
     const trimmed = q.trim();
