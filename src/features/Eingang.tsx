@@ -88,7 +88,7 @@ function fileToBase64(file: File): Promise<string> {
 async function imageToScanBase64(file: File): Promise<string> {
   try {
     const bitmap = await createImageBitmap(file);
-    const maxSide = 1800;
+    const maxSide = 2048;
     const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
     const width = Math.max(1, Math.round(bitmap.width * scale));
     const height = Math.max(1, Math.round(bitmap.height * scale));
@@ -99,7 +99,7 @@ async function imageToScanBase64(file: File): Promise<string> {
     if (!ctx) throw new Error("Canvas nicht verfügbar");
     ctx.drawImage(bitmap, 0, 0, width, height);
     bitmap.close();
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.86);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.90);
     return dataUrl.replace(/^data:[^;]+;base64,/, "");
   } catch {
     return fileToBase64(file);

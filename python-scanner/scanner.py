@@ -16,7 +16,7 @@ import math
 
 import numpy as np
 from flask import Flask, jsonify, request
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageEnhance, ImageOps
 from skimage import color, feature, filters, morphology, transform
 from skimage.measure import label, regionprops, find_contours, approximate_polygon
 
@@ -194,6 +194,9 @@ def _detect_document_corners(img: Image.Image):
             best_score = score
             best_corners = corners_4 / scale  # back to original image scale
 
+        if best_score > 0.7:
+            break
+
     # ── Fallback: labeled-region bbox method ────────────────────────────────
     if best_corners is None or best_score < 0.15:
         labeled = label(edges)
@@ -263,10 +266,10 @@ def detect():
 
         return jsonify(
             {
-                "detected": corners is not None and confidence > 0.12,
+                "detected": bool(corners is not None and float(confidence) > 0.12),
                 "corners": corners.tolist() if corners is not None else None,
                 "confidence": round(float(confidence), 3),
-                "quality": quality,
+                "quality": str(quality),
             }
         )
     except Exception as exc:
@@ -294,6 +297,15 @@ def process():
             img_np = _four_point_transform(img_np, np.array(corners, dtype=np.float32))
 
         result = Image.fromarray(img_np)
+
+        # Cap output to 2048px max side to limit base64 payload size
+        max_side = 2048
+        if result.width > max_side or result.height > max_side:
+            cap_scale = max_side / max(result.width, result.height)
+            result = result.resize(
+                (int(result.width * cap_scale), int(result.height * cap_scale)),
+                Image.LANCZOS,
+            )
 
         if enhance:
             result = ImageEnhance.Contrast(result).enhance(1.15)
@@ -347,7 +359,9 @@ def adjust():
             img = ImageEnhance.Sharpness(img).enhance(1.3)
 
         if data.get("grayscale", False):
-            img = img.convert("L").convert("RGB")
+            img = img.convert("L")
+            img = ImageOps.autocontrast(img, cutoff=2)
+            img = img.convert("RGB")
 
         return jsonify({"image": _pil_to_b64(img)})
     except Exception as exc:

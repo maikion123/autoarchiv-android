@@ -1,53 +1,12 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Camera, RotateCcw, RotateCw, Trash2, Check, X,
-  Loader2, AlertCircle, ChevronUp, ChevronDown,
-  Sun, Contrast, Zap, ZapOff, Flashlight, Crop,
+  Loader2, ChevronUp, ChevronDown, Sun, Contrast, Crop, Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 
-// Canvas polygon drawing helper
-function drawPolygon(
-  ctx: CanvasRenderingContext2D,
-  corners: number[][],
-  sx: number,
-  sy: number,
-  quality: "poor" | "ok" | "good" | null
-) {
-  if (!quality) return;
-  const color = quality === "good" ? "#4ade80" : quality === "ok" ? "#fb923c" : "#ef4444";
-  const pts = corners.map(([x, y]) => [x * sx, y * sy]);
-
-  ctx.beginPath();
-  ctx.moveTo(pts[0][0], pts[0][1]);
-  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-  ctx.closePath();
-
-  // Fill with subtle tint
-  ctx.fillStyle = quality === "good" ? "rgba(74,222,128,0.08)" : "rgba(251,146,60,0.08)";
-  ctx.fill();
-
-  // Outer glow
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 12;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2.5;
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-
-  // Corner circles
-  for (const [x, y] of pts) {
-    ctx.beginPath();
-    ctx.arc(x, y, 6, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
-  }
-}
-
-type Phase = "camera" | "editing" | "review" | "fallback";
-type Quality = "poor" | "ok" | "good" | null;
-type FlashMode = "off" | "auto" | "torch";
+type Phase = "capture" | "processing" | "editing" | "review";
 
 interface ScannedPage {
   id: string;
@@ -65,20 +24,18 @@ async function dataUrlToFile(dataUrl: string, name: string): Promise<File> {
   return new File([blob], name, { type: "image/jpeg" });
 }
 
-export default function DocumentScanner({ onScanComplete, onClose }: DocumentScannerProps) {
-  const [phase, setPhase] = useState<Phase>("camera");
-  const [pages, setPages] = useState<ScannedPage[]>([]);
-  const [quality, setQuality] = useState<Quality>(null);
-  const [flashMode, setFlashMode] = useState<FlashMode>("off");
-  const [capturing, setCapturing] = useState(false);
-  const [confidence, setConfidence] = useState(0);
-  const [autoCapturePending, setAutoCapturePending] = useState(false);
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("Datei konnte nicht gelesen werden"));
+    reader.readAsDataURL(file);
+  });
+}
 
-  // Crop state
-  const [cropMode, setCropMode] = useState(false);
-  const [cropRect, setCropRect] = useState<{x:number,y:number,w:number,h:number} | null>(null);
-  const [cropDragging, setCropDragging] = useState<"tl"|"br"|"move"|null>(null);
-  const [dragStart, setDragStart] = useState<{mx:number,my:number,rect:{x:number,y:number,w:number,h:number}} | null>(null);
+export default function DocumentScanner({ onScanComplete, onClose }: DocumentScannerProps) {
+  const [phase, setPhase] = useState<Phase>("capture");
+  const [pages, setPages] = useState<ScannedPage[]>([]);
 
   // Editing state
   const [editingImage, setEditingImage] = useState<string | null>(null);
@@ -89,225 +46,62 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
   const [editContrast, setEditContrast] = useState(1.0);
   const [editLoading, setEditLoading] = useState(false);
 
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const captureCanvasRef = useRef<HTMLCanvasElement>(null);
-  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const detectIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const detectingRef = useRef(false);
-  const confidenceRef = useRef(0);
-  const cornersRef = useRef<number[][] | null>(null);
-  const goodCountRef = useRef(0);
-  const fallbackInputRef = useRef<HTMLInputElement>(null);
+  // Crop state
+  const [cropMode, setCropMode] = useState(false);
+  const [cropRect, setCropRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [cropDragging, setCropDragging] = useState<"tl" | "br" | "move" | null>(null);
+  const [dragStart, setDragStart] = useState<{
+    mx: number; my: number; rect: { x: number; y: number; w: number; h: number };
+  } | null>(null);
+
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const previewImgRef = useRef<HTMLImageElement>(null);
-  const previewContainerRef = useRef<HTMLDivElement>(null);
-  // Ref so detect-loop always reads current auto-capture state (no stale closure)
-  const autoCaptureRef = useRef(false);
+  const editDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    autoCaptureRef.current = flashMode === "auto";
-  }, [flashMode]);
+  // ── Camera capture ──────────────────────────────────────────────────────────
 
-  // ── Camera ─────────────────────────────────────────────────────────────────
+  const handleCameraCapture = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
 
-  const stopDetectLoop = useCallback(() => {
-    if (detectIntervalRef.current !== null) {
-      clearTimeout(detectIntervalRef.current);
-      detectIntervalRef.current = null;
-    }
-  }, []);
+    setPhase("processing");
 
-  const startDetectLoop = useCallback(() => {
-    stopDetectLoop();
+    try {
+      const dataUrl = await fileToDataUrl(file);
 
-    const runDetect = async () => {
-      if (detectingRef.current) {
-        // Request still in-flight, skip this tick
-        detectIntervalRef.current = setTimeout(runDetect, 300);
-        return;
-      }
-
-      detectingRef.current = true;
-      const video = videoRef.current;
-      const canvas = captureCanvasRef.current;
-      if (!video || !canvas || video.videoWidth === 0) {
-        detectingRef.current = false;
-        detectIntervalRef.current = setTimeout(runDetect, 300);
-        return;
-      }
-
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext("2d")!.drawImage(video, 0, 0);
-      const b64 = canvas.toDataURL("image/jpeg", 0.55);
-
+      // Detect document corners in captured image
+      let corners: number[][] | null = null;
       try {
-        const r = await fetch("/api/scan/detect", {
+        const detectRes = await fetch("/api/scan/detect", {
           method: "POST",
+          credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image: b64 }),
-          signal: AbortSignal.timeout(3000),
+          body: JSON.stringify({ image: dataUrl }),
+          signal: AbortSignal.timeout(15000),
         });
-        if (!r.ok) throw new Error("detect failed");
-        const data = await r.json();
-        setQuality(data.quality ?? null);
-        cornersRef.current = data.detected ? data.corners : null;
-        confidenceRef.current = data.detected ? data.confidence : 0;
-        setConfidence(data.detected ? data.confidence : 0);
-
-        if (data.detected) {
-          if (autoCaptureRef.current) {
-            if (data.quality === "good") {
-              goodCountRef.current++;
-              setAutoCapturePending(goodCountRef.current >= 1 && goodCountRef.current < 3);
-              if (goodCountRef.current >= 3) {
-                goodCountRef.current = 0;
-                setAutoCapturePending(false);
-                captureRef.current?.();
-              }
-            } else {
-              goodCountRef.current = 0;
-              setAutoCapturePending(false);
-            }
-          } else {
-            goodCountRef.current = 0;
-            setAutoCapturePending(false);
-          }
-        } else {
-          goodCountRef.current = 0;
-          setAutoCapturePending(false);
+        if (detectRes.ok) {
+          const d = await detectRes.json();
+          if (d.detected && d.corners) corners = d.corners;
         }
       } catch {
-        // network / timeout — skip tick
+        // detection optional — proceed without corners
       }
 
-      detectingRef.current = false;
-      detectIntervalRef.current = setTimeout(runDetect, 300);
-    };
-
-    runDetect();
-  }, [stopDetectLoop]);
-
-  const stopCamera = useCallback(() => {
-    stopDetectLoop();
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-  }, [stopDetectLoop]);
-
-  const startCamera = useCallback(async () => {
-    if (streamRef.current) {
-      // Stream still alive (e.g. returning from editing phase) — just restart loop
-      startDetectLoop();
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
-      });
-      if (!videoRef.current) { stream.getTracks().forEach((t) => t.stop()); return; }
-      videoRef.current.srcObject = stream;
-      streamRef.current = stream;
-      videoRef.current.onloadedmetadata = () => {
-        videoRef.current?.play().catch(() => {});
-        startDetectLoop();
-      };
-    } catch {
-      setPhase("fallback");
-    }
-  }, [startDetectLoop]);
-
-  useEffect(() => {
-    if (phase === "camera") {
-      startCamera();
-    } else {
-      stopDetectLoop();
-    }
-  }, [phase, startCamera, stopDetectLoop]);
-
-  useEffect(() => {
-    return () => stopCamera();
-  }, [stopCamera]);
-
-  // Canvas polygon overlay for live detection
-  useEffect(() => {
-    if (phase !== "camera") return;
-    let rafId: number;
-    const draw = () => {
-      const canvas = overlayCanvasRef.current;
-      const video = videoRef.current;
-      if (canvas && video && video.videoWidth > 0) {
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-        const ctx = canvas.getContext("2d")!;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        const corners = cornersRef.current;
-        if (corners && corners.length === 4) {
-          const scaleX = canvas.width / video.videoWidth;
-          const scaleY = canvas.height / video.videoHeight;
-          drawPolygon(ctx, corners, scaleX, scaleY, quality);
-        }
-      }
-      rafId = requestAnimationFrame(draw);
-    };
-    rafId = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(rafId);
-  }, [phase, quality]);
-
-  // ── Torch ─────────────────────────────────────────────────────────────────
-
-  const applyTorch = useCallback(async (on: boolean) => {
-    if (!streamRef.current) return;
-    const track = streamRef.current.getVideoTracks()[0];
-    if (!track) return;
-    try {
-      const caps = track.getCapabilities() as MediaTrackCapabilities & { torch?: boolean };
-      if (caps.torch) {
-        await track.applyConstraints({ advanced: [{ torch: on } as MediaTrackConstraintSet] });
-      }
-    } catch {
-      // device doesn't support torch — silently ignore
-    }
-  }, []);
-
-  const cycleFlash = useCallback(() => {
-    setFlashMode((prev) => {
-      const next: FlashMode = prev === "off" ? "auto" : prev === "auto" ? "torch" : "off";
-      goodCountRef.current = 0;
-      if (next === "torch") applyTorch(true);
-      else applyTorch(false);
-      return next;
-    });
-  }, [applyTorch]);
-
-  // ── Capture ────────────────────────────────────────────────────────────────
-
-  const capture = useCallback(async () => {
-    const canvas = captureCanvasRef.current;
-    const video = videoRef.current;
-    if (!canvas || !video || video.videoWidth === 0 || capturing) return;
-    setCapturing(true);
-    stopDetectLoop();
-
-    try {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext("2d")!.drawImage(video, 0, 0);
-      const b64 = canvas.toDataURL("image/jpeg", 0.92);
-
-      const r = await fetch("/api/scan/process", {
+      // Perspective-correct + enhance
+      const processRes = await fetch("/api/scan/process", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: b64, corners: cornersRef.current, enhance: true }),
-        signal: AbortSignal.timeout(15000),
+        body: JSON.stringify({ image: dataUrl, corners, enhance: true }),
+        signal: AbortSignal.timeout(20000),
       });
-      const data = await r.json();
-      if (data.error) throw new Error(data.error);
+      if (!processRes.ok) throw new Error("Verarbeitung fehlgeschlagen");
+      const processData = await processRes.json();
+      if (processData.error) throw new Error(processData.error);
 
-      setEditingImage(data.image);
-      setPreviewImage(data.image);
+      setEditingImage(processData.image);
+      setPreviewImage(processData.image);
       setEditRotate(0);
       setEditBW(false);
       setEditBrightness(1.0);
@@ -315,32 +109,23 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
       setCropMode(false);
       setCropRect(null);
       setPhase("editing");
-    } catch (err) {
-      toast.error("Aufnahme fehlgeschlagen");
-      startDetectLoop();
-    } finally {
-      setCapturing(false);
+    } catch (err: any) {
+      toast.error(err?.message || "Aufnahme fehlgeschlagen");
+      setPhase("capture");
     }
-  }, [capturing, stopDetectLoop, startDetectLoop]);
+  }, []);
 
-  // Store capture in ref so detect-loop callback can call it
-  const captureRef = useRef(capture);
-  useEffect(() => { captureRef.current = capture; }, [capture]);
-
-  // ── Editing ────────────────────────────────────────────────────────────────
+  // ── Editing ─────────────────────────────────────────────────────────────────
 
   const applyEdits = useCallback(async (
-    img: string,
-    rotate: number,
-    bw: boolean,
-    brightness: number,
-    contrast: number,
+    img: string, rotate: number, bw: boolean, brightness: number, contrast: number,
   ) => {
     if (!img) return;
     setEditLoading(true);
     try {
       const r = await fetch("/api/scan/adjust", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image: img, rotate, grayscale: bw, brightness, contrast }),
         signal: AbortSignal.timeout(15000),
@@ -355,8 +140,6 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
     }
   }, []);
 
-  // Debounce slider changes
-  const editDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const triggerEditPreview = useCallback((
     rotate: number, bw: boolean, brightness: number, contrast: number,
   ) => {
@@ -369,14 +152,17 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
   const saveEditedPage = useCallback(() => {
     const src = previewImage || editingImage;
     if (!src) return;
-    setPages((prev) => [...prev, { id: crypto.randomUUID(), dataUrl: src }]);
+    const newPage: ScannedPage = { id: crypto.randomUUID(), dataUrl: src };
+    setPages((prev) => [...prev, newPage]);
     setEditingImage(null);
     setPreviewImage(null);
-    setPhase("review");
+    setPhase("capture");
+    toast.success(`Seite gespeichert`);
   }, [previewImage, editingImage]);
 
-  // Crop handlers
-  const startCropDrag = useCallback((e: React.PointerEvent<SVGSVGElement>, handle: "tl"|"br"|"move") => {
+  // ── Crop ────────────────────────────────────────────────────────────────────
+
+  const startCropDrag = useCallback((e: React.PointerEvent<SVGSVGElement>, handle: "tl" | "br" | "move") => {
     e.currentTarget.setPointerCapture(e.pointerId);
     setCropDragging(handle);
     setDragStart({ mx: e.clientX, my: e.clientY, rect: cropRect! });
@@ -384,8 +170,7 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
 
   const handleCropPointerMove = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
     if (!cropDragging || !dragStart) return;
-    const svg = e.currentTarget;
-    const bbox = svg.getBoundingClientRect();
+    const bbox = e.currentTarget.getBoundingClientRect();
     const dx = (e.clientX - dragStart.mx) / bbox.width;
     const dy = (e.clientY - dragStart.my) / bbox.height;
     const r = { ...dragStart.rect };
@@ -422,6 +207,7 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
       };
       const r = await fetch("/api/scan/adjust", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image: editingImage, crop }),
         signal: AbortSignal.timeout(15000),
@@ -439,7 +225,27 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
     }
   }, [cropRect, editingImage]);
 
-  // ── Review ─────────────────────────────────────────────────────────────────
+  // ── Review ──────────────────────────────────────────────────────────────────
+
+  const rotatePage = useCallback(async (idx: number, dir: "cw" | "ccw") => {
+    const page = pages[idx];
+    if (!page) return;
+    try {
+      const deg = dir === "cw" ? 90 : 270;
+      const r = await fetch("/api/scan/adjust", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: page.dataUrl, rotate: deg }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      setPages((prev) => prev.map((p, i) => i === idx ? { ...p, dataUrl: data.image } : p));
+    } catch {
+      toast.error("Drehen fehlgeschlagen");
+    }
+  }, [pages]);
 
   const movePage = (idx: number, dir: "up" | "down") => {
     setPages((prev) => {
@@ -455,63 +261,19 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
     setPages((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  const submitPages = useCallback(
-    async (mode: "multi" | "single") => {
-      if (!pages.length) { toast.error("Keine Seiten vorhanden"); return; }
-      try {
-        const files = await Promise.all(
-          pages.map((p, i) => dataUrlToFile(p.dataUrl, `scan_${Date.now()}_p${i + 1}.jpg`)),
-        );
-        stopCamera();
-        onScanComplete(files, mode);
-      } catch {
-        toast.error("Fehler beim Verarbeiten der Seiten");
-      }
-    },
-    [pages, stopCamera, onScanComplete],
-  );
+  const submitPages = useCallback(async (mode: "multi" | "single") => {
+    if (!pages.length) { toast.error("Keine Seiten vorhanden"); return; }
+    try {
+      const files = await Promise.all(
+        pages.map((p, i) => dataUrlToFile(p.dataUrl, `scan_${Date.now()}_p${i + 1}.jpg`)),
+      );
+      onScanComplete(files, mode);
+    } catch {
+      toast.error("Fehler beim Verarbeiten der Seiten");
+    }
+  }, [pages, onScanComplete]);
 
-  // ── Fallback ───────────────────────────────────────────────────────────────
-
-  const handleFallbackFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    const newPages = files.map((f) => ({
-      id: crypto.randomUUID(),
-      dataUrl: URL.createObjectURL(f),
-    }));
-    setPages((prev) => [...prev, ...newPages]);
-    setPhase("review");
-  };
-
-  // ── Render ─────────────────────────────────────────────────────────────────
-
-  const qualityBorderClass =
-    quality === "good"
-      ? "border-green-400"
-      : quality === "ok"
-        ? "border-orange-400"
-        : quality === "poor"
-          ? "border-red-500"
-          : "border-white/20";
-
-  const qualityLabel =
-    quality === "good"
-      ? "Bereit zum Scannen ✓"
-      : quality === "ok"
-        ? "Dokument erkannt"
-        : quality === "poor"
-          ? "Zu weit weg"
-          : "Kein Dokument";
-
-  const qualityLabelClass =
-    quality === "good"
-      ? "bg-green-500/90 text-white"
-      : quality === "ok"
-        ? "bg-orange-500/90 text-white"
-        : quality === "poor"
-          ? "bg-red-600/90 text-white"
-          : "bg-black/60 text-gray-300";
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <AnimatePresence>
@@ -521,126 +283,92 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
         exit={{ opacity: 0 }}
         className="fixed inset-0 z-[9999] bg-black"
       >
-        {/* Hidden canvas for frame capture */}
-        <canvas ref={captureCanvasRef} className="hidden" />
-
-        {/* ── CAMERA PHASE ─────────────────────────────────────────────── */}
-        {phase === "camera" && (
-          <div className="relative h-full w-full overflow-hidden">
-            <video
-              ref={videoRef}
-              className="h-full w-full object-cover"
-              playsInline
-              muted
-              autoPlay
-            />
-
-            {/* Canvas polygon overlay for live detection */}
-            <canvas
-              ref={overlayCanvasRef}
-              className="absolute inset-0 w-full h-full pointer-events-none"
-            />
-
-            {/* Quality frame overlay (fallback) */}
-            <div
-              className={`absolute inset-4 rounded-xl border-4 pointer-events-none transition-colors duration-300 ${qualityBorderClass}`}
-            />
-
-            {/* Top bar */}
-            <div className="absolute left-0 right-0 top-0 flex items-center justify-between p-4">
-              <span className="rounded-full bg-black/60 px-3 py-1 text-sm font-semibold text-white">
+        {/* ── CAPTURE ───────────────────────────────────────────────────── */}
+        {phase === "capture" && (
+          <div className="flex h-full flex-col">
+            <div className="flex items-center justify-between p-4">
+              <span className="rounded-full bg-white/10 px-3 py-1 text-sm text-white">
                 {pages.length} Seite{pages.length !== 1 ? "n" : ""}
               </span>
-              <div className="flex items-center gap-2">
-                {/* Flash cycle button: Aus → Auto → Taschenlampe */}
-                <button
-                  onClick={cycleFlash}
-                  className={`rounded-full px-3 py-1 text-sm font-semibold transition flex items-center gap-1 ${
-                    flashMode === "off"
-                      ? "bg-black/60 text-gray-400"
-                      : flashMode === "auto"
-                        ? "bg-emerald-500 text-white"
-                        : "bg-yellow-400 text-black"
-                  }`}
-                >
-                  {flashMode === "off" && <><ZapOff className="h-3 w-3" /><span>Blitz Aus</span></>}
-                  {flashMode === "auto" && <><Zap className="h-3 w-3" /><span>Auto</span></>}
-                  {flashMode === "torch" && <><Flashlight className="h-3 w-3" /><span>Dauerhaft</span></>}
-                </button>
-                <button
-                  onClick={onClose}
-                  className="rounded-full bg-black/60 p-2 text-white"
-                >
-                  <X className="h-5 w-5" />
-                </button>
+              <button onClick={onClose} className="rounded-full bg-white/10 p-2 text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6">
+              <div className="text-center">
+                <Camera className="mx-auto mb-4 h-16 w-16 text-white/40" />
+                <p className="text-xl font-semibold text-white">
+                  {pages.length === 0 ? "Dokument scannen" : `Seite ${pages.length + 1} aufnehmen`}
+                </p>
+                <p className="mt-2 text-sm text-white/50">
+                  Halte das Dokument gut beleuchtet und gerade.
+                </p>
               </div>
-            </div>
 
-            {/* Quality badge + confidence */}
-            <div className="absolute left-1/2 bottom-36 -translate-x-1/2 flex flex-col items-center gap-2">
-              <span className={`rounded-full px-4 py-2 text-sm font-semibold ${qualityLabelClass}`}>
-                {qualityLabel}
-              </span>
-              {confidence > 0 && (
-                <span className="rounded-full bg-black/40 px-2 py-0.5 text-xs text-white/70">
-                  {Math.round(confidence * 100)}% Konfidenz
-                </span>
-              )}
-            </div>
-
-            {/* Bottom bar */}
-            <div className="absolute bottom-0 left-0 right-0 flex flex-col items-center gap-4 pb-10">
-              <motion.button
-                animate={
-                  autoCapturePending
-                    ? {
-                        scale: [1, 1.08, 1],
-                        boxShadow: [
-                          "0 0 0 0 rgba(74,222,128,0)",
-                          "0 0 0 12px rgba(74,222,128,0.4)",
-                          "0 0 0 0 rgba(74,222,128,0)",
-                        ],
-                      }
-                    : {}
-                }
-                transition={autoCapturePending ? { repeat: Infinity, duration: 0.7 } : {}}
-                whileTap={{ scale: 0.9 }}
-                onClick={capture}
-                disabled={capturing}
-                className="h-18 w-18 flex items-center justify-center rounded-full bg-white shadow-lg disabled:opacity-50"
-                style={{ height: 72, width: 72 }}
-              >
-                {capturing ? (
-                  <Loader2 className="h-8 w-8 animate-spin text-black" />
-                ) : (
-                  <Camera className="h-8 w-8 text-black" />
-                )}
-              </motion.button>
+              {/* Native camera trigger — opens system camera app on mobile */}
+              <label className="flex w-full max-w-xs cursor-pointer select-none items-center justify-center gap-3 rounded-2xl bg-white py-5 text-lg font-bold text-black shadow-lg active:scale-95 transition-transform">
+                <Camera className="h-6 w-6" />
+                Foto aufnehmen
+                <input
+                  ref={cameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={handleCameraCapture}
+                />
+              </label>
 
               {pages.length > 0 && (
                 <button
                   onClick={() => setPhase("review")}
-                  className="rounded-xl bg-blue-600 px-8 py-2 font-semibold text-white"
+                  className="flex w-full max-w-xs items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 py-4 font-semibold text-white active:bg-white/20"
                 >
-                  Überprüfen ({pages.length})
+                  <Check className="h-5 w-5" />
+                  Seiten prüfen ({pages.length})
                 </button>
               )}
+            </div>
+
+            {/* Thumbnail strip */}
+            {pages.length > 0 && (
+              <div className="flex gap-2 overflow-x-auto px-4 pb-6 pt-2">
+                {pages.map((page, idx) => (
+                  <img
+                    key={page.id}
+                    src={page.dataUrl}
+                    alt={`Seite ${idx + 1}`}
+                    className="h-16 w-12 flex-shrink-0 rounded-lg object-cover ring-1 ring-white/20"
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── PROCESSING ────────────────────────────────────────────────── */}
+        {phase === "processing" && (
+          <div className="flex h-full items-center justify-center">
+            <div className="text-center">
+              <Loader2 className="mx-auto h-12 w-12 animate-spin text-white" />
+              <p className="mt-4 text-base text-white">Dokument wird erkannt …</p>
+              <p className="mt-1 text-sm text-white/50">Perspektive wird korrigiert</p>
             </div>
           </div>
         )}
 
-        {/* ── EDITING PHASE ────────────────────────────────────────────── */}
+        {/* ── EDITING ───────────────────────────────────────────────────── */}
         {phase === "editing" && (
           <div className="flex h-full flex-col bg-black">
-            {/* Header */}
             <div className="flex items-center justify-between p-4">
               <button
-                onClick={() => { setPhase("camera"); }}
+                onClick={() => { setEditingImage(null); setPreviewImage(null); setPhase("capture"); }}
                 className="rounded-full bg-white/10 p-2 text-white"
               >
                 <X className="h-5 w-5" />
               </button>
-              <span className="font-semibold text-white">Bild bearbeiten</span>
+              <span className="font-semibold text-white">Seite {pages.length + 1} bearbeiten</span>
               <button
                 onClick={saveEditedPage}
                 disabled={editLoading}
@@ -650,8 +378,7 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
               </button>
             </div>
 
-            {/* Preview */}
-            <div ref={previewContainerRef} className="relative flex-1 overflow-hidden bg-black">
+            <div className="relative flex-1 overflow-hidden bg-black">
               {editLoading && (
                 <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50">
                   <Loader2 className="h-8 w-8 animate-spin text-white" />
@@ -667,7 +394,7 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
                   />
                   {cropMode && cropRect && (
                     <svg
-                      className="absolute inset-0 w-full h-full"
+                      className="absolute inset-0 h-full w-full"
                       style={{ touchAction: "none" }}
                       onPointerMove={handleCropPointerMove}
                       onPointerUp={handleCropPointerUp}
@@ -687,35 +414,34 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
                       <rect
                         x={`${cropRect.x * 100}%`} y={`${cropRect.y * 100}%`}
                         width={`${cropRect.w * 100}%`} height={`${cropRect.h * 100}%`}
-                        fill="none" stroke="white" strokeWidth="1.5" strokeDasharray="6,3"
+                        fill="none" stroke="white" strokeWidth="2" strokeDasharray="6,3"
                         style={{ cursor: "move" }}
-                        onPointerDown={(e) => startCropDrag(e, "move")}
+                        onPointerDown={(e) => startCropDrag(e as any, "move")}
                       />
-                      <circle cx={`${cropRect.x * 100}%`} cy={`${cropRect.y * 100}%`} r="10"
+                      <circle
+                        cx={`${cropRect.x * 100}%`} cy={`${cropRect.y * 100}%`} r="16"
                         fill="white" style={{ cursor: "nwse-resize" }}
-                        onPointerDown={(e) => startCropDrag(e, "tl")} />
-                      <circle cx={`${(cropRect.x + cropRect.w) * 100}%`} cy={`${(cropRect.y + cropRect.h) * 100}%`} r="10"
+                        onPointerDown={(e) => startCropDrag(e as any, "tl")}
+                      />
+                      <circle
+                        cx={`${(cropRect.x + cropRect.w) * 100}%`} cy={`${(cropRect.y + cropRect.h) * 100}%`} r="16"
                         fill="white" style={{ cursor: "nwse-resize" }}
-                        onPointerDown={(e) => startCropDrag(e, "br")} />
+                        onPointerDown={(e) => startCropDrag(e as any, "br")}
+                      />
                     </svg>
                   )}
                 </>
               )}
             </div>
 
-            {/* Controls */}
-            <div className="space-y-4 bg-gray-950 p-4 pb-8">
+            {/* Edit controls */}
+            <div className="space-y-4 bg-gray-950 p-4 pb-safe-bottom pb-8">
               {/* Crop row */}
-              <div className="flex items-center justify-center gap-4">
+              <div className="flex items-center justify-center gap-3">
                 <button
                   onClick={() => {
-                    if (cropMode) {
-                      setCropMode(false);
-                      setCropRect(null);
-                    } else {
-                      setCropMode(true);
-                      setCropRect({ x: 0.05, y: 0.05, w: 0.90, h: 0.90 });
-                    }
+                    if (cropMode) { setCropMode(false); setCropRect(null); }
+                    else { setCropMode(true); setCropRect({ x: 0.05, y: 0.05, w: 0.90, h: 0.90 }); }
                   }}
                   className={`flex flex-col items-center gap-1 rounded-xl px-5 py-3 ${
                     cropMode ? "bg-white text-black" : "bg-white/10 text-white"
@@ -736,8 +462,8 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
                 )}
               </div>
 
-              {/* Rotate row */}
-              <div className="flex items-center justify-center gap-4">
+              {/* Rotate + B&W row */}
+              <div className="flex items-center justify-center gap-3">
                 <button
                   onClick={() => {
                     const r = ((editRotate - 90) + 360) % 360;
@@ -775,20 +501,14 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
                 </button>
               </div>
 
-              {/* Brightness */}
+              {/* Brightness slider */}
               <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-sm text-gray-300">
-                    <Sun className="h-4 w-4" /> Helligkeit
-                  </div>
+                <div className="flex items-center justify-between text-sm text-gray-300">
+                  <span className="flex items-center gap-2"><Sun className="h-4 w-4" /> Helligkeit</span>
                   <span className="text-xs text-gray-400">{editBrightness.toFixed(1)}×</span>
                 </div>
                 <input
-                  type="range"
-                  min={0.5}
-                  max={2.0}
-                  step={0.1}
-                  value={editBrightness}
+                  type="range" min={0.5} max={2.0} step={0.1} value={editBrightness}
                   onChange={(e) => {
                     const v = parseFloat(e.target.value);
                     setEditBrightness(v);
@@ -798,20 +518,14 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
                 />
               </div>
 
-              {/* Contrast */}
+              {/* Contrast slider */}
               <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-sm text-gray-300">
-                    <Contrast className="h-4 w-4" /> Kontrast
-                  </div>
+                <div className="flex items-center justify-between text-sm text-gray-300">
+                  <span className="flex items-center gap-2"><Contrast className="h-4 w-4" /> Kontrast</span>
                   <span className="text-xs text-gray-400">{editContrast.toFixed(1)}×</span>
                 </div>
                 <input
-                  type="range"
-                  min={0.5}
-                  max={2.0}
-                  step={0.1}
-                  value={editContrast}
+                  type="range" min={0.5} max={2.0} step={0.1} value={editContrast}
                   onChange={(e) => {
                     const v = parseFloat(e.target.value);
                     setEditContrast(v);
@@ -824,7 +538,7 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
           </div>
         )}
 
-        {/* ── REVIEW PHASE ─────────────────────────────────────────────── */}
+        {/* ── REVIEW ────────────────────────────────────────────────────── */}
         {phase === "review" && (
           <div className="flex h-full flex-col overflow-y-auto bg-black">
             <div className="flex items-center justify-between p-4">
@@ -836,7 +550,6 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
               </button>
             </div>
 
-            {/* Page list */}
             <div className="flex-1 px-4">
               {pages.map((page, idx) => (
                 <motion.div
@@ -849,42 +562,47 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
                     alt={`Seite ${idx + 1}`}
                     className="h-20 w-16 flex-shrink-0 rounded-lg object-cover"
                   />
-                  <div className="flex flex-1 flex-col items-start gap-1">
+                  <div className="min-w-0 flex-1">
                     <span className="text-sm font-semibold text-white">Seite {idx + 1}</span>
                   </div>
+                  {/* Reorder */}
                   <div className="flex flex-col gap-1">
                     <button
-                      onClick={() => movePage(idx, "up")}
-                      disabled={idx === 0}
+                      onClick={() => movePage(idx, "up")} disabled={idx === 0}
                       className="rounded bg-white/10 p-1 text-white disabled:opacity-30"
                     >
                       <ChevronUp className="h-4 w-4" />
                     </button>
                     <button
-                      onClick={() => movePage(idx, "down")}
-                      disabled={idx === pages.length - 1}
+                      onClick={() => movePage(idx, "down")} disabled={idx === pages.length - 1}
                       className="rounded bg-white/10 p-1 text-white disabled:opacity-30"
                     >
                       <ChevronDown className="h-4 w-4" />
                     </button>
                   </div>
-                  <button
-                    onClick={() => deletePage(idx)}
-                    className="rounded-full bg-red-600/80 p-2 text-white"
-                  >
+                  {/* Rotate */}
+                  <div className="flex flex-col gap-1">
+                    <button onClick={() => rotatePage(idx, "ccw")} className="rounded bg-white/10 p-1 text-white">
+                      <RotateCcw className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => rotatePage(idx, "cw")} className="rounded bg-white/10 p-1 text-white">
+                      <RotateCw className="h-4 w-4" />
+                    </button>
+                  </div>
+                  {/* Delete */}
+                  <button onClick={() => deletePage(idx)} className="rounded-full bg-red-600/80 p-2 text-white">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </motion.div>
               ))}
             </div>
 
-            {/* Action buttons */}
             <div className="space-y-3 p-4 pb-8">
               <button
-                onClick={() => setPhase("camera")}
+                onClick={() => setPhase("capture")}
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-white/10 py-3 font-semibold text-white"
               >
-                <Camera className="h-4 w-4" />
+                <Plus className="h-4 w-4" />
                 Weitere Seite
               </button>
               <div className="grid grid-cols-2 gap-3">
@@ -905,48 +623,6 @@ export default function DocumentScanner({ onScanComplete, onClose }: DocumentSca
                   Als PDF
                 </button>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── FALLBACK PHASE ────────────────────────────────────────────── */}
-        {phase === "fallback" && (
-          <div className="flex h-full flex-col items-center justify-center gap-6 p-6">
-            <div className="rounded-2xl bg-gray-900 p-8 text-center">
-              <AlertCircle className="mx-auto mb-4 h-12 w-12 text-amber-500" />
-              <h2 className="mb-2 text-xl font-bold text-white">Kamera nicht verfügbar</h2>
-              <p className="mb-6 text-sm text-gray-400">
-                Kamera-Berechtigung fehlt oder nicht unterstützt. Verwende native Dateiauswahl.
-              </p>
-              <button
-                onClick={() => fallbackInputRef.current?.click()}
-                className="w-full rounded-xl bg-blue-600 py-3 font-semibold text-white"
-              >
-                Foto aufnehmen / Datei wählen
-              </button>
-              <input
-                ref={fallbackInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                multiple
-                onChange={handleFallbackFiles}
-                className="hidden"
-              />
-              {pages.length > 0 && (
-                <button
-                  onClick={() => setPhase("review")}
-                  className="mt-3 w-full rounded-xl bg-gray-700 py-3 font-semibold text-white"
-                >
-                  Überprüfen ({pages.length})
-                </button>
-              )}
-              <button
-                onClick={onClose}
-                className="mt-3 w-full rounded-xl border border-gray-700 py-3 text-white"
-              >
-                Schließen
-              </button>
             </div>
           </div>
         )}

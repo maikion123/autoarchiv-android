@@ -7,6 +7,16 @@ metadata:
 
 ## Changelog
 
+### [2026-05-20] DocumentScanner: Quality + Performance Pass ✅
+- **`Eingang.tsx` — `imageToScanBase64`:** maxSide 1800→2048, JPEG quality 0.86→0.90. Better resolution + less compression = improved OCR accuracy for multi-page camera scans.
+- **`DocumentScanner.tsx` — stream liveness:** `startCamera` now checks `tracks[0].readyState === "live"` before reusing an existing stream. Prevents broken camera after OS suspends tracks during editing phase.
+- **`DocumentScanner.tsx` — capture quality:** Final capture quality 0.92→0.94.
+- **`DocumentScanner.tsx` — camera constraints:** `facingMode: "environment"` → `facingMode: { ideal: "environment" }` for better iOS back-camera matching.
+- **`scanner.py` — output cap:** `/process` endpoint caps output to 2048px max side before returning, reducing base64 payload for high-res inputs.
+- **`scanner.py` — better B&W:** `/adjust` uses `ImageOps.autocontrast(cutoff=2)` when grayscale=True, giving cleaner black-and-white scans with stretched histogram.
+- **`scanner.py` — early exit:** Contour detection loop breaks when `best_score > 0.7` — skips unnecessary iterations when a high-confidence quad is already found.
+- **Files:** `src/features/Eingang.tsx`, `src/features/DocumentScanner.tsx`, `python-scanner/scanner.py`
+
 ### [2026-05-18] DocumentScanner Optimization: Fast Detection + Crop UI ✅
 - **Live Detection (300ms + In-flight Guard):** Detect loop changed from `setInterval(1500ms)` → `setTimeout(300ms)` with boolean guard. Prevents overlapping requests, JPEG quality reduced 0.65→0.55 for smaller payloads. Confidence value now captured.
 - **Canvas Polygon Overlay:** New `overlayCanvasRef` with `requestAnimationFrame` draw loop. Detected corners rendered as animated green/orange/red polygon with corner circles, glow, subtle fill. Correctly scaled from video-native → CSS-display pixels.
