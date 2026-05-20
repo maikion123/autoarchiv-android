@@ -180,6 +180,60 @@ export default function Dashboard() {
         <Kpi icon={CalendarClock} label="Bald fällig (30T)" value={loaded ? <CountUp value={stats.upcoming} /> : "—"} accent="from-cyan-400 to-blue-500" />
       </div>
 
+      {/* Activity Feed + System Health */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        {/* Activity Feed */}
+        <div className="lg:col-span-2 glass rounded-2xl border-glow p-5">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">Aktivität</h3>
+          <div className="space-y-3 max-h-64 overflow-y-auto scrollbar-thin">
+            {documents.filter((d) => d.status === "archived").sort((a, b) => +new Date(b.uploadedAt) - +new Date(a.uploadedAt)).slice(0, 5).map((doc) => (
+              <motion.div key={doc.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} className="flex items-start gap-2 text-xs pb-2 border-b border-border/20 last:border-0">
+                <FileText className="h-4 w-4 shrink-0 text-secondary mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <div className="truncate text-foreground font-medium">{doc.filename}</div>
+                  <div className="text-muted-foreground">{fmtDate(doc.uploadedAt)}</div>
+                </div>
+              </motion.div>
+            ))}
+            {payments.filter((p) => p.status !== "bezahlt").sort((a, b) => +new Date(b.faelligkeit) - +new Date(a.faelligkeit)).slice(0, 2).map((pay) => (
+              <motion.div key={pay.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} className="flex items-start gap-2 text-xs pb-2 border-b border-border/20 last:border-0">
+                <Wallet className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <div className="truncate text-foreground font-medium">{fmtEUR(pay.betrag)}</div>
+                  <div className="text-muted-foreground">Fällig {fmtDate(pay.faelligkeit)}</div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+
+        {/* System Health */}
+        <div className="glass rounded-2xl border-glow p-5">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">System</h3>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">API Status</span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="font-medium text-emerald-300">Online</span>
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Dokumente</span>
+              <span className="font-mono font-medium">{documents.length.toLocaleString("de-DE")}</span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Archiviert</span>
+              <span className="font-mono font-medium">{documents.filter((d) => d.status === "archived").length.toLocaleString("de-DE")}</span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Zahlungen</span>
+              <span className="font-mono font-medium">{payments.length.toLocaleString("de-DE")}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Recently processed banner */}
       {lastDoc && (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
