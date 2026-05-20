@@ -11,7 +11,7 @@ import UserMenu from "./UserMenu";
 
 const TABS = [
   { to: "/", label: "Übersicht", icon: "LayoutDashboard" },
-  { to: "/suche", label: "Suche", icon: "Search" },
+  { to: "/archiv", label: "Archiv", icon: "Archive" },
   { to: "/zahlungen", label: "Zahlungen", icon: "Wallet" },
   { to: "/termine", label: "Termine", icon: "CalendarDays" },
   { to: "/eingang", label: "Eingang", icon: "Inbox" },

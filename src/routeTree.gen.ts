@@ -17,6 +17,7 @@ import { Route as ProfilRouteImport } from './routes/profil'
 import { Route as NtfySetupRouteImport } from './routes/ntfy-setup'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as EingangRouteImport } from './routes/eingang'
+import { Route as ArchivRouteImport } from './routes/archiv'
 import { Route as AgentsRouteImport } from './routes/agents'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
@@ -61,6 +62,11 @@ const EingangRoute = EingangRouteImport.update({
   path: '/eingang',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ArchivRoute = ArchivRouteImport.update({
+  id: '/archiv',
+  path: '/archiv',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AgentsRoute = AgentsRouteImport.update({
   id: '/agents',
   path: '/agents',
@@ -81,6 +87,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/agents': typeof AgentsRoute
+  '/archiv': typeof ArchivRoute
   '/eingang': typeof EingangRoute
   '/login': typeof LoginRoute
   '/ntfy-setup': typeof NtfySetupRoute
@@ -94,6 +101,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/agents': typeof AgentsRoute
+  '/archiv': typeof ArchivRoute
   '/eingang': typeof EingangRoute
   '/login': typeof LoginRoute
   '/ntfy-setup': typeof NtfySetupRoute
@@ -108,6 +116,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/agents': typeof AgentsRoute
+  '/archiv': typeof ArchivRoute
   '/eingang': typeof EingangRoute
   '/login': typeof LoginRoute
   '/ntfy-setup': typeof NtfySetupRoute
@@ -123,6 +132,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/agents'
+    | '/archiv'
     | '/eingang'
     | '/login'
     | '/ntfy-setup'
@@ -136,6 +146,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/agents'
+    | '/archiv'
     | '/eingang'
     | '/login'
     | '/ntfy-setup'
@@ -149,6 +160,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/agents'
+    | '/archiv'
     | '/eingang'
     | '/login'
     | '/ntfy-setup'
@@ -163,6 +175,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
   AgentsRoute: typeof AgentsRoute
+  ArchivRoute: typeof ArchivRoute
   EingangRoute: typeof EingangRoute
   LoginRoute: typeof LoginRoute
   NtfySetupRoute: typeof NtfySetupRoute
@@ -231,6 +244,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EingangRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/archiv': {
+      id: '/archiv'
+      path: '/archiv'
+      fullPath: '/archiv'
+      preLoaderRoute: typeof ArchivRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/agents': {
       id: '/agents'
       path: '/agents'
@@ -259,6 +279,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
   AgentsRoute: AgentsRoute,
+  ArchivRoute: ArchivRoute,
   EingangRoute: EingangRoute,
   LoginRoute: LoginRoute,
   NtfySetupRoute: NtfySetupRoute,
