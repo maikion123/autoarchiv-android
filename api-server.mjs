@@ -1377,6 +1377,17 @@ async function persistAnalyzedDocument({
     db.prepare('UPDATE documents SET filename = ?, storage_path = ?, updated_at = ? WHERE id = ? AND user_id = ?')
       .run(sync.filename, sync.storagePath, new Date().toISOString(), documentId, userId);
     row = db.prepare('SELECT d.*, u.email FROM documents d JOIN users u ON u.id = d.user_id WHERE d.id = ? AND d.user_id = ?').get(documentId, userId);
+    if (!row) {
+      console.error('persistAnalyzedDocument: row became null after UPDATE', { documentId, userId });
+      // Fallback: fetch without JOIN
+      const docOnly = db.prepare('SELECT * FROM documents WHERE id = ? AND user_id = ?').get(documentId, userId);
+      const user = db.prepare('SELECT email FROM users WHERE id = ?').get(userId);
+      if (docOnly && user) {
+        row = { ...docOnly, email: user.email };
+      } else {
+        throw new Error('Cannot refetch row after filename update');
+      }
+    }
   }
 
   upsertDocumentFts(documentId, userId, row.filename, row.absender, row.zusammenfassung, text);
@@ -3968,7 +3979,12 @@ app.post('/api/documents/upload', requireAuth, express.raw({
     }
     return res.status(201).json({ document: docResp, benchmark });
   } catch (err) {
-    console.error('documents/upload failed', errorSummary(err));
+    console.error('documents/upload FULL ERROR:', {
+      message: err?.message,
+      stack: err?.stack?.split('\n').slice(0, 5).join('\n'),
+      code: err?.code,
+      errorSummary: errorSummary(err),
+    });
     return res.status(500).json({ error: 'Dokument konnte nicht gespeichert werden' });
   }
 });
