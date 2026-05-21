@@ -1271,71 +1271,107 @@ async function persistAnalyzedDocument({
   ])).slice(0, 20);
   const now = new Date().toISOString();
 
-  db.prepare(`
-    UPDATE documents SET
-      folder_path = ?,
-      absender = ?,
-      dokumenttyp = ?,
-      zusammenfassung = ?,
-      zahlungsbetrag = ?,
-      faelligkeitsdatum = ?,
-      due_date = ?,
-      ablaufdatum = ?,
-      wichtigkeit = ?,
-      tags_json = ?,
-      analysis_hints_json = ?,
-      analysis_mode = ?,
-      confidence = ?,
-      wichtigkeitsgrund = ?,
-      regex_analysis_json = ?,
-      ai_analysis_json = ?,
-      vision_analysis_json = ?,
-      final_analysis_json = ?,
-      layout_analysis_json = ?,
-      review_status = ?,
-      review_reason = ?,
-      should_auto_archive = ?,
-      status = ?,
-      updated_at = ?
-    WHERE id = ? AND user_id = ?
-  `).run(
-    folderPath,
-    normalized.absender || 'Unbekannt',
-    normalized.dokumenttyp || 'Sonstiges',
-    normalized.zusammenfassung || '',
-    normalized.zahlungsbetrag ?? null,
-    normalized.faelligkeitsdatum ?? null,
-    normalized.faelligkeitsdatum ?? null,
-    normalized.ablaufdatum ?? null,
-    normalized.wichtigkeit || 'mittel',
-    JSON.stringify(tags),
-    JSON.stringify(normalized.analysisHints || {}),
-    normalized.analysisMode || 'regex',
-    normalized.confidence ?? null,
-    normalized.reviewReason || '',
-    JSON.stringify(normalized.regexAnalysis || {}),
-    JSON.stringify(normalized.aiAnalysis || {}),
-    JSON.stringify(normalized.visionAnalysis || {}),
-    JSON.stringify(normalized.finalAnalysis || normalized),
-    JSON.stringify(normalized.layoutAnalysisInput || {}),
-    normalized.reviewStatus || 'review_required',
-    normalized.reviewReason || '',
-    shouldAutoArchive ? 1 : 0,
-    nextStatus,
-    now,
-    documentId,
-    userId,
-  );
+  try {
+    const updateResult = db.prepare(`
+      UPDATE documents SET
+        folder_path = ?,
+        absender = ?,
+        dokumenttyp = ?,
+        zusammenfassung = ?,
+        zahlungsbetrag = ?,
+        faelligkeitsdatum = ?,
+        due_date = ?,
+        ablaufdatum = ?,
+        wichtigkeit = ?,
+        tags_json = ?,
+        analysis_hints_json = ?,
+        analysis_mode = ?,
+        confidence = ?,
+        wichtigkeitsgrund = ?,
+        regex_analysis_json = ?,
+        ai_analysis_json = ?,
+        vision_analysis_json = ?,
+        final_analysis_json = ?,
+        layout_analysis_json = ?,
+        review_status = ?,
+        review_reason = ?,
+        should_auto_archive = ?,
+        status = ?,
+        updated_at = ?
+      WHERE id = ? AND user_id = ?
+    `).run(
+      folderPath,
+      normalized.absender || 'Unbekannt',
+      normalized.dokumenttyp || 'Sonstiges',
+      normalized.zusammenfassung || '',
+      normalized.zahlungsbetrag ?? null,
+      normalized.faelligkeitsdatum ?? null,
+      normalized.faelligkeitsdatum ?? null,
+      normalized.ablaufdatum ?? null,
+      normalized.wichtigkeit || 'mittel',
+      JSON.stringify(tags),
+      JSON.stringify(normalized.analysisHints || {}),
+      normalized.analysisMode || 'regex',
+      normalized.confidence ?? null,
+      normalized.reviewReason || '',
+      JSON.stringify(normalized.regexAnalysis || {}),
+      JSON.stringify(normalized.aiAnalysis || {}),
+      JSON.stringify(normalized.visionAnalysis || {}),
+      JSON.stringify(normalized.finalAnalysis || normalized),
+      JSON.stringify(normalized.layoutAnalysisInput || {}),
+      normalized.reviewStatus || 'review_required',
+      normalized.reviewReason || '',
+      shouldAutoArchive ? 1 : 0,
+      nextStatus,
+      now,
+      documentId,
+      userId,
+    );
+    if (updateResult.changes === 0) {
+      console.warn('persistAnalyzedDocument: UPDATE affected 0 rows', { documentId, userId });
+    }
+  } catch (err) {
+    console.error('persistAnalyzedDocument: UPDATE failed', { documentId, userId, error: err.message });
+    throw err;
+  }
 
-  db.prepare(`
-    INSERT INTO document_texts (document_id, extracted_text, ocr_engine)
-    VALUES (?, ?, ?)
-    ON CONFLICT(document_id) DO UPDATE SET
-      extracted_text = excluded.extracted_text,
-      ocr_engine = excluded.ocr_engine
-  `).run(documentId, text || '', ocrEngine);
+  try {
+    db.prepare(`
+      INSERT INTO document_texts (document_id, extracted_text, ocr_engine)
+      VALUES (?, ?, ?)
+      ON CONFLICT(document_id) DO UPDATE SET
+        extracted_text = excluded.extracted_text,
+        ocr_engine = excluded.ocr_engine
+    `).run(documentId, text || '', ocrEngine);
+  } catch (err) {
+    console.error('persistAnalyzedDocument: INSERT document_texts failed', { documentId, error: err.message });
+    throw err;
+  }
 
   let row = db.prepare('SELECT d.*, u.email FROM documents d JOIN users u ON u.id = d.user_id WHERE d.id = ? AND d.user_id = ?').get(documentId, userId);
+
+  if (!row) {
+    console.error('persistAnalyzedDocument: JOIN query returned null, trying fallback fetch', { documentId, userId });
+    const docOnly = db.prepare('SELECT * FROM documents WHERE id = ? AND user_id = ?').get(documentId, userId);
+    const user = db.prepare('SELECT email FROM users WHERE id = ?').get(userId);
+
+    if (docOnly && user) {
+      console.warn('persistAnalyzedDocument: Using fallback row without email join', { documentId });
+      row = { ...docOnly, email: user.email };
+    } else {
+      console.error('persistAnalyzedDocument: CRITICAL - cannot fetch row', {
+        documentId,
+        userId,
+        documentExists: !!docOnly,
+        userExists: !!user,
+      });
+      if (docOnly) {
+        console.error('  Document status:', docOnly.status, 'user_id:', docOnly.user_id);
+      }
+      return { row: null, benchmark };
+    }
+  }
+
   const sync = await syncDocumentReadableMetadata(row, { status: nextStatus, folderPath: row.folder_path });
   if (sync.storagePath !== row.storage_path || sync.filename !== row.filename) {
     db.prepare('UPDATE documents SET filename = ?, storage_path = ?, updated_at = ? WHERE id = ? AND user_id = ?')
