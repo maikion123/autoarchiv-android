@@ -1272,6 +1272,7 @@ async function persistAnalyzedDocument({
   const now = new Date().toISOString();
 
   try {
+    console.log('[persistAnalyzedDocument] Starting UPDATE', { documentId, userId });
     const updateResult = db.prepare(`
       UPDATE documents SET
         folder_path = ?,
@@ -1327,11 +1328,12 @@ async function persistAnalyzedDocument({
       documentId,
       userId,
     );
+    console.log('[persistAnalyzedDocument] UPDATE done', { documentId, changes: updateResult.changes });
     if (updateResult.changes === 0) {
       console.warn('persistAnalyzedDocument: UPDATE affected 0 rows', { documentId, userId });
     }
   } catch (err) {
-    console.error('persistAnalyzedDocument: UPDATE failed', { documentId, userId, error: err.message });
+    console.error('persistAnalyzedDocument: UPDATE failed', { documentId, userId, error: err.message, stack: err.stack?.split('\n')[0] });
     throw err;
   }
 
@@ -3964,6 +3966,7 @@ app.post('/api/documents/upload', requireAuth, express.raw({
       analysis = createRegexFallback(inferDocument(originalFilename, mimeType), 'OCR- oder Analysefehler');
     }
     const benchmark = evaluateBenchmark(analysis.finalAnalysis || analysis, originalFilename, text);
+    console.log('[upload] Before persistAnalyzedDocument', { documentId, userId });
     const { row } = await persistAnalyzedDocument({
       documentId,
       userId,
@@ -3972,6 +3975,7 @@ app.post('/api/documents/upload', requireAuth, express.raw({
       ocrEngine,
       benchmark,
     });
+    console.log('[upload] After persistAnalyzedDocument', { documentId, rowExists: !!row });
     const docResp = documentResponse(row);
     if (!docResp) {
       console.error('documents/upload: documentResponse returned null', { documentId, userId });
@@ -3979,11 +3983,12 @@ app.post('/api/documents/upload', requireAuth, express.raw({
     }
     return res.status(201).json({ document: docResp, benchmark });
   } catch (err) {
-    console.error('documents/upload FULL ERROR:', {
+    const lines = (err?.stack || '').split('\n');
+    console.error('documents/upload FAILED:', {
       message: err?.message,
-      stack: err?.stack?.split('\n').slice(0, 5).join('\n'),
       code: err?.code,
-      errorSummary: errorSummary(err),
+      file: lines[1]?.match(/\((.+?):\d+:\d+\)/)?.[1],
+      line: lines[1]?.match(/:(\d+):/)?.[1],
     });
     return res.status(500).json({ error: 'Dokument konnte nicht gespeichert werden' });
   }
@@ -4087,6 +4092,7 @@ app.post('/api/documents/upload-pages', requireAuth, async (req, res) => {
       analysis = createRegexFallback(inferDocument(originalFilename, 'application/pdf'), 'OCR- oder Analysefehler');
     }
     const benchmark = evaluateBenchmark(analysis.finalAnalysis || analysis, originalFilename, text);
+    console.log('[upload-pages] Before persistAnalyzedDocument', { documentId, userId });
     const { row } = await persistAnalyzedDocument({
       documentId,
       userId,
@@ -4096,6 +4102,7 @@ app.post('/api/documents/upload-pages', requireAuth, async (req, res) => {
       benchmark,
       extraTags: ['mehrseitig'],
     });
+    console.log('[upload-pages] After persistAnalyzedDocument', { documentId, rowExists: !!row });
     const docResp = documentResponse(row);
     if (!docResp) {
       console.error('documents/upload-pages: documentResponse returned null', { documentId, userId });
@@ -4103,7 +4110,13 @@ app.post('/api/documents/upload-pages', requireAuth, async (req, res) => {
     }
     return res.status(201).json({ document: docResp, benchmark });
   } catch (err) {
-    console.error('documents/upload-pages failed', errorSummary(err));
+    const lines = (err?.stack || '').split('\n');
+    console.error('documents/upload-pages FAILED:', {
+      message: err?.message,
+      code: err?.code,
+      file: lines[1]?.match(/\((.+?):\d+:\d+\)/)?.[1],
+      line: lines[1]?.match(/:(\d+):/)?.[1],
+    });
     return res.status(500).json({ error: 'Mehrseitiger Scan konnte nicht gespeichert werden' });
   }
 });
