@@ -133,7 +133,7 @@ db.exec(`
     size                INTEGER NOT NULL,
     storage_path        TEXT NOT NULL,
     sha256              TEXT NOT NULL,
-    folder_path         TEXT NOT NULL DEFAULT '07_Sonstiges',
+    folder_path         TEXT,
     absender            TEXT NOT NULL DEFAULT 'Unbekannt',
     dokumenttyp         TEXT NOT NULL DEFAULT 'Sonstiges',
     zusammenfassung     TEXT NOT NULL DEFAULT '',
