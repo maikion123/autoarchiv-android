@@ -3961,7 +3961,12 @@ app.post('/api/documents/upload', requireAuth, express.raw({
       ocrEngine,
       benchmark,
     });
-    return res.status(201).json({ document: documentResponse(row), benchmark });
+    const docResp = documentResponse(row);
+    if (!docResp) {
+      console.error('documents/upload: documentResponse returned null', { documentId, userId });
+      return res.status(500).json({ error: 'Dokument konnte nicht verarbeitet werden' });
+    }
+    return res.status(201).json({ document: docResp, benchmark });
   } catch (err) {
     console.error('documents/upload failed', errorSummary(err));
     return res.status(500).json({ error: 'Dokument konnte nicht gespeichert werden' });
@@ -4075,7 +4080,12 @@ app.post('/api/documents/upload-pages', requireAuth, async (req, res) => {
       benchmark,
       extraTags: ['mehrseitig'],
     });
-    return res.status(201).json({ document: documentResponse(row), benchmark });
+    const docResp = documentResponse(row);
+    if (!docResp) {
+      console.error('documents/upload-pages: documentResponse returned null', { documentId, userId });
+      return res.status(500).json({ error: 'Mehrseitiger Scan konnte nicht verarbeitet werden' });
+    }
+    return res.status(201).json({ document: docResp, benchmark });
   } catch (err) {
     console.error('documents/upload-pages failed', errorSummary(err));
     return res.status(500).json({ error: 'Mehrseitiger Scan konnte nicht gespeichert werden' });
@@ -4149,10 +4159,12 @@ app.get('/api/search', requireAuth, (req, res) => {
     `).all(ftsQuery, userId);
 
     return res.status(200).json({
-      results: rows.map(r => ({
-        document: documentResponse(r),
-        snippet: r.fts_snippet || null,
-      })),
+      results: rows
+        .map(r => {
+          const docResp = documentResponse(r);
+          return docResp ? { document: docResp, snippet: r.fts_snippet || null } : null;
+        })
+        .filter(Boolean),
     });
   } catch (err) {
     console.error('[search] FTS error:', err.message, { ftsQuery });
@@ -4258,7 +4270,12 @@ app.patch('/api/documents/:id', requireAuth, async (req, res) => {
   const textRow = db.prepare('SELECT extracted_text FROM document_texts WHERE document_id = ?').get(row.id);
   upsertDocumentFts(row.id, userId, row.filename, row.absender, row.zusammenfassung, textRow?.extracted_text || '');
 
-  return res.status(200).json({ document: documentResponse(row) });
+  const docResp = documentResponse(row);
+  if (!docResp) {
+    console.error('documents PATCH: documentResponse returned null', { id: row?.id, userId });
+    return res.status(500).json({ error: 'Dokument konnte nicht verarbeitet werden' });
+  }
+  return res.status(200).json({ document: docResp });
 });
 
 app.delete('/api/documents/:id', requireAuth, async (req, res) => {
@@ -5288,14 +5305,28 @@ app.patch('/api/admin/documents/:id', requireAdmin, async (req, res) => {
   })();
 
   let row = getDocumentById(existing.id);
+  if (!row) {
+    console.error('admin PATCH document: getDocumentById returned null', { documentId: existing.id });
+    return res.status(404).json({ error: 'Dokument nicht gefunden' });
+  }
+
   const sync = await syncDocumentReadableMetadata(row, { status: nextStatus, folderPath: nextFolderPath });
   if (sync.storagePath !== row.storage_path || sync.filename !== row.filename) {
     db.prepare('UPDATE documents SET filename = ?, storage_path = ?, updated_at = ? WHERE id = ?')
       .run(sync.filename, sync.storagePath, new Date().toISOString(), existing.id);
     row = getDocumentById(existing.id);
+    if (!row) {
+      console.error('admin PATCH document: getDocumentById failed after UPDATE', { documentId: existing.id });
+      return res.status(500).json({ error: 'Dokument konnte nicht aktualisiert werden' });
+    }
   }
 
-  return res.status(200).json({ document: documentResponse(row) });
+  const docResp = documentResponse(row);
+  if (!docResp) {
+    console.error('admin PATCH document: documentResponse returned null', { documentId: existing.id });
+    return res.status(500).json({ error: 'Dokument konnte nicht verarbeitet werden' });
+  }
+  return res.status(200).json({ document: docResp });
 });
 
 app.post('/api/admin/documents/:id/reanalyze', requireAdmin, async (req, res) => {
@@ -5335,7 +5366,17 @@ app.post('/api/admin/documents/:id/reanalyze', requireAdmin, async (req, res) =>
     });
 
     const refreshed = getDocumentById(existing.id);
-    return res.status(200).json({ document: documentResponse(refreshed) });
+    if (!refreshed) {
+      console.error('[admin] reanalyze: getDocumentById returned null after persist', { documentId: existing.id });
+      return res.status(500).json({ error: 'Dokument konnte nicht reanalysiert werden' });
+    }
+
+    const docResp = documentResponse(refreshed);
+    if (!docResp) {
+      console.error('[admin] reanalyze: documentResponse returned null', { documentId: existing.id });
+      return res.status(500).json({ error: 'Dokument konnte nicht verarbeitet werden' });
+    }
+    return res.status(200).json({ document: docResp });
   } catch (err) {
     console.error('[admin] reanalyze failed:', err);
     return res.status(500).json({ error: 'Reanalyse fehlgeschlagen' });
