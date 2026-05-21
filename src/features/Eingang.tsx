@@ -126,6 +126,7 @@ export default function EingangPage() {
   const [previewingDoc, setPreviewingDoc] = useState<ArchivedDoc | null>(null);
   const [pendingCameraFiles, setPendingCameraFiles] = useState<File[]>([]);
   const [showScanner, setShowScanner] = useState(false);
+  const [scannerInitialDraft, setScannerInitialDraft] = useState<any[] | undefined>();
 
   const reloadFolders = useCallback(async () => {
       const tree = await loadFolderTree();
@@ -161,80 +162,95 @@ export default function EingangPage() {
 
   const analyze = useCallback(async (item: QueueItem) => {
     setQueue((q) => q.map((x) => x.id === item.id ? { ...x, stage: "analyzing" } : x));
-    try {
-      const mimeType = mimeTypeFor(item.file);
-      let body: ArrayBuffer;
+    const MAX_RETRIES = 3;
+    const RETRY_DELAYS = [1000, 3000, 8000];
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        body = await item.file.arrayBuffer();
-      } catch {
-        throw new Error("Foto konnte nach der Aufnahme nicht gelesen werden");
-      }
-      const params = new URLSearchParams({
-        filename: item.file.name || "foto.jpg",
-        mimeType,
-      });
-      console.debug("[Eingang] Upload start", {
-        filename: item.file.name,
-        mimeType,
-        size: item.file.size,
-      });
-      const uploadRes = await fetch(`/api/documents/upload?${params.toString()}`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/octet-stream" },
-        body,
-      });
-      const data = await uploadRes.json().catch(() => {
-        throw new Error("Serverantwort konnte nicht gelesen werden");
-      });
-      if (!uploadRes.ok) {
-        console.warn("[Eingang] Upload failed", {
-          status: uploadRes.status,
-          filename: item.file.name,
+        const mimeType = mimeTypeFor(item.file);
+        let body: ArrayBuffer;
+        try {
+          body = await item.file.arrayBuffer();
+        } catch {
+          throw new Error("Foto konnte nach der Aufnahme nicht gelesen werden");
+        }
+        const params = new URLSearchParams({
+          filename: item.file.name || "foto.jpg",
+          mimeType,
         });
-        const authHint = uploadRes.status === 401 || uploadRes.status === 403
-          ? "Sitzung abgelaufen. Bitte neu anmelden."
-          : null;
-        throw new Error(authHint || data?.error || "KI-Analyse fehlgeschlagen");
+        console.debug("[Eingang] Upload start", {
+          filename: item.file.name,
+          mimeType,
+          size: item.file.size,
+          attempt: attempt + 1,
+        });
+        const uploadRes = await fetch(`/api/documents/upload?${params.toString()}`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/octet-stream" },
+          body,
+        });
+        const data = await uploadRes.json().catch(() => {
+          throw new Error("Serverantwort konnte nicht gelesen werden");
+        });
+        if (!uploadRes.ok) {
+          console.warn("[Eingang] Upload failed", {
+            status: uploadRes.status,
+            filename: item.file.name,
+            attempt: attempt + 1,
+          });
+          const authHint = uploadRes.status === 401 || uploadRes.status === 403
+            ? "Sitzung abgelaufen. Bitte neu anmelden."
+            : null;
+          throw new Error(authHint || data?.error || "KI-Analyse fehlgeschlagen");
+        }
+        if ((data as any)?.error) throw new Error((data as any).error);
+        console.debug("[Eingang] Upload success", {
+          filename: item.file.name,
+          documentId: (data as any)?.document?.id || (data as any)?.id,
+        });
+        const r = (data as any).document || data;
+        const final = r.finalAnalysis || r;
+        const folderPath = r.folderPath || (
+          final.vorgeschlagenerUnterordner
+            ? `${final.vorgeschlagenerOrdner}/${final.vorgeschlagenerUnterordner}`
+            : final.vorgeschlagenerOrdner
+        );
+        const valid = folderPaths.length > 0 ? folderPaths : flattenFolderTree(folders).map((node) => node.id);
+        const safePath = valid.includes(folderPath) ? folderPath : (valid.includes(final.vorgeschlagenerOrdner) ? final.vorgeschlagenerOrdner : "07_Sonstiges");
+        setQueue((q) => q.map((x) => x.id === item.id ? {
+          ...x, documentId: r.id, stage: "ready",
+            result: {
+            absender: final.absender || r.absender || "Unbekannt", dokumenttyp: final.dokumenttyp || r.dokumenttyp || "Sonstiges", zusammenfassung: final.zusammenfassung || r.zusammenfassung || "",
+            zahlungsbetrag: final.zahlungsbetrag ?? r.zahlungsbetrag, faelligkeitsdatum: final.faelligkeitsdatum ?? r.faelligkeitsdatum, ablaufdatum: final.ablaufdatum ?? r.ablaufdatum,
+            folderPath: safePath, wichtigkeit: final.wichtigkeit || r.wichtigkeit || "mittel", tags: final.tags || r.tags || [],
+            addPayment: !!(final.zahlungsbetrag ?? r.zahlungsbetrag),
+            analysisMode: r.analysisMode || final.analysisMode || "fallback",
+            confidence: typeof r.confidence === "number" ? r.confidence : (typeof final.confidence === "number" ? final.confidence : null),
+            wichtigkeitsgrund: r.wichtigkeitsgrund || final.reviewReason || null,
+            reviewStatus: r.reviewStatus || final.reviewStatus,
+            reviewReason: r.reviewReason || final.reviewReason || null,
+            shouldAutoArchive: Boolean(r.shouldAutoArchive ?? final.shouldAutoArchive),
+            regexAnalysis: r.regexAnalysis || null,
+            aiAnalysis: r.aiAnalysis || null,
+            visionAnalysis: r.visionAnalysis || null,
+            finalAnalysis: r.finalAnalysis || final || null,
+            benchmark: data.benchmark || null,
+          },
+        } : x));
+        return;
+      } catch (e: any) {
+        const isLastAttempt = attempt === MAX_RETRIES - 1;
+        const msg = e?.message || "KI-Analyse fehlgeschlagen";
+        if (isLastAttempt) {
+          setQueue((q) => q.map((x) => x.id === item.id ? { ...x, stage: "error", error: msg } : x));
+          toast.error(msg);
+          return;
+        }
+        const delay = RETRY_DELAYS[attempt];
+        console.warn(`[Eingang] Retry in ${delay}ms`, { attempt: attempt + 1, error: msg });
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
-      if ((data as any)?.error) throw new Error((data as any).error);
-      console.debug("[Eingang] Upload success", {
-        filename: item.file.name,
-        documentId: (data as any)?.document?.id || (data as any)?.id,
-      });
-      const r = (data as any).document || data;
-      const final = r.finalAnalysis || r;
-      const folderPath = r.folderPath || (
-        final.vorgeschlagenerUnterordner
-          ? `${final.vorgeschlagenerOrdner}/${final.vorgeschlagenerUnterordner}`
-          : final.vorgeschlagenerOrdner
-      );
-      const valid = folderPaths.length > 0 ? folderPaths : flattenFolderTree(folders).map((node) => node.id);
-      const safePath = valid.includes(folderPath) ? folderPath : (valid.includes(final.vorgeschlagenerOrdner) ? final.vorgeschlagenerOrdner : "07_Sonstiges");
-      setQueue((q) => q.map((x) => x.id === item.id ? {
-        ...x, documentId: r.id, stage: "ready",
-          result: {
-          absender: final.absender || r.absender || "Unbekannt", dokumenttyp: final.dokumenttyp || r.dokumenttyp || "Sonstiges", zusammenfassung: final.zusammenfassung || r.zusammenfassung || "",
-          zahlungsbetrag: final.zahlungsbetrag ?? r.zahlungsbetrag, faelligkeitsdatum: final.faelligkeitsdatum ?? r.faelligkeitsdatum, ablaufdatum: final.ablaufdatum ?? r.ablaufdatum,
-          folderPath: safePath, wichtigkeit: final.wichtigkeit || r.wichtigkeit || "mittel", tags: final.tags || r.tags || [],
-          addPayment: !!(final.zahlungsbetrag ?? r.zahlungsbetrag),
-          analysisMode: r.analysisMode || final.analysisMode || "fallback",
-          confidence: typeof r.confidence === "number" ? r.confidence : (typeof final.confidence === "number" ? final.confidence : null),
-          wichtigkeitsgrund: r.wichtigkeitsgrund || final.reviewReason || null,
-          reviewStatus: r.reviewStatus || final.reviewStatus,
-          reviewReason: r.reviewReason || final.reviewReason || null,
-          shouldAutoArchive: Boolean(r.shouldAutoArchive ?? final.shouldAutoArchive),
-          regexAnalysis: r.regexAnalysis || null,
-          aiAnalysis: r.aiAnalysis || null,
-          visionAnalysis: r.visionAnalysis || null,
-          finalAnalysis: r.finalAnalysis || final || null,
-          benchmark: data.benchmark || null,
-        },
-      } : x));
-    } catch (e: any) {
-      const msg = e?.message || "KI-Analyse fehlgeschlagen";
-      setQueue((q) => q.map((x) => x.id === item.id ? { ...x, stage: "error", error: msg } : x));
-      toast.error(msg);
     }
   }, [folderPaths, folders]);
 
@@ -307,40 +323,54 @@ export default function EingangPage() {
     setQueue((q) => [item, ...q]);
     setQueue((q) => q.map((x) => x.id === item.id ? { ...x, stage: "analyzing" } : x));
 
-    try {
-      const pages = await Promise.all(files.map(async (file) => ({
-        filename: file.name || "foto.jpg",
-        mimeType: "image/jpeg",
-        data: await imageToScanBase64(file),
-      })));
-      const uploadRes = await fetch("/api/documents/upload-pages", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename, pages }),
-      });
-      const data = await uploadRes.json().catch(() => {
-        throw new Error("Serverantwort konnte nicht gelesen werden");
-      });
-      if (!uploadRes.ok) {
-        console.warn("[Eingang] Multi-page upload failed", {
-          status: uploadRes.status,
-          filename,
-          pages: pages.length,
+    const MAX_RETRIES = 3;
+    const RETRY_DELAYS = [1000, 3000, 8000];
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const pages = await Promise.all(files.map(async (file) => ({
+          filename: file.name || "foto.jpg",
+          mimeType: "image/jpeg",
+          data: await imageToScanBase64(file),
+        })));
+        const uploadRes = await fetch("/api/documents/upload-pages", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename, pages }),
         });
-        const authHint = uploadRes.status === 401 || uploadRes.status === 403
-          ? "Sitzung abgelaufen. Bitte neu anmelden."
-          : null;
-        throw new Error(authHint || data?.error || "Mehrseitiger Scan fehlgeschlagen");
+        const data = await uploadRes.json().catch(() => {
+          throw new Error("Serverantwort konnte nicht gelesen werden");
+        });
+        if (!uploadRes.ok) {
+          console.warn("[Eingang] Multi-page upload failed", {
+            status: uploadRes.status,
+            filename,
+            pages: pages.length,
+            attempt: attempt + 1,
+          });
+          const authHint = uploadRes.status === 401 || uploadRes.status === 403
+            ? "Sitzung abgelaufen. Bitte neu anmelden."
+            : null;
+          throw new Error(authHint || data?.error || "Mehrseitiger Scan fehlgeschlagen");
+        }
+        if (data?.error) throw new Error(data.error);
+        console.debug("[Eingang] Multi-page upload success", { filename, pages: pages.length });
+        applyUploadResult(item.id, data);
+        toast.success(`${files.length} Seiten als Dokument hochgeladen`);
+        return;
+      } catch (err: any) {
+        const isLastAttempt = attempt === MAX_RETRIES - 1;
+        const msg = err?.message || "Mehrseitiger Scan fehlgeschlagen";
+        if (isLastAttempt) {
+          setQueue((q) => q.map((x) => x.id === item.id ? { ...x, stage: "error", error: msg } : x));
+          toast.error(msg);
+          return;
+        }
+        const delay = RETRY_DELAYS[attempt];
+        console.warn(`[Eingang] Retry in ${delay}ms`, { attempt: attempt + 1, error: msg });
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
-      if (data?.error) throw new Error(data.error);
-      console.debug("[Eingang] Multi-page upload success", { filename, pages: pages.length });
-      applyUploadResult(item.id, data);
-      toast.success(`${files.length} Seiten als Dokument hochgeladen`);
-    } catch (err: any) {
-      const msg = err?.message || "Mehrseitiger Scan fehlgeschlagen";
-      setQueue((q) => q.map((x) => x.id === item.id ? { ...x, stage: "error", error: msg } : x));
-      toast.error(msg);
     }
   }, [applyUploadResult]);
 
@@ -560,7 +590,20 @@ export default function EingangPage() {
 
         <button
           type="button"
-          onClick={() => setShowScanner(true)}
+          onClick={async () => {
+            try {
+              const db = await (await import("idb")).openDB("scanner-drafts-v1", 1, {
+                upgrade(db) {
+                  if (!db.objectStoreNames.contains("pages")) {
+                    db.createObjectStore("pages");
+                  }
+                },
+              });
+              const draft = await db.get("pages", "draft");
+              setScannerInitialDraft(draft || undefined);
+            } catch {}
+            setShowScanner(true);
+          }}
           className="glass border-glow relative cursor-pointer overflow-hidden rounded-2xl p-5 text-center transition hover:shadow-[0_0_30px_oklch(0.72_0.16_130/0.4)] md:p-8"
         >
           <Scan className="mx-auto h-9 w-9 text-emerald-500 md:h-10 md:w-10" />
@@ -705,7 +748,11 @@ export default function EingangPage() {
       {showScanner && (
         <DocumentScanner
           onScanComplete={handleScannedFiles}
-          onClose={() => setShowScanner(false)}
+          onClose={() => {
+            setShowScanner(false);
+            setScannerInitialDraft(undefined);
+          }}
+          initialDraft={scannerInitialDraft}
         />
       )}
     </div>

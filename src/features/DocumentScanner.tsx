@@ -3,13 +3,16 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Camera, RotateCcw, RotateCw, Trash2, Check, X,
   Loader2, ChevronUp, ChevronDown, Sun, Contrast, Zap, ZapOff, Plus,
+  Sparkles, Eye, Maximize2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { openDB } from "idb";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 type Phase = "loading" | "camera" | "corners" | "editing" | "review";
 type Quality = "poor" | "ok" | "good" | null;
+type FilterPreset = "dokument" | "farbe" | "foto";
 
 interface CvPoint { x: number; y: number }
 interface CornerSet {
@@ -27,11 +30,68 @@ interface ScannedPage {
 interface DocumentScannerProps {
   onScanComplete: (files: File[], mode: "multi" | "single") => void;
   onClose: () => void;
+  initialDraft?: ScannedPage[];
 }
 
-// ── OpenCV + jscanify lazy loader ──────────────────────────────────────────────
+// ── Constants ──────────────────────────────────────────────────────────────────
 
 const OPENCV_SRC = "/opencv.js";
+const IDB_NAME = "scanner-drafts-v1";
+const IDB_STORE = "pages";
+const MAX_PAGES_IN_DRAFT = 20;
+
+const FILTER_PRESETS: Record<FilterPreset, { brightness: number; contrast: number; sharpen: boolean; shadow: boolean; bw: boolean }> = {
+  dokument: { brightness: 1.05, contrast: 1.5, sharpen: true, shadow: true, bw: true },
+  farbe: { brightness: 1.05, contrast: 1.2, sharpen: true, shadow: false, bw: false },
+  foto: { brightness: 1.0, contrast: 1.0, sharpen: false, shadow: false, bw: false },
+};
+
+// ── IndexedDB Draft Storage ────────────────────────────────────────────────────
+
+async function openDraftDB() {
+  return openDB(IDB_NAME, 1, {
+    upgrade(db) {
+      if (!db.objectStoreNames.contains(IDB_STORE)) {
+        db.createObjectStore(IDB_STORE);
+      }
+    },
+  });
+}
+
+async function saveDraftPages(pages: ScannedPage[]): Promise<void> {
+  if (pages.length === 0) {
+    await clearDraft();
+    return;
+  }
+  if (pages.length > MAX_PAGES_IN_DRAFT) return;
+  try {
+    const db = await openDraftDB();
+    await db.put(IDB_STORE, pages, "draft");
+  } catch (err) {
+    console.warn("[Scanner] Draft save failed", err);
+  }
+}
+
+async function loadDraftPages(): Promise<ScannedPage[] | null> {
+  try {
+    const db = await openDraftDB();
+    return (await db.get(IDB_STORE, "draft")) || null;
+  } catch (err) {
+    console.warn("[Scanner] Draft load failed", err);
+    return null;
+  }
+}
+
+async function clearDraft(): Promise<void> {
+  try {
+    const db = await openDraftDB();
+    await db.delete(IDB_STORE, "draft");
+  } catch (err) {
+    console.warn("[Scanner] Draft clear failed", err);
+  }
+}
+
+// ── OpenCV loader ──────────────────────────────────────────────────────────────
 
 declare global {
   interface Window {
@@ -67,7 +127,7 @@ function loadOpenCV(): Promise<void> {
     script.src = OPENCV_SRC;
     script.async = true;
     script.onload = onReady;
-    script.onerror = () => reject(new Error("OpenCV.js Download fehlgeschlagen"));
+    script.onerror = () => reject(new Error("OpenCV.js konnte nicht geladen werden"));
     document.head.appendChild(script);
   });
 
@@ -101,55 +161,89 @@ function polygonArea(pts: number[][]): number {
   return Math.abs(area) / 2;
 }
 
-function drawPolygonOverlay(
-  ctx: CanvasRenderingContext2D,
-  corners: number[][],
-  sx: number,
-  sy: number,
-  quality: Quality,
-) {
-  if (!quality || corners.length !== 4) return;
-  const color =
-    quality === "good" ? "#22c55e" : quality === "ok" ? "#fb923c" : "#ef4444";
-  const pts = corners.map(([x, y]) => [x * sx, y * sy]);
+// ── Canvas Image Processing ────────────────────────────────────────────────────
 
-  ctx.beginPath();
-  ctx.moveTo(pts[0][0], pts[0][1]);
-  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-  ctx.closePath();
-  ctx.fillStyle =
-    quality === "good"
-      ? "rgba(34,197,94,0.15)"
-      : quality === "ok"
-        ? "rgba(251,146,60,0.12)"
-        : "rgba(239,68,68,0.10)";
-  ctx.fill();
+function applySharpenKernel(imageData: ImageData, strength = 0.6): ImageData {
+  const { data, width, height } = imageData;
+  const output = new ImageData(new Uint8ClampedArray(data), width, height);
+  const outData = output.data;
 
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 16;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 3;
-  ctx.stroke();
-  ctx.shadowBlur = 0;
+  const kernel = [
+    -strength, -strength, -strength,
+    -strength, 1 + 8 * strength, -strength,
+    -strength, -strength, -strength,
+  ];
 
-  for (const [x, y] of pts) {
-    ctx.beginPath();
-    ctx.arc(x, y, 8, 0, Math.PI * 2);
-    ctx.fillStyle = "#ffffff";
-    ctx.fill();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = color;
-    ctx.stroke();
+  const sum = kernel.reduce((a, b) => a + Math.max(b, 0), 0) || 1;
+
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      for (let c = 0; c < 3; c++) {
+        let val = 0;
+        let kernelIdx = 0;
+        for (let ky = -1; ky <= 1; ky++) {
+          for (let kx = -1; kx <= 1; kx++) {
+            const px = (y + ky) * width + (x + kx);
+            val += data[px * 4 + c] * kernel[kernelIdx];
+            kernelIdx++;
+          }
+        }
+        outData[(y * width + x) * 4 + c] = Math.max(0, Math.min(255, Math.round(val / sum)));
+      }
+    }
   }
+  return output;
 }
 
-// Client-side canvas-based edits: rotation, brightness, contrast, B&W threshold
+function applyShadowRemoval(imageData: ImageData): ImageData {
+  const { data, width, height } = imageData;
+  const output = new ImageData(new Uint8ClampedArray(data), width, height);
+  const outData = output.data;
+
+  const blockSize = 32;
+  const illuminationMap: number[][] = [];
+
+  for (let by = 0; by < height; by += blockSize) {
+    const row: number[] = [];
+    for (let bx = 0; bx < width; bx += blockSize) {
+      let sum = 0;
+      let count = 0;
+      for (let y = by; y < Math.min(by + blockSize, height); y++) {
+        for (let x = bx; x < Math.min(bx + blockSize, width); x++) {
+          const idx = (y * width + x) * 4;
+          const lum = data[idx] * 0.299 + data[idx + 1] * 0.587 + data[idx + 2] * 0.114;
+          sum += lum;
+          count++;
+        }
+      }
+      row.push(sum / count);
+    }
+    illuminationMap.push(row);
+  }
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const by = Math.floor(y / blockSize);
+      const bx = Math.floor(x / blockSize);
+      const localBrightness = illuminationMap[Math.min(by, illuminationMap.length - 1)]?.[Math.min(bx, illuminationMap[0]?.length || 1)] || 128;
+      const ratio = 128 / Math.max(localBrightness, 16);
+
+      for (let c = 0; c < 3; c++) {
+        const val = Math.round(data[(y * width + x) * 4 + c] * ratio);
+        outData[(y * width + x) * 4 + c] = Math.max(0, Math.min(255, val));
+      }
+      outData[(y * width + x) * 4 + 3] = data[(y * width + x) * 4 + 3];
+    }
+  }
+  return output;
+}
+
 async function applyCanvasEdits(
   srcDataUrl: string,
   rotate: number,
-  bw: boolean,
-  brightness: number,
-  contrast: number,
+  preset: FilterPreset,
+  editSharpen: boolean,
+  editShadow: boolean,
 ): Promise<string> {
   const img = await loadImage(srcDataUrl);
   const swap = rotate === 90 || rotate === 270;
@@ -158,7 +252,8 @@ async function applyCanvasEdits(
   canvas.height = swap ? img.width : img.height;
   const ctx = canvas.getContext("2d")!;
 
-  ctx.filter = `brightness(${brightness}) contrast(${contrast})`;
+  const preset_cfg = FILTER_PRESETS[preset];
+  ctx.filter = `brightness(${preset_cfg.brightness}) contrast(${preset_cfg.contrast})`;
   ctx.save();
   ctx.translate(canvas.width / 2, canvas.height / 2);
   ctx.rotate((rotate * Math.PI) / 180);
@@ -166,36 +261,77 @@ async function applyCanvasEdits(
   ctx.restore();
   ctx.filter = "none";
 
-  if (bw) {
+  if (preset_cfg.bw) {
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
     for (let i = 0; i < data.length; i += 4) {
-      const lum =
-        data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-      // soft adaptive threshold: hard black under 80, hard white over 180, ramp between
-      const v =
-        lum >= 180
-          ? 255
-          : lum <= 80
-            ? 0
-            : Math.round(((lum - 80) / 100) * 255);
+      const lum = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+      const v = lum >= 180 ? 255 : lum <= 80 ? 0 : Math.round(((lum - 80) / 100) * 255);
       data[i] = data[i + 1] = data[i + 2] = v;
     }
+    ctx.putImageData(imageData, 0, 0);
+  }
+
+  let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  if (editShadow && (preset_cfg.shadow || editShadow)) {
+    imageData = applyShadowRemoval(imageData);
+    ctx.putImageData(imageData, 0, 0);
+  }
+  if (editSharpen && (preset_cfg.sharpen || editSharpen)) {
+    imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    imageData = applySharpenKernel(imageData, 0.8);
     ctx.putImageData(imageData, 0, 0);
   }
 
   return canvas.toDataURL("image/jpeg", 0.94);
 }
 
-// ── Component ──────────────────────────────────────────────────────────────────
+// ── PDF Generation (client-side) ────────────────────────────────────────────────
+
+async function generatePDFFromPages(pages: ScannedPage[], filename: string): Promise<File> {
+  const { jsPDF } = await import("jspdf");
+  const pdf = new jsPDF({ orientation: "portrait", unit: "px", format: "a4" });
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+
+  for (let i = 0; i < pages.length; i++) {
+    if (i > 0) pdf.addPage();
+    const img = await loadImage(pages[i].dataUrl);
+    const imgAR = img.width / img.height;
+    const pageAR = pageWidth / pageHeight;
+
+    let w = pageWidth;
+    let h = pageHeight;
+    let x = 0;
+    let y = 0;
+
+    if (imgAR > pageAR) {
+      w = pageWidth;
+      h = pageWidth / imgAR;
+      y = (pageHeight - h) / 2;
+    } else {
+      h = pageHeight;
+      w = pageHeight * imgAR;
+      x = (pageWidth - w) / 2;
+    }
+
+    pdf.addImage(pages[i].dataUrl, "JPEG", x, y, w, h);
+  }
+
+  const blob = pdf.output("blob");
+  return new File([blob], filename, { type: "application/pdf" });
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────────
 
 export default function DocumentScanner({
   onScanComplete,
   onClose,
+  initialDraft,
 }: DocumentScannerProps) {
-  const [phase, setPhase] = useState<Phase>("loading");
+  const [phase, setPhase] = useState<Phase>(initialDraft && initialDraft.length > 0 ? "review" : "loading");
   const [loadingMsg, setLoadingMsg] = useState("Scanner-Engine wird geladen …");
-  const [pages, setPages] = useState<ScannedPage[]>([]);
+  const [pages, setPages] = useState<ScannedPage[]>(initialDraft || []);
   const [quality, setQuality] = useState<Quality>(null);
   const [confidence, setConfidence] = useState(0);
   const [torchOn, setTorchOn] = useState(false);
@@ -203,21 +339,20 @@ export default function DocumentScanner({
   const [autoCapturePending, setAutoCapturePending] = useState(false);
   const [capturing, setCapturing] = useState(false);
 
-  // corners phase
+  // Corners phase
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [capturedDims, setCapturedDims] = useState<{ w: number; h: number } | null>(null);
-  // 4 corners as normalized [0,1] coords: TL, TR, BR, BL
   const [corners, setCorners] = useState<[number, number][]>([]);
   const [draggingIdx, setDraggingIdx] = useState<number | null>(null);
   const [processingCorners, setProcessingCorners] = useState(false);
 
-  // editing phase
+  // Editing phase
   const [editingImage, setEditingImage] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [editRotate, setEditRotate] = useState(0);
-  const [editBW, setEditBW] = useState(false);
-  const [editBrightness, setEditBrightness] = useState(1.0);
-  const [editContrast, setEditContrast] = useState(1.0);
+  const [editPreset, setEditPreset] = useState<FilterPreset>("dokument");
+  const [editSharpen, setEditSharpen] = useState(false);
+  const [editShadow, setEditShadow] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -237,9 +372,10 @@ export default function DocumentScanner({
     autoCaptureRef.current = autoCaptureEnabled;
   }, [autoCaptureEnabled]);
 
-  // ── Load OpenCV + jscanify on mount ─────────────────────────────────────────
+  // ── Load OpenCV + jscanify ────────────────────────────────────────────────────
 
   useEffect(() => {
+    if (phase !== "loading") return;
     let mounted = true;
     (async () => {
       try {
@@ -251,7 +387,7 @@ export default function DocumentScanner({
         if (!mounted) return;
         const Jscanify = jscanifyMod.default || jscanifyMod;
         scannerRef.current = new Jscanify();
-        setPhase("camera");
+        setPhase(initialDraft && initialDraft.length > 0 ? "review" : "camera");
       } catch (err: any) {
         toast.error(err?.message || "Scanner konnte nicht geladen werden");
         onClose();
@@ -260,9 +396,9 @@ export default function DocumentScanner({
     return () => {
       mounted = false;
     };
-  }, [onClose]);
+  }, [onClose, initialDraft]);
 
-  // ── Detection loop (client-side via jscanify + OpenCV.js) ───────────────────
+  // ── Detection loop ─────────────────────────────────────────────────────────────
 
   const stopDetectLoop = useCallback(() => {
     if (detectTimerRef.current !== null) {
@@ -286,10 +422,7 @@ export default function DocumentScanner({
       contour = scanner.findPaperContour(img);
       if (contour && !contour.empty()) {
         const cp: CornerSet = scanner.getCornerPoints(contour, img);
-        if (
-          cp.topLeftCorner && cp.topRightCorner &&
-          cp.bottomRightCorner && cp.bottomLeftCorner
-        ) {
+        if (cp.topLeftCorner && cp.topRightCorner && cp.bottomRightCorner && cp.bottomLeftCorner) {
           const arr: number[][] = [
             [cp.topLeftCorner.x, cp.topLeftCorner.y],
             [cp.topRightCorner.x, cp.topRightCorner.y],
@@ -299,8 +432,6 @@ export default function DocumentScanner({
           const frameArea = video.videoWidth * video.videoHeight;
           const area = polygonArea(arr);
           const frac = area / frameArea;
-
-          // require quad sanity: each side > 5% of frame
           const minSide = Math.min(video.videoWidth, video.videoHeight) * 0.05;
           let validSides = true;
           for (let i = 0; i < 4; i++) {
@@ -314,24 +445,18 @@ export default function DocumentScanner({
 
           if (validSides && frac > 0.05) {
             detectedCornersRef.current = arr;
-            const qual: Quality =
-              frac > 0.30 ? "good" : frac > 0.15 ? "ok" : "poor";
+            const qual: Quality = frac > 0.3 ? "good" : frac > 0.15 ? "ok" : "poor";
             detectedQualityRef.current = qual;
             setQuality(qual);
             setConfidence(Math.min(frac * 2.5, 1));
 
-            if (autoCaptureRef.current) {
-              if (qual === "good") {
-                goodCountRef.current += 1;
-                setAutoCapturePending(goodCountRef.current >= 1);
-                if (goodCountRef.current >= 4) {
-                  goodCountRef.current = 0;
-                  setAutoCapturePending(false);
-                  captureCallbackRef.current?.();
-                }
-              } else {
+            if (autoCaptureRef.current && qual === "good") {
+              goodCountRef.current += 1;
+              setAutoCapturePending(goodCountRef.current >= 2);
+              if (goodCountRef.current >= 6) {
                 goodCountRef.current = 0;
                 setAutoCapturePending(false);
+                captureCallbackRef.current?.();
               }
             } else {
               goodCountRef.current = 0;
@@ -355,7 +480,7 @@ export default function DocumentScanner({
         setAutoCapturePending(false);
       }
     } catch {
-      // detection failure on a single frame is fine
+      // Detection failure on frame is fine
     } finally {
       try { contour?.delete?.(); } catch {}
       try { img?.delete?.(); } catch {}
@@ -368,7 +493,7 @@ export default function DocumentScanner({
     detectTimerRef.current = setInterval(runDetect, 140);
   }, [runDetect, stopDetectLoop]);
 
-  // ── Camera lifecycle ────────────────────────────────────────────────────────
+  // ── Camera lifecycle ──────────────────────────────────────────────────────────
 
   const stopCamera = useCallback(() => {
     stopDetectLoop();
@@ -406,7 +531,7 @@ export default function DocumentScanner({
         startDetectLoop();
       };
     } catch {
-      toast.error("Kamera-Zugriff verweigert. Bitte Berechtigung in den Browser-Einstellungen erteilen.");
+      toast.error("Kamera-Zugriff verweigert");
       onClose();
     }
   }, [startDetectLoop, onClose]);
@@ -418,7 +543,7 @@ export default function DocumentScanner({
 
   useEffect(() => () => stopCamera(), [stopCamera]);
 
-  // Polygon overlay drawing loop
+  // Polygon overlay drawing
   useEffect(() => {
     if (phase !== "camera") return;
     let rafId: number;
@@ -434,12 +559,10 @@ export default function DocumentScanner({
         const ctx = canvas.getContext("2d")!;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // compute object-cover scale + offset
         const videoAR = video.videoWidth / video.videoHeight;
         const canvasAR = canvas.width / canvas.height;
         let scale, offX = 0, offY = 0;
         if (videoAR > canvasAR) {
-          // video wider — fit height, crop sides
           scale = canvas.height / video.videoHeight;
           offX = (canvas.width - video.videoWidth * scale) / 2;
         } else {
@@ -450,8 +573,31 @@ export default function DocumentScanner({
         const c = detectedCornersRef.current;
         const q = detectedQualityRef.current;
         if (c && c.length === 4 && q) {
-          const transformed = c.map(([x, y]) => [x * scale + offX, y * scale + offY]);
-          drawPolygonOverlay(ctx, transformed, 1, 1, q);
+          const pts = c.map(([x, y]) => [x * scale + offX, y * scale + offY]);
+          const color = q === "good" ? "#22c55e" : q === "ok" ? "#fb923c" : "#ef4444";
+
+          ctx.beginPath();
+          ctx.moveTo(pts[0][0], pts[0][1]);
+          for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+          ctx.closePath();
+          ctx.fillStyle = q === "good" ? "rgba(34,197,94,0.15)" : q === "ok" ? "rgba(251,146,60,0.12)" : "rgba(239,68,68,0.10)";
+          ctx.fill();
+          ctx.shadowColor = color;
+          ctx.shadowBlur = 16;
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 3;
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+
+          for (const [x, y] of pts) {
+            ctx.beginPath();
+            ctx.arc(x, y, 8, 0, Math.PI * 2);
+            ctx.fillStyle = "#ffffff";
+            ctx.fill();
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = color;
+            ctx.stroke();
+          }
         }
       }
       rafId = requestAnimationFrame(draw);
@@ -472,11 +618,11 @@ export default function DocumentScanner({
         });
       }
     } catch {
-      // device doesn't support torch
+      // No torch support
     }
   }, []);
 
-  // ── Capture ─────────────────────────────────────────────────────────────────
+  // ── Capture ────────────────────────────────────────────────────────────────────
 
   const capture = useCallback(() => {
     const video = videoRef.current;
@@ -492,7 +638,6 @@ export default function DocumentScanner({
     canvas.getContext("2d")!.drawImage(video, 0, 0);
     const b64 = canvas.toDataURL("image/jpeg", 0.94);
 
-    // Initialize corner handles from detection or default to full frame inset
     const raw = detectedCornersRef.current;
     let init: [number, number][];
     if (raw && raw.length === 4) {
@@ -515,7 +660,7 @@ export default function DocumentScanner({
     captureCallbackRef.current = capture;
   }, [capture]);
 
-  // ── Corners adjustment ──────────────────────────────────────────────────────
+  // ── Corners adjustment ─────────────────────────────────────────────────────────
 
   const handleCornerDown = useCallback(
     (e: React.PointerEvent<SVGCircleElement>, idx: number) => {
@@ -561,7 +706,6 @@ export default function DocumentScanner({
         bottomLeftCorner: pixelCorners[3],
       };
 
-      // result size: max of the quad sides (keeps detail)
       const w1 = Math.hypot(
         cornerPoints.topRightCorner.x - cornerPoints.topLeftCorner.x,
         cornerPoints.topRightCorner.y - cornerPoints.topLeftCorner.y,
@@ -593,9 +737,9 @@ export default function DocumentScanner({
       setEditingImage(corrected);
       setPreviewImage(corrected);
       setEditRotate(0);
-      setEditBW(false);
-      setEditBrightness(1.0);
-      setEditContrast(1.0);
+      setEditPreset("dokument");
+      setEditSharpen(false);
+      setEditShadow(false);
       setPhase("editing");
     } catch (err: any) {
       toast.error(err?.message || "Verarbeitung fehlgeschlagen");
@@ -604,48 +748,51 @@ export default function DocumentScanner({
     }
   }, [capturedImage, capturedDims, corners]);
 
-  // ── Editing (client-side canvas operations) ─────────────────────────────────
+  // ── Editing ────────────────────────────────────────────────────────────────────
 
   const triggerEdit = useCallback(
-    (rotate: number, bw: boolean, brightness: number, contrast: number) => {
+    (rotate: number, preset: FilterPreset, sharpen: boolean, shadow: boolean) => {
       if (editDebounceRef.current) clearTimeout(editDebounceRef.current);
       editDebounceRef.current = setTimeout(async () => {
         if (!editingImage) return;
         setEditLoading(true);
         try {
-          const out = await applyCanvasEdits(editingImage, rotate, bw, brightness, contrast);
+          const out = await applyCanvasEdits(editingImage, rotate, preset, sharpen, shadow);
           setPreviewImage(out);
         } catch {
           toast.error("Bearbeitung fehlgeschlagen");
         } finally {
           setEditLoading(false);
         }
-      }, 120);
+      }, 100);
     },
     [editingImage],
   );
 
-  const saveEditedPage = useCallback(() => {
+  const saveEditedPage = useCallback(async () => {
     const src = previewImage || editingImage;
     if (!src) return;
-    setPages((prev) => {
-      toast.success(`Seite ${prev.length + 1} gespeichert`);
-      return [...prev, { id: crypto.randomUUID(), dataUrl: src }];
-    });
+    const newPage = { id: crypto.randomUUID(), dataUrl: src };
+    const updatedPages = [...pages, newPage];
+    setPages(updatedPages);
+    await saveDraftPages(updatedPages);
+    toast.success(`Seite ${updatedPages.length} gespeichert`);
     setCapturedImage(null);
     setEditingImage(null);
     setPreviewImage(null);
     setPhase("camera");
-  }, [previewImage, editingImage]);
+  }, [previewImage, editingImage, pages]);
 
-  // ── Review ──────────────────────────────────────────────────────────────────
+  // ── Review ─────────────────────────────────────────────────────────────────────
 
   const rotatePage = useCallback(async (idx: number, dir: "cw" | "ccw") => {
     const page = pages[idx];
     if (!page) return;
     try {
-      const out = await applyCanvasEdits(page.dataUrl, dir === "cw" ? 90 : 270, false, 1, 1);
-      setPages((prev) => prev.map((p, i) => (i === idx ? { ...p, dataUrl: out } : p)));
+      const out = await applyCanvasEdits(page.dataUrl, dir === "cw" ? 90 : 270, "foto", false, false);
+      const updated = pages.map((p, i) => (i === idx ? { ...p, dataUrl: out } : p));
+      setPages(updated);
+      await saveDraftPages(updated);
     } catch {
       toast.error("Drehen fehlgeschlagen");
     }
@@ -661,6 +808,17 @@ export default function DocumentScanner({
     });
   };
 
+  const deletePage = (idx: number) => {
+    const updated = pages.filter((_, i) => i !== idx);
+    setPages(updated);
+    if (updated.length === 0) {
+      clearDraft();
+      setPhase("camera");
+    } else {
+      saveDraftPages(updated);
+    }
+  };
+
   const submitPages = useCallback(
     async (mode: "multi" | "single") => {
       if (!pages.length) {
@@ -668,48 +826,39 @@ export default function DocumentScanner({
         return;
       }
       try {
-        const files = await Promise.all(
-          pages.map((p, i) => dataUrlToFile(p.dataUrl, `scan_${Date.now()}_p${i + 1}.jpg`)),
-        );
-        stopCamera();
-        onScanComplete(files, mode);
-      } catch {
-        toast.error("Fehler beim Verarbeiten der Seiten");
+        if (mode === "multi" && pages.length > 1) {
+          const pdf = await generatePDFFromPages(pages, `Scan_${new Date().toLocaleDateString("de-DE")}.pdf`);
+          stopCamera();
+          await clearDraft();
+          onScanComplete([pdf], "multi");
+        } else {
+          const files = await Promise.all(
+            pages.map((p, i) => dataUrlToFile(p.dataUrl, `scan_${Date.now()}_p${i + 1}.jpg`)),
+          );
+          stopCamera();
+          await clearDraft();
+          onScanComplete(files, "single");
+        }
+      } catch (err: any) {
+        toast.error(err?.message || "Fehler beim Verarbeiten der Seiten");
       }
     },
     [pages, stopCamera, onScanComplete],
   );
 
-  // ── Quality UI helpers ──────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────────────────────
 
   const qualityBorder =
-    quality === "good"
-      ? "border-green-400"
-      : quality === "ok"
-        ? "border-orange-400"
-        : quality === "poor"
-          ? "border-red-500"
-          : "border-white/20";
-
-  const qualityLabel =
-    quality === "good"
-      ? "Bereit ✓"
-      : quality === "ok"
-        ? "Dokument erkannt"
-        : quality === "poor"
-          ? "Halte ruhiger / näher"
-          : "Kein Dokument sichtbar";
-
+    quality === "good" ? "border-emerald-400" : quality === "ok" ? "border-amber-400" : quality === "poor" ? "border-red-500" : "border-white/20";
+  const qualityLabel = quality === "good" ? "Bereit ✓" : quality === "ok" ? "Dokument erkannt" : quality === "poor" ? "Näher halten" : "Kein Dokument";
   const qualityBadge =
     quality === "good"
-      ? "bg-green-500/90 text-white"
+      ? "bg-emerald-500/90 text-white"
       : quality === "ok"
-        ? "bg-orange-500/90 text-white"
+        ? "bg-amber-500/90 text-white"
         : quality === "poor"
           ? "bg-red-600/90 text-white"
           : "bg-black/50 text-gray-200";
-
-  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <AnimatePresence>
@@ -719,46 +868,45 @@ export default function DocumentScanner({
         exit={{ opacity: 0 }}
         className="fixed inset-0 z-[9999] bg-black"
       >
-        {/* ── LOADING ─────────────────────────────────────────────────── */}
+        {/* LOADING */}
         {phase === "loading" && (
           <div className="flex h-full flex-col items-center justify-center gap-4 px-6">
-            <Loader2 className="h-12 w-12 animate-spin text-white" />
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
+              className="h-12 w-12 rounded-full border-4 border-white/20 border-t-white"
+            />
             <p className="text-base font-semibold text-white">{loadingMsg}</p>
-            <p className="text-center text-sm text-white/60">
-              Beim ersten Aufruf werden ca. 8 MB Scanner-Engine geladen — danach offline schnell.
-            </p>
-            <button onClick={onClose} className="mt-4 rounded-xl bg-white/10 px-6 py-2 text-white">
+            <p className="text-center text-sm text-white/60">Beim ersten Aufruf ~8 MB — danach offline schnell.</p>
+            <button
+              onClick={onClose}
+              className="mt-4 rounded-xl bg-white/10 px-6 py-2 text-white transition hover:bg-white/20"
+            >
               Abbrechen
             </button>
           </div>
         )}
 
-        {/* ── CAMERA ──────────────────────────────────────────────────── */}
+        {/* CAMERA */}
         {phase === "camera" && (
           <div className="relative h-full w-full overflow-hidden">
-            <video
-              ref={videoRef}
-              className="h-full w-full object-cover"
-              playsInline
-              muted
-              autoPlay
-            />
-            <canvas
-              ref={overlayCanvasRef}
-              className="absolute inset-0 h-full w-full pointer-events-none"
-            />
-            <div className={`absolute inset-4 rounded-xl border-2 pointer-events-none transition-colors duration-300 ${qualityBorder}`} />
+            <video ref={videoRef} className="h-full w-full object-cover" playsInline muted autoPlay />
+            <canvas ref={overlayCanvasRef} className="absolute inset-0 h-full w-full pointer-events-none" />
+            <div className={`absolute inset-4 rounded-2xl border-2 pointer-events-none transition-colors duration-300 ${qualityBorder}`} />
 
-            {/* top bar */}
+            {/* Top bar */}
             <div className="absolute inset-x-0 top-0 flex items-center justify-between p-4">
               <span className="rounded-full bg-black/60 px-3 py-1 text-sm text-white">
                 {pages.length} Seite{pages.length !== 1 ? "n" : ""}
               </span>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => { const n = !torchOn; setTorchOn(n); applyTorch(n); }}
+                  onClick={() => {
+                    const n = !torchOn;
+                    setTorchOn(n);
+                    applyTorch(n);
+                  }}
                   className={`rounded-full p-2 transition ${torchOn ? "bg-yellow-400 text-black" : "bg-black/60 text-white"}`}
-                  aria-label="Taschenlampe"
                 >
                   {torchOn ? <Zap className="h-5 w-5" /> : <ZapOff className="h-5 w-5" />}
                 </button>
@@ -768,19 +916,15 @@ export default function DocumentScanner({
               </div>
             </div>
 
-            {/* quality */}
+            {/* Quality badge */}
             <div className="absolute inset-x-0 bottom-44 flex flex-col items-center gap-2 pointer-events-none">
-              <span className={`rounded-full px-4 py-1.5 text-sm font-semibold ${qualityBadge}`}>
-                {qualityLabel}
-              </span>
+              <span className={`rounded-full px-4 py-1.5 text-sm font-semibold ${qualityBadge}`}>{qualityLabel}</span>
               {confidence > 0 && (
-                <span className="rounded-full bg-black/40 px-2 py-0.5 text-xs text-white/60">
-                  {Math.round(confidence * 100)}%
-                </span>
+                <span className="rounded-full bg-black/40 px-2 py-0.5 text-xs text-white/60">{Math.round(confidence * 100)}%</span>
               )}
             </div>
 
-            {/* bottom bar */}
+            {/* Bottom controls */}
             <div className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-3 pb-10">
               <button
                 onClick={() => {
@@ -788,7 +932,6 @@ export default function DocumentScanner({
                   setAutoCaptureEnabled(n);
                   autoCaptureRef.current = n;
                   goodCountRef.current = 0;
-                  setAutoCapturePending(false);
                 }}
                 className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
                   autoCaptureEnabled ? "bg-emerald-500/90 text-white" : "bg-black/60 text-gray-400"
@@ -801,32 +944,28 @@ export default function DocumentScanner({
                 animate={
                   autoCapturePending
                     ? {
-                        scale: [1, 1.08, 1],
+                        scale: [1, 1.12, 1],
                         boxShadow: [
                           "0 0 0 0 rgba(34,197,94,0)",
-                          "0 0 0 14px rgba(34,197,94,0.5)",
+                          "0 0 0 24px rgba(34,197,94,0.4)",
                           "0 0 0 0 rgba(34,197,94,0)",
                         ],
                       }
                     : {}
                 }
-                transition={autoCapturePending ? { repeat: Infinity, duration: 0.7 } : {}}
-                whileTap={{ scale: 0.9 }}
+                transition={autoCapturePending ? { repeat: Infinity, duration: 0.8 } : {}}
+                whileTap={{ scale: 0.95 }}
                 onClick={capture}
                 disabled={capturing}
-                className="flex h-[72px] w-[72px] items-center justify-center rounded-full bg-white shadow-lg disabled:opacity-50"
+                className="flex h-[72px] w-[72px] items-center justify-center rounded-full bg-white shadow-2xl disabled:opacity-50"
               >
-                {capturing ? (
-                  <Loader2 className="h-8 w-8 animate-spin text-black" />
-                ) : (
-                  <Camera className="h-8 w-8 text-black" />
-                )}
+                {capturing ? <Loader2 className="h-8 w-8 animate-spin text-black" /> : <Camera className="h-8 w-8 text-black" />}
               </motion.button>
 
               {pages.length > 0 && (
                 <button
                   onClick={() => setPhase("review")}
-                  className="rounded-xl bg-blue-600 px-8 py-2 font-semibold text-white"
+                  className="rounded-xl bg-blue-600 px-8 py-2 font-semibold text-white transition hover:bg-blue-700"
                 >
                   Prüfen ({pages.length})
                 </button>
@@ -835,7 +974,7 @@ export default function DocumentScanner({
           </div>
         )}
 
-        {/* ── CORNERS ─────────────────────────────────────────────────── */}
+        {/* CORNERS */}
         {phase === "corners" && capturedImage && (
           <div className="flex h-full flex-col bg-black">
             <div className="flex items-center justify-between p-4">
@@ -854,12 +993,7 @@ export default function DocumentScanner({
             </div>
 
             <div className="relative flex-1 overflow-hidden">
-              <img
-                src={capturedImage}
-                alt="Aufnahme"
-                className="h-full w-full object-contain"
-                draggable={false}
-              />
+              <img src={capturedImage} alt="Aufnahme" className="h-full w-full object-contain" draggable={false} />
               <svg
                 className="absolute inset-0 h-full w-full select-none"
                 style={{ touchAction: "none" }}
@@ -870,10 +1004,7 @@ export default function DocumentScanner({
                 <defs>
                   <mask id="poly-mask">
                     <rect width="100%" height="100%" fill="white" />
-                    <polygon
-                      points={corners.map(([x, y]) => `${x * 100}% ${y * 100}%`).join(" ")}
-                      fill="black"
-                    />
+                    <polygon points={corners.map(([x, y]) => `${x * 100}% ${y * 100}%`).join(" ")} fill="black" />
                   </mask>
                 </defs>
                 <rect width="100%" height="100%" fill="rgba(0,0,0,0.5)" mask="url(#poly-mask)" />
@@ -883,37 +1014,46 @@ export default function DocumentScanner({
                   stroke="#22c55e"
                   strokeWidth="2"
                 />
-                {corners.length === 4 && [0, 1, 2, 3].map((i) => {
-                  const [x1, y1] = corners[i];
-                  const [x2, y2] = corners[(i + 1) % 4];
-                  return (
-                    <line
-                      key={i}
-                      x1={`${x1 * 100}%`} y1={`${y1 * 100}%`}
-                      x2={`${x2 * 100}%`} y2={`${y2 * 100}%`}
-                      stroke="#22c55e"
-                      strokeWidth="2"
-                      strokeDasharray="6 4"
-                    />
-                  );
-                })}
+                {corners.length === 4 &&
+                  [0, 1, 2, 3].map((i) => {
+                    const [x1, y1] = corners[i];
+                    const [x2, y2] = corners[(i + 1) % 4];
+                    return (
+                      <line
+                        key={i}
+                        x1={`${x1 * 100}%`}
+                        y1={`${y1 * 100}%`}
+                        x2={`${x2 * 100}%`}
+                        y2={`${y2 * 100}%`}
+                        stroke="#22c55e"
+                        strokeWidth="2"
+                        strokeDasharray="6 4"
+                      />
+                    );
+                  })}
                 {corners.map(([x, y], idx) => (
                   <g key={idx}>
                     <circle
-                      cx={`${x * 100}%`} cy={`${y * 100}%`} r="32"
+                      cx={`${x * 100}%`}
+                      cy={`${y * 100}%`}
+                      r="32"
                       fill="transparent"
                       style={{ cursor: "grab" }}
                       onPointerDown={(e) => handleCornerDown(e, idx)}
                     />
                     <circle
-                      cx={`${x * 100}%`} cy={`${y * 100}%`} r="14"
+                      cx={`${x * 100}%`}
+                      cy={`${y * 100}%`}
+                      r="14"
                       fill="white"
                       stroke="#22c55e"
                       strokeWidth="3"
                       style={{ pointerEvents: "none" }}
                     />
                     <circle
-                      cx={`${x * 100}%`} cy={`${y * 100}%`} r="5"
+                      cx={`${x * 100}%`}
+                      cy={`${y * 100}%`}
+                      r="5"
                       fill="#22c55e"
                       style={{ pointerEvents: "none" }}
                     />
@@ -928,14 +1068,14 @@ export default function DocumentScanner({
           </div>
         )}
 
-        {/* ── EDITING ─────────────────────────────────────────────────── */}
+        {/* EDITING */}
         {phase === "editing" && (
           <div className="flex h-full flex-col bg-black">
             <div className="flex items-center justify-between p-4">
               <button onClick={() => setPhase("corners")} className="rounded-full bg-white/10 p-2 text-white">
                 <X className="h-5 w-5" />
               </button>
-              <span className="font-semibold text-white">Seite {pages.length + 1} bearbeiten</span>
+              <span className="font-semibold text-white">Seite {pages.length + 1}</span>
               <button
                 onClick={saveEditedPage}
                 disabled={editLoading}
@@ -945,26 +1085,46 @@ export default function DocumentScanner({
               </button>
             </div>
 
-            <div className="relative flex-1 overflow-hidden bg-black">
+            {/* Filter presets */}
+            <div className="border-b border-white/10 px-4 py-3">
+              <div className="flex gap-2 overflow-x-auto">
+                {(["dokument", "farbe", "foto"] as FilterPreset[]).map((preset) => (
+                  <button
+                    key={preset}
+                    onClick={() => {
+                      setEditPreset(preset);
+                      triggerEdit(editRotate, preset, editSharpen, editShadow);
+                    }}
+                    className={`whitespace-nowrap rounded-lg px-4 py-2 font-semibold transition ${
+                      editPreset === preset
+                        ? "bg-white text-black"
+                        : "bg-white/10 text-white hover:bg-white/20"
+                    }`}
+                  >
+                    {preset === "dokument" ? "📄 Dokument" : preset === "farbe" ? "🎨 Farbe" : "📸 Foto"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="relative flex-1 overflow-hidden">
               {editLoading && (
-                <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/30">
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40">
                   <Loader2 className="h-8 w-8 animate-spin text-white" />
                 </div>
               )}
-              {previewImage && (
-                <img src={previewImage} alt="Vorschau" className="h-full w-full object-contain" />
-              )}
+              {previewImage && <img src={previewImage} alt="Vorschau" className="h-full w-full object-contain" />}
             </div>
 
             <div className="space-y-4 bg-gray-950 p-4 pb-8">
-              <div className="flex items-center justify-center gap-3">
+              <div className="flex items-center justify-center gap-2">
                 <button
                   onClick={() => {
                     const r = ((editRotate - 90) + 360) % 360;
                     setEditRotate(r);
-                    triggerEdit(r, editBW, editBrightness, editContrast);
+                    triggerEdit(r, editPreset, editSharpen, editShadow);
                   }}
-                  className="flex flex-col items-center gap-1 rounded-xl bg-white/10 px-5 py-3 text-white"
+                  className="flex flex-col items-center gap-1 rounded-lg bg-white/10 px-4 py-2 text-white transition hover:bg-white/20"
                 >
                   <RotateCcw className="h-5 w-5" />
                   <span className="text-xs">Links</span>
@@ -973,65 +1133,57 @@ export default function DocumentScanner({
                   onClick={() => {
                     const r = (editRotate + 90) % 360;
                     setEditRotate(r);
-                    triggerEdit(r, editBW, editBrightness, editContrast);
+                    triggerEdit(r, editPreset, editSharpen, editShadow);
                   }}
-                  className="flex flex-col items-center gap-1 rounded-xl bg-white/10 px-5 py-3 text-white"
+                  className="flex flex-col items-center gap-1 rounded-lg bg-white/10 px-4 py-2 text-white transition hover:bg-white/20"
                 >
                   <RotateCw className="h-5 w-5" />
                   <span className="text-xs">Rechts</span>
                 </button>
                 <button
                   onClick={() => {
-                    const next = !editBW;
-                    setEditBW(next);
-                    triggerEdit(editRotate, next, editBrightness, editContrast);
+                    const n = !editSharpen;
+                    setEditSharpen(n);
+                    triggerEdit(editRotate, editPreset, n, editShadow);
                   }}
-                  className={`flex flex-col items-center gap-1 rounded-xl px-5 py-3 ${editBW ? "bg-white text-black" : "bg-white/10 text-white"}`}
+                  className={`flex flex-col items-center gap-1 rounded-lg px-4 py-2 transition ${
+                    editSharpen ? "bg-white text-black" : "bg-white/10 text-white hover:bg-white/20"
+                  }`}
                 >
-                  <Contrast className="h-5 w-5" />
-                  <span className="text-xs">S/W</span>
+                  <Sparkles className="h-5 w-5" />
+                  <span className="text-xs">Schärfen</span>
+                </button>
+                <button
+                  onClick={() => {
+                    const n = !editShadow;
+                    setEditShadow(n);
+                    triggerEdit(editRotate, editPreset, editSharpen, n);
+                  }}
+                  className={`flex flex-col items-center gap-1 rounded-lg px-4 py-2 transition ${
+                    editShadow ? "bg-white text-black" : "bg-white/10 text-white hover:bg-white/20"
+                  }`}
+                >
+                  <Eye className="h-5 w-5" />
+                  <span className="text-xs">Schatten</span>
                 </button>
               </div>
 
-              <div className="space-y-1">
+              <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm text-gray-300">
-                  <span className="flex items-center gap-2"><Sun className="h-4 w-4" /> Helligkeit</span>
-                  <span className="text-xs text-gray-400">{editBrightness.toFixed(1)}×</span>
+                  <span className="flex items-center gap-2">
+                    <Sun className="h-4 w-4" /> Rotation
+                  </span>
+                  <span className="text-xs text-gray-400">{editRotate}°</span>
                 </div>
-                <input
-                  type="range" min={0.5} max={2.0} step={0.1} value={editBrightness}
-                  onChange={(e) => {
-                    const v = parseFloat(e.target.value);
-                    setEditBrightness(v);
-                    triggerEdit(editRotate, editBW, v, editContrast);
-                  }}
-                  className="w-full accent-white"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-sm text-gray-300">
-                  <span className="flex items-center gap-2"><Contrast className="h-4 w-4" /> Kontrast</span>
-                  <span className="text-xs text-gray-400">{editContrast.toFixed(1)}×</span>
-                </div>
-                <input
-                  type="range" min={0.5} max={2.0} step={0.1} value={editContrast}
-                  onChange={(e) => {
-                    const v = parseFloat(e.target.value);
-                    setEditContrast(v);
-                    triggerEdit(editRotate, editBW, editBrightness, v);
-                  }}
-                  className="w-full accent-white"
-                />
               </div>
             </div>
           </div>
         )}
 
-        {/* ── REVIEW ──────────────────────────────────────────────────── */}
+        {/* REVIEW */}
         {phase === "review" && (
           <div className="flex h-full flex-col overflow-y-auto bg-black">
-            <div className="flex items-center justify-between p-4">
+            <div className="flex items-center justify-between border-b border-white/10 p-4">
               <h2 className="text-xl font-bold text-white">
                 {pages.length} Seite{pages.length !== 1 ? "n" : ""}
               </h2>
@@ -1040,69 +1192,85 @@ export default function DocumentScanner({
               </button>
             </div>
 
-            <div className="flex-1 px-4">
+            <div className="flex-1 space-y-2 overflow-y-auto p-4">
               {pages.map((page, idx) => (
                 <motion.div
                   key={page.id}
                   layout
-                  className="mb-3 flex items-center gap-3 rounded-xl bg-gray-900 p-2"
+                  className="flex items-center gap-3 rounded-xl bg-gray-900 p-3"
                 >
-                  <img src={page.dataUrl} alt={`Seite ${idx + 1}`} className="h-20 w-16 flex-shrink-0 rounded-lg object-cover" />
+                  <img
+                    src={page.dataUrl}
+                    alt={`Seite ${idx + 1}`}
+                    className="h-16 w-12 flex-shrink-0 rounded-lg object-cover"
+                  />
                   <div className="min-w-0 flex-1">
                     <span className="text-sm font-semibold text-white">Seite {idx + 1}</span>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <button onClick={() => movePage(idx, "up")} disabled={idx === 0}
-                      className="rounded bg-white/10 p-1 text-white disabled:opacity-30">
+                    <button
+                      onClick={() => movePage(idx, "up")}
+                      disabled={idx === 0}
+                      className="rounded bg-white/10 p-1 text-white disabled:opacity-30"
+                    >
                       <ChevronUp className="h-4 w-4" />
                     </button>
-                    <button onClick={() => movePage(idx, "down")} disabled={idx === pages.length - 1}
-                      className="rounded bg-white/10 p-1 text-white disabled:opacity-30">
+                    <button
+                      onClick={() => movePage(idx, "down")}
+                      disabled={idx === pages.length - 1}
+                      className="rounded bg-white/10 p-1 text-white disabled:opacity-30"
+                    >
                       <ChevronDown className="h-4 w-4" />
                     </button>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <button onClick={() => rotatePage(idx, "ccw")} className="rounded bg-white/10 p-1 text-white">
+                    <button
+                      onClick={() => rotatePage(idx, "ccw")}
+                      className="rounded bg-white/10 p-1 text-white transition hover:bg-white/20"
+                    >
                       <RotateCcw className="h-4 w-4" />
                     </button>
-                    <button onClick={() => rotatePage(idx, "cw")} className="rounded bg-white/10 p-1 text-white">
+                    <button
+                      onClick={() => rotatePage(idx, "cw")}
+                      className="rounded bg-white/10 p-1 text-white transition hover:bg-white/20"
+                    >
                       <RotateCw className="h-4 w-4" />
                     </button>
                   </div>
-                  <button onClick={() => setPages((p) => p.filter((_, i) => i !== idx))}
-                    className="rounded-full bg-red-600/80 p-2 text-white">
+                  <button
+                    onClick={() => deletePage(idx)}
+                    className="rounded-lg bg-red-600/80 p-2 text-white transition hover:bg-red-700"
+                  >
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </motion.div>
               ))}
             </div>
 
-            <div className="space-y-3 p-4 pb-8">
+            <div className="space-y-3 border-t border-white/10 p-4 pb-8">
               <button
                 onClick={() => setPhase("camera")}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-white/10 py-3 font-semibold text-white"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-white/10 py-3 font-semibold text-white transition hover:bg-white/20"
               >
-                <Plus className="h-4 w-4" />
-                Weitere Seite
+                <Plus className="h-4 w-4" /> Weitere Seite
               </button>
               <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={() => submitPages("single")}
                   disabled={!pages.length}
-                  className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 font-semibold text-white disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
                 >
-                  <Check className="h-4 w-4" />
-                  Einzeln
+                  <Check className="h-4 w-4" /> Fotos
                 </button>
                 <button
                   onClick={() => submitPages("multi")}
                   disabled={!pages.length}
-                  className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 font-semibold text-white disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
                 >
-                  <Check className="h-4 w-4" />
-                  Als PDF
+                  <Check className="h-4 w-4" /> PDF
                 </button>
               </div>
+              <p className="text-center text-xs text-gray-400">Entwurf automatisch gespeichert</p>
             </div>
           </div>
         )}
