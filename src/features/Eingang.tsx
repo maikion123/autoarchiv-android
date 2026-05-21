@@ -203,7 +203,11 @@ export default function EingangPage() {
           const authHint = uploadRes.status === 401 || uploadRes.status === 403
             ? "Sitzung abgelaufen. Bitte neu anmelden."
             : null;
-          throw new Error(authHint || data?.error || "KI-Analyse fehlgeschlagen");
+          const err: any = new Error(authHint || data?.error || "KI-Analyse fehlgeschlagen");
+          if (data?.details) {
+            err.details = data.details;
+          }
+          throw err;
         }
         if ((data as any)?.error) {
           const err: any = new Error((data as any).error);
@@ -357,9 +361,19 @@ export default function EingangPage() {
           const authHint = uploadRes.status === 401 || uploadRes.status === 403
             ? "Sitzung abgelaufen. Bitte neu anmelden."
             : null;
-          throw new Error(authHint || data?.error || "Mehrseitiger Scan fehlgeschlagen");
+          const err: any = new Error(authHint || data?.error || "Mehrseitiger Scan fehlgeschlagen");
+          if (data?.details) {
+            err.details = data.details;
+          }
+          throw err;
         }
-        if (data?.error) throw new Error(data.error);
+        if (data?.error) {
+          const err: any = new Error(data.error);
+          if (data?.details) {
+            err.details = data.details;
+          }
+          throw err;
+        }
         console.debug("[Eingang] Multi-page upload success", { filename, pages: pages.length });
         applyUploadResult(item.id, data);
         toast.success(`${files.length} Seiten als Dokument hochgeladen`);
@@ -463,14 +477,24 @@ export default function EingangPage() {
         const authHint = uploadRes.status === 401 || uploadRes.status === 403
           ? "Sitzung abgelaufen. Bitte neu anmelden."
           : null;
-        throw new Error(authHint || data?.error || "Mehrseitiger Scan fehlgeschlagen");
+        const err: any = new Error(authHint || data?.error || "Mehrseitiger Scan fehlgeschlagen");
+        if (data?.details) {
+          err.details = data.details;
+        }
+        throw err;
       }
-      if (data?.error) throw new Error(data.error);
+      if (data?.error) {
+        const err: any = new Error(data.error);
+        if (data?.details) {
+          err.details = data.details;
+        }
+        throw err;
+      }
       console.debug("[Eingang] Multi-page upload success", { filename, pages: pages.length });
       applyUploadResult(item.id, data);
     } catch (err: any) {
       const msg = err?.message || "Mehrseitiger Scan fehlgeschlagen";
-      setQueue((q) => q.map((x) => x.id === item.id ? { ...x, stage: "error", error: msg } : x));
+      setQueue((q) => q.map((x) => x.id === item.id ? { ...x, stage: "error", error: msg, errorDetails: err?.details } : x));
       toast.error(msg);
     }
   }, [applyUploadResult, pendingCameraFiles]);
