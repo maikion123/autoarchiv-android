@@ -40,6 +40,7 @@ interface QueueItem {
   serverSize?: number;
   stage: Stage;
   error?: string;
+  errorDetails?: { reason?: string; location?: string; timestamp?: string };
   result?: {
     absender: string;
     dokumenttyp: string;
@@ -204,7 +205,11 @@ export default function EingangPage() {
             : null;
           throw new Error(authHint || data?.error || "KI-Analyse fehlgeschlagen");
         }
-        if ((data as any)?.error) throw new Error((data as any).error);
+        if ((data as any)?.error) {
+          const err: any = new Error((data as any).error);
+          err.details = (data as any).details;
+          throw err;
+        }
         console.debug("[Eingang] Upload success", {
           filename: item.file.name,
           documentId: (data as any)?.document?.id || (data as any)?.id,
@@ -243,7 +248,7 @@ export default function EingangPage() {
         const isLastAttempt = attempt === MAX_RETRIES - 1;
         const msg = e?.message || "KI-Analyse fehlgeschlagen";
         if (isLastAttempt) {
-          setQueue((q) => q.map((x) => x.id === item.id ? { ...x, stage: "error", error: msg } : x));
+          setQueue((q) => q.map((x) => x.id === item.id ? { ...x, stage: "error", error: msg, errorDetails: e?.details } : x));
           toast.error(msg);
           return;
         }
@@ -688,9 +693,20 @@ export default function EingangPage() {
             </div>
 
             {item.stage === "error" && (
-              <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-                {item.error}
-                <button onClick={() => analyze(item)} className="ml-3 underline">Erneut versuchen</button>
+              <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive space-y-2">
+                <div>
+                  <strong>Fehler:</strong> {item.error}
+                </div>
+                {item.errorDetails && (
+                  <div className="space-y-1 text-xs opacity-90">
+                    {item.errorDetails.reason && <div><strong>Grund:</strong> {item.errorDetails.reason}</div>}
+                    {item.errorDetails.location && <div><strong>Ort:</strong> {item.errorDetails.location}</div>}
+                    {item.errorDetails.timestamp && <div><strong>Zeit:</strong> {new Date(item.errorDetails.timestamp).toLocaleString('de-DE')}</div>}
+                  </div>
+                )}
+                <div className="pt-2">
+                  <button onClick={() => analyze(item)} className="underline hover:no-underline">Erneut versuchen</button>
+                </div>
               </div>
             )}
 

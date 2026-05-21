@@ -4034,18 +4034,34 @@ app.post('/api/documents/upload', requireAuth, express.raw({
     const docResp = documentResponse(row);
     if (!docResp) {
       console.error('documents/upload: documentResponse returned null', { documentId, userId });
-      return res.status(500).json({ error: 'Dokument konnte nicht verarbeitet werden' });
+      return res.status(500).json({
+        error: 'Dokument konnte nicht verarbeitet werden',
+        details: {
+          reason: 'Datensatz konnte nicht aus der Datenbank gelesen werden',
+          documentId,
+          timestamp: new Date().toISOString(),
+        }
+      });
     }
     return res.status(201).json({ document: docResp, benchmark });
   } catch (err) {
     const lines = (err?.stack || '').split('\n');
+    const file = lines[1]?.match(/\((.+?):\d+:\d+\)/)?.[1];
+    const line = lines[1]?.match(/:(\d+):/)?.[1];
     console.error('documents/upload FAILED:', {
       message: err?.message,
       code: err?.code,
-      file: lines[1]?.match(/\((.+?):\d+:\d+\)/)?.[1],
-      line: lines[1]?.match(/:(\d+):/)?.[1],
+      file,
+      line,
     });
-    return res.status(500).json({ error: 'Dokument konnte nicht gespeichert werden' });
+    return res.status(500).json({
+      error: 'Dokument konnte nicht gespeichert werden',
+      details: {
+        reason: err?.message || 'Unbekannter Fehler',
+        location: file && line ? `${file}:${line}` : 'Unbekannt',
+        timestamp: new Date().toISOString(),
+      }
+    });
   }
 });
 
