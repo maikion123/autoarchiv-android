@@ -1,12 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
-import SuchePage from "../features/Suche";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/suche")({
-  head: () => ({
-    meta: [
-      { title: "Suche — nextKM" },
-      { name: "description", content: "Volltextsuche über alle archivierten Dokumente." },
-    ],
-  }),
-  component: SuchePage,
+  beforeLoad: () => {
+    throw redirect({ to: "/archiv" });
+  },
 });

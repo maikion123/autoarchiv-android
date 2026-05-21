@@ -440,7 +440,7 @@ try {
 
 const DEFAULT_NAVIGATION_ITEMS = [
   { id: 'nav-overview', label: 'Übersicht', path: '/', icon: 'LayoutDashboard', section: 'main', sort_order: 10, visible: 1, role_required: 'user', is_external: 0 },
-  { id: 'nav-search', label: 'Suche', path: '/suche', icon: 'Search', section: 'main', sort_order: 20, visible: 1, role_required: 'user', is_external: 0 },
+  { id: 'nav-archiv', label: 'Archiv', path: '/archiv', icon: 'Archive', section: 'main', sort_order: 20, visible: 1, role_required: 'user', is_external: 0 },
   { id: 'nav-payments', label: 'Zahlungen', path: '/zahlungen', icon: 'Wallet', section: 'main', sort_order: 30, visible: 1, role_required: 'user', is_external: 0 },
   { id: 'nav-appointments', label: 'Termine', path: '/termine', icon: 'CalendarDays', section: 'main', sort_order: 40, visible: 1, role_required: 'user', is_external: 0 },
   { id: 'nav-inbox', label: 'Eingang', path: '/eingang', icon: 'Inbox', section: 'main', sort_order: 50, visible: 1, role_required: 'user', is_external: 0 },
@@ -471,6 +471,20 @@ if (Number(navCount?.count || 0) === 0) {
     }
   });
   navTx(DEFAULT_NAVIGATION_ITEMS);
+}
+
+// Migrate old /suche nav item to /archiv
+try {
+  db.prepare("DELETE FROM navigation_items WHERE path = '/suche'").run();
+  const archivExists = db.prepare("SELECT id FROM navigation_items WHERE path = '/archiv'").get();
+  if (!archivExists) {
+    db.prepare(`
+      INSERT INTO navigation_items (id, label, path, icon, section, sort_order, visible, role_required, is_external, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+    `).run('nav-archiv', 'Archiv', '/archiv', 'Archive', 'main', 20, 1, 'user', 0);
+  }
+} catch (err) {
+  console.warn('nav migration failed', errorSummary(err));
 }
 
 async function cleanupEmptyParents(startDir, stopDir) {
