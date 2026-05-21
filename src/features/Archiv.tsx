@@ -22,7 +22,7 @@ import { AdminDrawer } from "../components/AdminDrawer";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 
 type DisplayResult = { document: ArchivedDoc; snippet?: string };
-type SortKey = "uploadedAt" | "filename" | "zahlungsbetrag" | "dokumenttyp";
+type SortKey = "uploadedAt" | "filename" | "zahlungsbetrag" | "dokumenttyp" | "folderPath" | "status" | "wichtigkeit";
 
 interface FilterState {
   folderPath: string;
@@ -198,9 +198,42 @@ function DocTable({
                 )}
               </button>
             </th>
-            <th className="px-4 py-3 text-left">Ordner</th>
-            <th className="px-4 py-3 text-left">Status</th>
-            <th className="px-4 py-3 text-left">Wichtigkeit</th>
+            <th className="px-4 py-3 text-left">
+              <button
+                type="button"
+                onClick={() => onSort("folderPath")}
+                className="flex items-center gap-1 font-semibold text-foreground hover:text-primary transition-colors"
+              >
+                Ordner
+                {sortKey === "folderPath" && (
+                  <span className="text-xs">{sortDir === "asc" ? "↑" : "↓"}</span>
+                )}
+              </button>
+            </th>
+            <th className="px-4 py-3 text-left">
+              <button
+                type="button"
+                onClick={() => onSort("status")}
+                className="flex items-center gap-1 font-semibold text-foreground hover:text-primary transition-colors"
+              >
+                Status
+                {sortKey === "status" && (
+                  <span className="text-xs">{sortDir === "asc" ? "↑" : "↓"}</span>
+                )}
+              </button>
+            </th>
+            <th className="px-4 py-3 text-left">
+              <button
+                type="button"
+                onClick={() => onSort("wichtigkeit")}
+                className="flex items-center gap-1 font-semibold text-foreground hover:text-primary transition-colors"
+              >
+                Wichtigkeit
+                {sortKey === "wichtigkeit" && (
+                  <span className="text-xs">{sortDir === "asc" ? "↑" : "↓"}</span>
+                )}
+              </button>
+            </th>
             <th className="px-4 py-3 text-right">
               <button
                 type="button"
