@@ -1259,17 +1259,18 @@ async function persistAnalyzedDocument({
   benchmark,
   extraTags = [],
 }) {
-  const normalized = normalizeDocumentAnalysisResult(analysis);
-  const folderPath = normalized.vorgeschlagenerUnterordner
-    ? `${normalized.vorgeschlagenerOrdner}/${normalized.vorgeschlagenerUnterordner}`
-    : normalized.vorgeschlagenerOrdner || '07_Sonstiges';
-  const shouldAutoArchive = Boolean(normalized.shouldAutoArchive && normalized.reviewStatus === 'auto_ready');
-  const nextStatus = shouldAutoArchive ? 'archived' : 'review';
-  const tags = Array.from(new Set([
-    ...(Array.isArray(normalized.tags) ? normalized.tags : []),
-    ...extraTags,
-  ])).slice(0, 20);
-  const now = new Date().toISOString();
+  try {
+    const normalized = normalizeDocumentAnalysisResult(analysis);
+    const folderPath = normalized.vorgeschlagenerUnterordner
+      ? `${normalized.vorgeschlagenerOrdner}/${normalized.vorgeschlagenerUnterordner}`
+      : normalized.vorgeschlagenerOrdner || '07_Sonstiges';
+    const shouldAutoArchive = Boolean(normalized.shouldAutoArchive && normalized.reviewStatus === 'auto_ready');
+    const nextStatus = shouldAutoArchive ? 'archived' : 'review';
+    const tags = Array.from(new Set([
+      ...(Array.isArray(normalized.tags) ? normalized.tags : []),
+      ...extraTags,
+    ])).slice(0, 20);
+    const now = new Date().toISOString();
 
   try {
     console.log('[persistAnalyzedDocument] Starting UPDATE', { documentId, userId });
@@ -1350,26 +1351,37 @@ async function persistAnalyzedDocument({
     throw err;
   }
 
-  let row = db.prepare('SELECT d.*, u.email FROM documents d JOIN users u ON u.id = d.user_id WHERE d.id = ? AND d.user_id = ?').get(documentId, userId);
+  let row;
+  try {
+    row = db.prepare('SELECT d.*, u.email FROM documents d JOIN users u ON u.id = d.user_id WHERE d.id = ? AND d.user_id = ?').get(documentId, userId);
+  } catch (err) {
+    console.error('persistAnalyzedDocument: JOIN query failed, trying fallback', { documentId, userId, error: err.message });
+    row = null;
+  }
 
   if (!row) {
     console.error('persistAnalyzedDocument: JOIN query returned null, trying fallback fetch', { documentId, userId });
-    const docOnly = db.prepare('SELECT * FROM documents WHERE id = ? AND user_id = ?').get(documentId, userId);
-    const user = db.prepare('SELECT email FROM users WHERE id = ?').get(userId);
+    try {
+      const docOnly = db.prepare('SELECT * FROM documents WHERE id = ? AND user_id = ?').get(documentId, userId);
+      const user = db.prepare('SELECT email FROM users WHERE id = ?').get(userId);
 
-    if (docOnly && user) {
-      console.warn('persistAnalyzedDocument: Using fallback row without email join', { documentId });
-      row = { ...docOnly, email: user.email };
-    } else {
-      console.error('persistAnalyzedDocument: CRITICAL - cannot fetch row', {
-        documentId,
-        userId,
-        documentExists: !!docOnly,
-        userExists: !!user,
-      });
-      if (docOnly) {
-        console.error('  Document status:', docOnly.status, 'user_id:', docOnly.user_id);
+      if (docOnly && user) {
+        console.warn('persistAnalyzedDocument: Using fallback row without email join', { documentId });
+        row = { ...docOnly, email: user.email };
+      } else {
+        console.error('persistAnalyzedDocument: CRITICAL - cannot fetch row', {
+          documentId,
+          userId,
+          documentExists: !!docOnly,
+          userExists: !!user,
+        });
+        if (docOnly) {
+          console.error('  Document status:', docOnly.status, 'user_id:', docOnly.user_id);
+        }
+        return { row: null, benchmark };
       }
+    } catch (err) {
+      console.error('persistAnalyzedDocument: Fallback fetch failed', { documentId, userId, error: err.message });
       return { row: null, benchmark };
     }
   }
@@ -1383,15 +1395,24 @@ async function persistAnalyzedDocument({
         db.prepare('UPDATE documents SET filename = ?, storage_path = ?, updated_at = ? WHERE id = ? AND user_id = ?')
           .run(sync.filename, sync.storagePath, new Date().toISOString(), documentId, userId);
         console.log('[persistAnalyzedDocument] Filename/storage_path UPDATE done', { documentId });
-        row = db.prepare('SELECT d.*, u.email FROM documents d JOIN users u ON u.id = d.user_id WHERE d.id = ? AND d.user_id = ?').get(documentId, userId);
+        try {
+          row = db.prepare('SELECT d.*, u.email FROM documents d JOIN users u ON u.id = d.user_id WHERE d.id = ? AND d.user_id = ?').get(documentId, userId);
+        } catch (err) {
+          console.warn('persistAnalyzedDocument: Refetch after UPDATE failed, trying fallback', { documentId, error: err.message });
+          row = null;
+        }
         if (!row) {
           console.error('persistAnalyzedDocument: row became null after UPDATE', { documentId, userId });
-          const docOnly = db.prepare('SELECT * FROM documents WHERE id = ? AND user_id = ?').get(documentId, userId);
-          const user = db.prepare('SELECT email FROM users WHERE id = ?').get(userId);
-          if (docOnly && user) {
-            row = { ...docOnly, email: user.email };
-          } else {
-            console.error('persistAnalyzedDocument: Cannot refetch row after filename update - returning partial row');
+          try {
+            const docOnly = db.prepare('SELECT * FROM documents WHERE id = ? AND user_id = ?').get(documentId, userId);
+            const user = db.prepare('SELECT email FROM users WHERE id = ?').get(userId);
+            if (docOnly && user) {
+              row = { ...docOnly, email: user.email };
+            } else {
+              console.error('persistAnalyzedDocument: Cannot refetch row after filename update');
+            }
+          } catch (err) {
+            console.error('persistAnalyzedDocument: Fallback refetch failed', { documentId, error: err.message });
           }
         }
       } catch (err) {
@@ -1402,15 +1423,33 @@ async function persistAnalyzedDocument({
     console.error('persistAnalyzedDocument: Metadata sync/file move failed, continuing', { documentId, error: err.message, stack: err.stack?.split('\n')[0] });
   }
 
-  try {
-    console.log('[persistAnalyzedDocument] Upserting FTS index', { documentId });
-    upsertDocumentFts(documentId, userId, row.filename, row.absender, row.zusammenfassung, text);
-    console.log('[persistAnalyzedDocument] FTS upsert done', { documentId });
-  } catch (err) {
-    console.error('persistAnalyzedDocument: FTS upsert failed, continuing', { documentId, error: err.message });
-  }
+    try {
+      console.log('[persistAnalyzedDocument] Upserting FTS index', { documentId });
+      upsertDocumentFts(documentId, userId, row.filename, row.absender, row.zusammenfassung, text);
+      console.log('[persistAnalyzedDocument] FTS upsert done', { documentId });
+    } catch (err) {
+      console.error('persistAnalyzedDocument: FTS upsert failed, continuing', { documentId, error: err.message });
+    }
 
-  return { row, benchmark };
+    return { row, benchmark };
+  } catch (err) {
+    console.error('persistAnalyzedDocument: CRITICAL unhandled error', {
+      documentId,
+      userId,
+      error: err.message,
+      stack: err.stack?.split('\n').slice(0, 3).join('\n')
+    });
+    try {
+      const docOnly = db.prepare('SELECT * FROM documents WHERE id = ? AND user_id = ?').get(documentId, userId);
+      const user = db.prepare('SELECT email FROM users WHERE id = ?').get(userId);
+      if (docOnly && user) {
+        return { row: { ...docOnly, email: user.email }, benchmark };
+      }
+    } catch (fallbackErr) {
+      console.error('persistAnalyzedDocument: Fallback also failed', { documentId, error: fallbackErr.message });
+    }
+    return { row: null, benchmark };
+  }
 }
 
 function paymentResponse(row) {
