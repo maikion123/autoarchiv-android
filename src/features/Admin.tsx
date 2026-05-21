@@ -69,7 +69,7 @@ interface NavigationDraft {
   isExternal: boolean;
 }
 
-type AdminSection = "overview" | "users" | "documents" | "reviews" | "navigation" | "logs";
+type AdminSection = "users" | "documents" | "reviews" | "navigation" | "logs";
 
 interface AdminLog {
   id: string;
@@ -141,7 +141,7 @@ export default function AdminPage() {
   const [savingDocument, setSavingDocument] = useState(false);
   const [reanalyzing, setReanalyzing] = useState(false);
   const [savingNavigation, setSavingNavigation] = useState(false);
-  const [activeSection, setActiveSection] = useState<AdminSection>("overview");
+  const [activeSection, setActiveSection] = useState<AdminSection>("documents");
   const [userSearch, setUserSearch] = useState("");
   const [documentSearch, setDocumentSearch] = useState("");
   const [logs, setLogs] = useState<AdminLog[]>([]);
@@ -291,6 +291,16 @@ export default function AdminPage() {
   }, []);
 
   // ── derived ──────────────────────────────────────────────────────────────
+  const categorizedDocs = useMemo(
+    () => documents.filter((doc) => doc.status !== "deleted" && doc.folderPath && doc.folderPath.trim()),
+    [documents],
+  );
+
+  const uncategorizedDocs = useMemo(
+    () => documents.filter((doc) => doc.status !== "deleted" && (!doc.folderPath || !doc.folderPath.trim())),
+    [documents],
+  );
+
   const reviewDocs = useMemo(
     () => documents.filter((doc) => doc.reviewStatus === "review_required" || doc.status === "review"),
     [documents],
@@ -318,13 +328,25 @@ export default function AdminPage() {
 
   const filteredDocuments = useMemo(() => {
     const q = documentSearch.trim().toLowerCase();
-    if (!q) return recentDocs;
-    return recentDocs.filter((doc) =>
+    const sorted = [...categorizedDocs].sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
+    if (!q) return sorted;
+    return sorted.filter((doc) =>
       [doc.filename, doc.userEmail, doc.folderPath, doc.absender, doc.dokumenttyp, doc.reviewStatus, doc.status].some((v) =>
         String(v || "").toLowerCase().includes(q),
       ),
     );
-  }, [recentDocs, documentSearch]);
+  }, [categorizedDocs, documentSearch]);
+
+  const filteredReviewDocs = useMemo(() => {
+    const q = documentSearch.trim().toLowerCase();
+    const sorted = [...uncategorizedDocs].sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
+    if (!q) return sorted;
+    return sorted.filter((doc) =>
+      [doc.filename, doc.userEmail, doc.absender, doc.dokumenttyp, doc.reviewStatus, doc.status].some((v) =>
+        String(v || "").toLowerCase().includes(q),
+      ),
+    );
+  }, [uncategorizedDocs, documentSearch]);
 
   const selectedUser = useMemo(
     () => users.find((u) => u.id === selectedUserId) || null,
@@ -579,16 +601,14 @@ export default function AdminPage() {
   ] : [];
 
   const sectionCounts: Record<AdminSection, number | string> = {
-    overview: summary?.documents.total ?? documents.length,
     users: users.length,
-    documents: recentDocs.length,
-    reviews: reviewDocs.length,
+    documents: categorizedDocs.length,
+    reviews: uncategorizedDocs.length,
     navigation: navigationItems.length,
     logs: logsTotal > 0 ? logsTotal : "",
   };
 
   const tabs: [AdminSection, string][] = [
-    ["overview", "Übersicht"],
     ["users", "User"],
     ["documents", "Dokumente"],
     ["reviews", "Prüfung"],
@@ -675,64 +695,6 @@ export default function AdminPage() {
           ))}
         </nav>
       </div>
-
-      {/* ── OVERVIEW ──────────────────────────────────────────────────── */}
-      {activeSection === "overview" && (
-        <div className="grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
-          <section className="glass rounded-2xl border-glow p-4 sm:p-5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">System</h2>
-              <span className="text-xs text-muted-foreground">Live</span>
-            </div>
-            {summary ? (
-              <div className="mt-4 space-y-2 text-sm">
-                <StatusLine label="Ollama" ok={summary.system.ollamaAvailable} />
-                <StatusLine label="Text-KI" ok={summary.system.useOllamaAnalysis} />
-                <StatusLine label="Layout" ok={summary.system.layoutAnalysis} />
-                <StatusLine label="Vision" ok={summary.system.visionReview} />
-                <div className="mt-3 rounded-2xl bg-muted/20 p-3 text-xs text-muted-foreground">
-                  Vision-Modell: {summary.system.visionModel || "nicht gesetzt"}
-                </div>
-              </div>
-            ) : (
-              <div className="mt-4 text-sm text-muted-foreground">Lädt...</div>
-            )}
-          </section>
-
-          <section className="glass rounded-2xl border-glow p-4 sm:p-5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Review-Queue</h2>
-              <span className="text-xs text-muted-foreground">{reviewDocs.length} offen</span>
-            </div>
-            <div className="mt-3 space-y-2">
-              {reviewDocs.length === 0 && <div className="text-sm text-muted-foreground">Keine offenen Prüfungen.</div>}
-              {reviewDocs.slice(0, 6).map((doc) => (
-                <button
-                  key={doc.id}
-                  type="button"
-                  onClick={() => { setActiveSection("reviews"); setSelectedDocumentId(doc.id); }}
-                  className={`block w-full rounded-xl border border-border/40 bg-background/40 p-3 text-left text-sm transition hover:bg-background/60 ${
-                    selectedDocumentId === doc.id ? "ring-1 ring-violet-400/50" : ""
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate font-medium">{doc.filename}</div>
-                      <div className="truncate text-xs text-muted-foreground">{doc.userEmail} · {doc.folderPath}</div>
-                    </div>
-                    <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-1 text-[10px] text-amber-200">
-                      {doc.reviewStatus || doc.status}
-                    </span>
-                  </div>
-                  <div className="mt-2 text-xs text-muted-foreground line-clamp-2">
-                    {doc.reviewReason || "Keine Begründung"} · Conf {doc.confidence == null ? "—" : doc.confidence.toFixed(2)}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </section>
-        </div>
-      )}
 
       {/* ── USERS ──────────────────────────────────────────────────────── */}
       {activeSection === "users" && (
@@ -925,8 +887,8 @@ export default function AdminPage() {
           <div className="glass rounded-2xl border-glow p-4 sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Dokumente</h2>
-                <p className="mt-1 text-sm text-muted-foreground">Letzte Dokumente und Status auf einen Blick.</p>
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Kategorisierte Dokumente</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Alle Dokumente, die in einen Ordner kategorisiert wurden.</p>
               </div>
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -1099,17 +1061,17 @@ export default function AdminPage() {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Prüfung</h2>
-                <p className="mt-1 text-sm text-muted-foreground">Unsichere Dokumente sammeln und abarbeiten.</p>
+                <p className="mt-1 text-sm text-muted-foreground">Unkategorisierte Dokumente zum Einsortieren.</p>
               </div>
-              <span className="text-xs text-muted-foreground">{reviewDocs.length} offen</span>
+              <span className="text-xs text-muted-foreground">{filteredReviewDocs.length} offen</span>
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {reviewDocs.length === 0 && (
+              {filteredReviewDocs.length === 0 && (
                 <div className="col-span-full rounded-xl border border-dashed border-border/40 p-8 text-center text-sm text-muted-foreground">
-                  Keine offenen Prüfungen.
+                  Keine unkategorisierten Dokumente.
                 </div>
               )}
-              {reviewDocs.map((doc) => (
+              {filteredReviewDocs.map((doc) => (
                 <button
                   key={doc.id}
                   type="button"
