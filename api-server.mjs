@@ -19,9 +19,8 @@ import { promisify } from 'util';
 import sharp from 'sharp';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { notifyNtfy, normalizeTopic, resolveNtfyConfig } from './lib/notifyNtfy.mjs';
-// TODO: Import analysis modules when available
-// import { reviewWithAI as reviewDocumentWithAI, decideFinalAnalysis, createRegexFallback } from './src/server/analysis/documentPipeline.mjs';
-// import { prepareLayoutAnalysisInput } from './src/server/analysis/layoutPipeline.mjs';
+import { reviewWithAI as reviewDocumentWithAI, decideFinalAnalysis, createRegexFallback } from './src/server/analysis/documentPipeline.mjs';
+import { prepareLayoutAnalysisInput } from './src/server/analysis/layoutPipeline.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
