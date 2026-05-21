@@ -85,8 +85,18 @@ function DocCard({
           <h3 className="text-sm font-semibold truncate text-foreground">{doc.filename}</h3>
         </div>
         <p className="text-xs text-muted-foreground">{doc.folderPath}</p>
-        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-          <span>{fmtDate(new Date(doc.uploadedAt))}</span>
+        <div className="flex items-center gap-2 flex-wrap text-xs">
+          <span className={`rounded-full px-2 py-0.5 text-white text-[10px] font-medium ${
+            doc.status === "archived" ? "bg-emerald-500/80" :
+            doc.status === "analyzed" ? "bg-blue-500/80" :
+            doc.status === "review" ? "bg-amber-500/80" :
+            "bg-gray-500/80"
+          }`}>
+            {doc.status === "archived" ? "Archiviert" :
+             doc.status === "analyzed" ? "Analysiert" :
+             doc.status === "review" ? "Überprüfung" :
+             "Hochgeladen"}
+          </span>
           {doc.wichtigkeit && (
             <span
               className={`rounded-full px-2 py-0.5 text-white text-[10px] font-medium ${
@@ -101,9 +111,10 @@ function DocCard({
             </span>
           )}
         </div>
-        {doc.zahlungsbetrag && (
-          <p className="text-xs font-mono text-secondary">{doc.zahlungsbetrag.toFixed(2)} €</p>
-        )}
+        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground mt-2">
+          <span>{fmtDate(new Date(doc.uploadedAt))}</span>
+          {doc.zahlungsbetrag && <span className="font-mono text-secondary">{doc.zahlungsbetrag.toFixed(2)} €</span>}
+        </div>
       </div>
     </button>
   );
@@ -188,6 +199,7 @@ function DocTable({
               </button>
             </th>
             <th className="px-4 py-3 text-left">Ordner</th>
+            <th className="px-4 py-3 text-left">Status</th>
             <th className="px-4 py-3 text-left">Wichtigkeit</th>
             <th className="px-4 py-3 text-right">
               <button
@@ -239,6 +251,29 @@ function DocTable({
               <td className="px-4 py-3 font-medium truncate">{doc.filename}</td>
               <td className="px-4 py-3 text-muted-foreground">{doc.dokumenttyp || "—"}</td>
               <td className="px-4 py-3 text-muted-foreground text-xs">{doc.folderPath}</td>
+              <td className="px-4 py-3">
+                {(() => {
+                  const statusColors: Record<string, string> = {
+                    archived: "bg-emerald-500/20 text-emerald-300",
+                    analyzed: "bg-blue-500/20 text-blue-300",
+                    review: "bg-amber-500/20 text-amber-300",
+                    uploaded: "bg-gray-500/20 text-gray-300",
+                  };
+                  const statusLabels: Record<string, string> = {
+                    archived: "Archiviert",
+                    analyzed: "Analysiert",
+                    review: "Überprüfung",
+                    uploaded: "Hochgeladen",
+                  };
+                  const color = statusColors[doc.status] || "bg-gray-500/20 text-gray-300";
+                  const label = statusLabels[doc.status] || doc.status;
+                  return (
+                    <span className={`inline-block rounded-full px-2 py-0.5 text-white text-[10px] font-medium ${color}`}>
+                      {label}
+                    </span>
+                  );
+                })()}
+              </td>
               <td className="px-4 py-3">
                 {doc.wichtigkeit && (
                   <span
