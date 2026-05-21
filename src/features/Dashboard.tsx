@@ -92,29 +92,29 @@ export default function Dashboard() {
   const stats = useMemo(() => {
     const open = payments.filter((p) => p.status !== "bezahlt");
     const sum = open.reduce((a, p) => a + (p.betrag - (p.paid?.reduce((s, x) => s + x.amount, 0) || 0)), 0);
-    const archivedDocuments = documents.filter((d) => d.status === "archived");
-    const high = archivedDocuments.filter((d) => d.wichtigkeit === "hoch").length;
-    const upcoming = archivedDocuments.filter((d) => {
+    const visibleDocuments = documents.filter((d) => d.status !== "deleted");
+    const high = visibleDocuments.filter((d) => d.wichtigkeit === "hoch").length;
+    const upcoming = visibleDocuments.filter((d) => {
       const u = daysUntil(d.ablaufdatum);
       return u != null && u >= 0 && u <= 30;
     }).length;
-    return { total: archivedDocuments.length, openSum: sum, high, upcoming, archivedDocuments };
+    return { total: visibleDocuments.length, openSum: sum, high, upcoming, visibleDocuments };
   }, [documents, payments]);
   const lastDoc = useMemo(() => {
-    return [...documents].filter((doc) => doc.status === "archived").sort((a, b) => +new Date(b.uploadedAt) - +new Date(a.uploadedAt))[0];
+    return [...documents].filter((doc) => doc.status !== "deleted").sort((a, b) => +new Date(b.uploadedAt) - +new Date(a.uploadedAt))[0];
   }, [documents]);
 
   const folderCounts = useMemo(() => {
     const counts = new Map<string, number>();
     flattenFolderTree(folders).forEach((folder) => {
-      counts.set(folder.id, documents.filter((d) => d.status === "archived" && (d.folderPath === folder.id || d.folderPath.startsWith(folder.id + "/"))).length);
+      counts.set(folder.id, documents.filter((d) => d.status !== "deleted" && (d.folderPath === folder.id || d.folderPath.startsWith(folder.id + "/"))).length);
     });
     return counts;
   }, [documents, folders]);
 
   const categorySpend = useMemo(() => {
     const map = new Map<string, number>();
-    documents.filter((d) => d.status === "archived").forEach((d) => {
+    documents.filter((d) => d.status !== "deleted").forEach((d) => {
       if (d.zahlungsbetrag) {
         const k = getTopFolder(d.folderPath);
         map.set(k, (map.get(k) || 0) + d.zahlungsbetrag);
@@ -151,7 +151,7 @@ export default function Dashboard() {
   const topSenders = useMemo(() => {
     const map = new Map<string, number>();
     documents
-      .filter((d) => d.status === "archived")
+      .filter((d) => d.status !== "deleted")
       .forEach((d) => map.set(d.absender, (map.get(d.absender) || 0) + 1));
     return Array.from(map.entries()).sort((a, b) => b[1] - a[1]).slice(0, 6);
   }, [documents]);
@@ -186,7 +186,7 @@ export default function Dashboard() {
         <div className="lg:col-span-2 glass rounded-2xl border-glow p-5">
           <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">Zuletzt archiviert</h3>
           <div className="space-y-2 max-h-80 overflow-y-auto scrollbar-thin">
-            {documents.filter((d) => d.status === "archived").sort((a, b) => +new Date(b.uploadedAt) - +new Date(a.uploadedAt)).slice(0, 10).map((doc) => (
+            {documents.filter((d) => d.status !== "deleted").sort((a, b) => +new Date(b.uploadedAt) - +new Date(a.uploadedAt)).slice(0, 10).map((doc) => (
               <motion.div
                 key={doc.id}
                 initial={{ opacity: 0, y: 4 }}
@@ -221,8 +221,8 @@ export default function Dashboard() {
               <span className="font-mono font-medium">{documents.length.toLocaleString("de-DE")}</span>
             </div>
             <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">Archiviert</span>
-              <span className="font-mono font-medium">{documents.filter((d) => d.status === "archived").length.toLocaleString("de-DE")}</span>
+              <span className="text-muted-foreground">Sichtbar</span>
+              <span className="font-mono font-medium">{documents.filter((d) => d.status !== "deleted").length.toLocaleString("de-DE")}</span>
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">Zahlungen</span>
@@ -460,7 +460,7 @@ export default function Dashboard() {
               setFolders(tree);
               await refresh();
             }}
-            documents={documents.filter((d) => d.status === "archived")}
+            documents={documents.filter((d) => d.status !== "deleted")}
             onClose={() => {
               setOpenFolder(null);
               setOpenFolderInSelectionMode(false);
@@ -542,7 +542,7 @@ export default function Dashboard() {
       <FolderDeleteDialog
         isOpen={!!folderToDelete}
         folder={folderToDelete}
-        documents={documents.filter((d) => d.status === "archived")}
+        documents={documents.filter((d) => d.status !== "deleted")}
         folders={folders}
         onClose={() => setFolderToDelete(null)}
         onConfirmDelete={async () => {
@@ -693,9 +693,9 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequ
     setSelectedIds(new Set());
   }, [folderId, startInSelectionMode]);
 
-  const docsInScope = documents.filter((d) => subfolderId
+  const docsInScope = documents.filter((d) => d.status !== "deleted" && (subfolderId
     ? d.folderPath === subfolderId || d.folderPath.startsWith(subfolderId + "/")
-    : d.folderPath === folderId || d.folderPath.startsWith(folderId + "/"));
+    : d.folderPath === folderId || d.folderPath.startsWith(folderId + "/")));
 
   const handleInlineSave = async () => {
     if (!inlineEditFolder || !inlineEditName.trim()) return;
@@ -830,7 +830,7 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequ
               const childIcon = c.icon || "Folder";
               const childColor = c.color || "#3b82f6";
               const ChildIcon = getIconComponent(childIcon);
-              const n = documents.filter((d) => d.folderPath === c.id || d.folderPath.startsWith(c.id + "/")).length;
+              const n = documents.filter((d) => d.status !== "deleted" && (d.folderPath === c.id || d.folderPath.startsWith(c.id + "/"))).length;
               const isSelected = selectedIds.has(c.id);
 
               if (selectionMode) {
