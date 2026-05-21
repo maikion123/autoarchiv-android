@@ -6,7 +6,7 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
 
 **What?** Private document archive app (React + Express + SQLite)  
 **Where?** https://nextkm.de  
-**Status?** Production live, auth + OCR/upload working, merging /suche + /archiv in progress  
+**Status?** Production live, auth + OCR/upload working, /suche merged into /archiv  
 **Tech?** TanStack Start, Express.js (port 3001), better-sqlite3, bcryptjs, JWT cookies  
 
 ## Start Here
@@ -227,6 +227,6 @@ Use `codex` instead of `claude-code` when working as Codex.
 
 ---
 
-**Last Updated:** 2026-05-18 (iCalendar feed + admin overhaul + scanner hardening)  
+**Last Updated:** 2026-05-21 (/suche → /archiv merge complete + DB migration)  
 **Memory System:** `.claude/memory/` (6 Dateien, Changelog eingeführt)  
 **Production Status:** ✅ Live and stable
