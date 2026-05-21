@@ -6,7 +6,7 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
 
 **What?** Private document archive app (React + Express + SQLite)  
 **Where?** https://nextkm.de  
-**Status?** Production live, auth + OCR/upload working, /suche merged into /archiv  
+**Status?** Production live, auth + OCR/upload working, dashboard fixed, admin refactored (2026-05-21)  
 **Tech?** TanStack Start, Express.js (port 3001), better-sqlite3, bcryptjs, JWT cookies  
 
 ## Start Here
@@ -78,11 +78,19 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
   - amount extraction prefers `Rechnungsbetrag` / `Gesamtbetrag` lines over VAT lines
   - the noisy `Hirner & Latzko` phone photo was corrected to `241,69 EUR` and added as a benchmark case
   - **NEW (2026-05-21):** Upload errors now show detailed diagnostics in UI (reason, code location, timestamp) for end-user reporting
-- **Upcoming (2026-05-21+):** Merging `/suche` (search) and `/archiv` (document center) into single `/archiv` route:
-  - `/suche` functionality (search, filters, year/type) will be integrated into `/archiv` as tabs/panels
-  - Navigation will point only to `/archiv` (no separate `/suche` link)
-  - Admin panel will consolidate search/archive management under one section
-  - See memory files for detailed merge plan when starting this work
+- **COMPLETED (2026-05-21):** `/suche` → `/archiv` merge + Dashboard fixes + Admin refactor:
+  - `/suche` now redirects to `/archiv` for backward compatibility
+  - Dashboard shows ALL non-deleted documents (not just archived)
+  - `/archiv` now has:
+    - Status column with color badges (green=archived, blue=analyzed, amber=review, gray=uploaded)
+    - Click-to-sort on all columns: Datei, Typ, Ordner, Status, Wichtigkeit, Betrag
+  - Admin panel restructured:
+    - Removed "Übersicht" tab (System/Review-Queue cards)
+    - "Dokumente" tab: Only categorized docs (with folder_path)
+    - "Prüfung" tab: Only uncategorized docs (no folder_path) for admin to assign folders
+    - New API filter: `/api/admin/documents?categorized=true|false`
+  - New documents upload with folder_path=NULL (previously defaulted to '07_Sonstiges')
+  - Detailed notes: see `.claude/memory/changelog_session_2026_05_21.md`
 
 ## Quick Reference
 
@@ -227,6 +235,6 @@ Use `codex` instead of `claude-code` when working as Codex.
 
 ---
 
-**Last Updated:** 2026-05-21 (/suche → /archiv merge complete + DB migration)  
+**Last Updated:** 2026-05-21 (Dashboard fixed, Archive UI enhanced, Admin refactored)  
 **Memory System:** `.claude/memory/` (6 Dateien, Changelog eingeführt)  
 **Production Status:** ✅ Live and stable
