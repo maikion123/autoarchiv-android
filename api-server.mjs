@@ -1374,25 +1374,41 @@ async function persistAnalyzedDocument({
     }
   }
 
-  const sync = await syncDocumentReadableMetadata(row, { status: nextStatus, folderPath: row.folder_path });
-  if (sync.storagePath !== row.storage_path || sync.filename !== row.filename) {
-    db.prepare('UPDATE documents SET filename = ?, storage_path = ?, updated_at = ? WHERE id = ? AND user_id = ?')
-      .run(sync.filename, sync.storagePath, new Date().toISOString(), documentId, userId);
-    row = db.prepare('SELECT d.*, u.email FROM documents d JOIN users u ON u.id = d.user_id WHERE d.id = ? AND d.user_id = ?').get(documentId, userId);
-    if (!row) {
-      console.error('persistAnalyzedDocument: row became null after UPDATE', { documentId, userId });
-      // Fallback: fetch without JOIN
-      const docOnly = db.prepare('SELECT * FROM documents WHERE id = ? AND user_id = ?').get(documentId, userId);
-      const user = db.prepare('SELECT email FROM users WHERE id = ?').get(userId);
-      if (docOnly && user) {
-        row = { ...docOnly, email: user.email };
-      } else {
-        throw new Error('Cannot refetch row after filename update');
+  try {
+    console.log('[persistAnalyzedDocument] Starting file metadata sync', { documentId });
+    const sync = await syncDocumentReadableMetadata(row, { status: nextStatus, folderPath: row.folder_path });
+    if (sync.storagePath !== row.storage_path || sync.filename !== row.filename) {
+      console.log('[persistAnalyzedDocument] File paths changed, updating DB', { documentId, oldPath: row.storage_path, newPath: sync.storagePath });
+      try {
+        db.prepare('UPDATE documents SET filename = ?, storage_path = ?, updated_at = ? WHERE id = ? AND user_id = ?')
+          .run(sync.filename, sync.storagePath, new Date().toISOString(), documentId, userId);
+        console.log('[persistAnalyzedDocument] Filename/storage_path UPDATE done', { documentId });
+        row = db.prepare('SELECT d.*, u.email FROM documents d JOIN users u ON u.id = d.user_id WHERE d.id = ? AND d.user_id = ?').get(documentId, userId);
+        if (!row) {
+          console.error('persistAnalyzedDocument: row became null after UPDATE', { documentId, userId });
+          const docOnly = db.prepare('SELECT * FROM documents WHERE id = ? AND user_id = ?').get(documentId, userId);
+          const user = db.prepare('SELECT email FROM users WHERE id = ?').get(userId);
+          if (docOnly && user) {
+            row = { ...docOnly, email: user.email };
+          } else {
+            console.error('persistAnalyzedDocument: Cannot refetch row after filename update - returning partial row');
+          }
+        }
+      } catch (err) {
+        console.error('persistAnalyzedDocument: Storage path UPDATE failed, continuing with old path', { documentId, error: err.message });
       }
     }
+  } catch (err) {
+    console.error('persistAnalyzedDocument: Metadata sync/file move failed, continuing', { documentId, error: err.message, stack: err.stack?.split('\n')[0] });
   }
 
-  upsertDocumentFts(documentId, userId, row.filename, row.absender, row.zusammenfassung, text);
+  try {
+    console.log('[persistAnalyzedDocument] Upserting FTS index', { documentId });
+    upsertDocumentFts(documentId, userId, row.filename, row.absender, row.zusammenfassung, text);
+    console.log('[persistAnalyzedDocument] FTS upsert done', { documentId });
+  } catch (err) {
+    console.error('persistAnalyzedDocument: FTS upsert failed, continuing', { documentId, error: err.message });
+  }
 
   return { row, benchmark };
 }
