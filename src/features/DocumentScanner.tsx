@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   Camera, RotateCcw, RotateCw, Trash2, Check, X,
   Loader2, ChevronUp, ChevronDown, Sun, Contrast, Zap, ZapOff, Plus,
@@ -861,13 +861,12 @@ export default function DocumentScanner({
           : "bg-black/50 text-gray-200";
 
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[9999] bg-black"
-      >
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[9999] bg-black"
+    >
         {/* LOADING */}
         {phase === "loading" && (
           <div className="flex h-full flex-col items-center justify-center gap-4 px-6">
@@ -1274,7 +1273,6 @@ export default function DocumentScanner({
             </div>
           </div>
         )}
-      </motion.div>
-    </AnimatePresence>
+    </motion.div>
   );
 }
