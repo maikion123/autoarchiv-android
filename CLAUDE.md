@@ -6,7 +6,7 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
 
 **What?** Private document archive app (React + Express + SQLite)  
 **Where?** https://nextkm.de  
-**Status?** Production live, auth system fully functional  
+**Status?** Production live, auth + OCR/upload working, merging /suche + /archiv in progress  
 **Tech?** TanStack Start, Express.js (port 3001), better-sqlite3, bcryptjs, JWT cookies  
 
 ## Start Here
@@ -77,6 +77,12 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
   - multiple OCR passes are compared, with the best invoice/date-aware text winning
   - amount extraction prefers `Rechnungsbetrag` / `Gesamtbetrag` lines over VAT lines
   - the noisy `Hirner & Latzko` phone photo was corrected to `241,69 EUR` and added as a benchmark case
+  - **NEW (2026-05-21):** Upload errors now show detailed diagnostics in UI (reason, code location, timestamp) for end-user reporting
+- **Upcoming (2026-05-21+):** Merging `/suche` (search) and `/archiv` (document center) into single `/archiv` route:
+  - `/suche` functionality (search, filters, year/type) will be integrated into `/archiv` as tabs/panels
+  - Navigation will point only to `/archiv` (no separate `/suche` link)
+  - Admin panel will consolidate search/archive management under one section
+  - See memory files for detailed merge plan when starting this work
 
 ## Quick Reference
 
