@@ -200,18 +200,18 @@ export default function AdminPage() {
     try {
       if (!silent) setRefreshing(true);
       setError("");
-      const [summaryData, usersData, reviewData, recentData, navData] = await Promise.all([
+      const [summaryData, usersData, categorizedData, uncategorizedData, navData] = await Promise.all([
         fetchJson("/api/admin/summary"),
         fetchJson("/api/admin/users"),
-        fetchJson("/api/admin/documents?status=review_required&limit=12"),
-        fetchJson("/api/admin/documents?limit=12"),
+        fetchJson("/api/admin/documents?categorized=true&limit=50"),
+        fetchJson("/api/admin/documents?categorized=false&limit=50"),
         fetchJson("/api/admin/navigation"),
       ]);
       setSummary(summaryData as AdminSummary);
       setUsers((usersData.users || []) as AdminUserRow[]);
       setNavigationItems((navData.items || DEFAULT_NAVIGATION_ITEMS) as NavigationItem[]);
       const merged = new Map<string, AdminDocumentRow>();
-      for (const doc of [...(reviewData.documents || []), ...(recentData.documents || [])] as AdminDocumentRow[]) {
+      for (const doc of [...(categorizedData.documents || []), ...(uncategorizedData.documents || [])] as AdminDocumentRow[]) {
         merged.set(doc.id, doc);
       }
       setDocuments(Array.from(merged.values()));

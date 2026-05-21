@@ -5220,11 +5220,21 @@ app.get('/api/admin/users', requireAdmin, (_req, res) => {
 app.get('/api/admin/documents', requireAdmin, (req, res) => {
   const limit = Math.max(10, Math.min(100, parseInt(req.query.limit || '25', 10) || 25));
   const status = String(req.query.status || '').trim();
-  const whereStatus = status && ['analyzed', 'review', 'archived', 'deleted'].includes(status)
-    ? `AND d.status = '${status}'`
-    : status === 'review_required'
-      ? `AND d.review_status = 'review_required'`
-      : '';
+  const categorized = String(req.query.categorized || '').trim();
+
+  let whereStatus = '';
+  if (status && ['analyzed', 'review', 'archived', 'deleted'].includes(status)) {
+    whereStatus = `AND d.status = '${status}'`;
+  } else if (status === 'review_required') {
+    whereStatus = `AND d.review_status = 'review_required'`;
+  }
+
+  let whereCategorized = '';
+  if (categorized === 'true') {
+    whereCategorized = `AND d.folder_path IS NOT NULL AND d.folder_path != ''`;
+  } else if (categorized === 'false') {
+    whereCategorized = `AND (d.folder_path IS NULL OR d.folder_path = '')`;
+  }
 
   const rows = db.prepare(`
     SELECT
@@ -5251,7 +5261,7 @@ app.get('/api/admin/documents', requireAdmin, (req, res) => {
       d.updated_at
     FROM documents d
     JOIN users u ON u.id = d.user_id
-    WHERE 1=1 ${whereStatus}
+    WHERE d.status != 'deleted' ${whereStatus} ${whereCategorized}
     ORDER BY d.updated_at DESC
     LIMIT ?
   `).all(limit);
