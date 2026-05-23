@@ -657,6 +657,9 @@ export default function ArchivPage() {
     loadFolderTree().then(setFolders).catch(console.error).finally(() => setFoldersLoading(false));
   }, []);
 
+  // Android back button for filter sheet
+  useAndroidBack(filterSheetOpen, () => setFilterSheetOpen(false));
+
   // Manage modal-open class on preview modal
   useEffect(() => {
     if (previewDoc) {

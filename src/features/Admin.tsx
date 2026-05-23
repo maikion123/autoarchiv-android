@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
+import { useAndroidBack } from "../lib/useAndroidBack";
 import {
   AlertTriangle, ArrowRight, RefreshCw, ShieldCheck, Users, FileText,
   CircleCheckBig, CircleAlert, ChevronUp, ChevronDown, Plus, ScrollText,
@@ -259,6 +260,11 @@ export default function AdminPage() {
       setAdminFolders(data.folders || []);
     } catch { /* noop */ }
   };
+
+  // Android back button handlers
+  useAndroidBack(!!selectedUserId, () => { setSelectedUserId(null); setUserDocuments([]); });
+  useAndroidBack(!!selectedDocumentId, () => setSelectedDocumentId(null));
+  useAndroidBack(!!selectedNavigationId, () => setSelectedNavigationId(null));
 
   // ── bootstrap ────────────────────────────────────────────────────────────
   useEffect(() => {
