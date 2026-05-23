@@ -23,22 +23,7 @@ const ICONS: Record<string, any> = {
 };
 
 function CountUp({ value, suffix = "" }: { value: number; suffix?: string }) {
-  const [v, setV] = useState(0);
-  useEffect(() => {
-    let raf = 0;
-    const start = performance.now();
-    const dur = 800;
-    const from = 0;
-    const tick = (t: number) => {
-      const p = Math.min(1, (t - start) / dur);
-      const eased = 1 - Math.pow(1 - p, 3);
-      setV(Math.round(from + (value - from) * eased));
-      if (p < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [value]);
-  return <span>{v.toLocaleString("de-DE")}{suffix}</span>;
+  return <span>{value.toLocaleString("de-DE")}{suffix}</span>;
 }
 
 export default function Dashboard() {
@@ -156,9 +141,9 @@ export default function Dashboard() {
   return (
     <div className="space-y-8">
       <div>
-        <motion.h1 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="text-3xl font-bold tracking-tight md:text-4xl">
+        <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
           Übersicht
-        </motion.h1>
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">Dein Zuhause. Vollständig archiviert. Sofort auffindbar.</p>
       </div>
 
@@ -182,10 +167,8 @@ export default function Dashboard() {
         <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">Zuletzt archiviert</h3>
         <div className="space-y-2 max-h-80 overflow-y-auto scrollbar-thin">
           {documents.filter((d) => d.status !== "deleted").sort((a, b) => +new Date(b.uploadedAt) - +new Date(a.uploadedAt)).slice(0, 10).map((doc) => (
-            <motion.div
+            <div
               key={doc.id}
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
               onClick={() => setPreviewDoc(doc)}
               className="flex items-center gap-3 rounded-lg p-2 cursor-pointer hover:bg-muted/50 transition-colors"
             >
@@ -195,14 +178,14 @@ export default function Dashboard() {
                 <div className="text-xs text-muted-foreground">{fmtDate(doc.uploadedAt)} · {doc.folderPath}</div>
               </div>
               {doc.zahlungsbetrag && <div className="text-xs font-mono text-secondary shrink-0">{fmtEUR(doc.zahlungsbetrag)}</div>}
-            </motion.div>
+            </div>
           ))}
         </div>
       </div>
 
       {/* Recently processed banner */}
       {lastDoc && (
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+        <div
           className="glass relative flex items-center gap-3 overflow-hidden rounded-2xl border-glow p-4">
           <span className="relative">
             <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/40" />
@@ -217,7 +200,7 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="text-xs text-muted-foreground">{fmtDate(lastDoc.uploadedAt)}</div>
-        </motion.div>
+        </div>
       )}
 
       {/* Folder grid */}
@@ -267,11 +250,8 @@ export default function Dashboard() {
             const subCount = f.children?.length || 0;
             const fillPct = Math.min(100, (count / Math.max(1, stats.total)) * 100);
             return (
-              <motion.div
+              <div
                 key={f.id}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.04 }}
                 onClick={() => { setOpenFolder(f.id); setOpenSubfolder(null); }}
                 className="group glass relative overflow-hidden rounded-2xl border-glow p-4 text-left transition cursor-pointer hover:shadow-[0_0_30px_oklch(0.62_0.24_290/0.3)] hover:border-primary/40 active:scale-[0.98]"
                 role="button"
@@ -332,7 +312,7 @@ export default function Dashboard() {
                     }}
                   />
                 </div>
-              </motion.div>
+              </div>
             );
           })}
         </div>
@@ -354,8 +334,8 @@ export default function Dashboard() {
                 <div key={c.key} className="flex items-center gap-3">
                   <div className="w-32 shrink-0 truncate text-xs text-muted-foreground">{c.key}</div>
                   <div className="flex-1 h-3 overflow-hidden rounded-full bg-muted/40">
-                    <motion.div
-                      initial={{ width: 0 }} animate={{ width: `${w}%` }} transition={{ duration: 0.7, ease: "easeOut" }}
+                    <div
+                      style={{ width: `${w}%` }}
                       className={`h-full rounded-full bg-gradient-to-r ${meta?.gradient || "from-violet-500 to-cyan-400"}`}
                     />
                   </div>
@@ -627,9 +607,8 @@ export default function Dashboard() {
 
 function Kpi({ icon: Icon, label, value, accent, glow, onClick, title }: any) {
   return (
-    <motion.button
+    <button
       type="button"
-      whileHover={{ y: -2 }}
       onClick={onClick}
       title={title}
       className={`glass relative overflow-hidden rounded-2xl border-glow p-4 text-left ${onClick ? "cursor-pointer transition hover:shadow-[0_0_24px_oklch(0.62_0.24_290/0.18)]" : ""}`}
@@ -642,7 +621,7 @@ function Kpi({ icon: Icon, label, value, accent, glow, onClick, title }: any) {
       </div>
       <div className="mt-3 text-2xl font-bold tracking-tight">{value}</div>
       <div className="mt-0.5 text-xs text-muted-foreground">{label}</div>
-    </motion.button>
+    </button>
   );
 }
 

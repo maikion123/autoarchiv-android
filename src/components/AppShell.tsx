@@ -411,8 +411,7 @@ export function AppShell() {
                         {label}
                       </span>
                       {active && (
-                        <motion.span
-                          layoutId="nav-underline"
+                        <span
                           className="absolute -bottom-0.5 left-2 right-2 h-0.5 rounded-full bg-gradient-to-r from-violet-500 to-cyan-400"
                           style={{ boxShadow: "0 0 12px oklch(0.62 0.24 290 / 0.7)" }}
                         />
@@ -493,8 +492,7 @@ export function AppShell() {
                     }`}
                   >
                     {active && (
-                      <motion.span
-                        layoutId="tab-pill"
+                      <span
                         className="absolute inset-0 rounded-xl bg-gradient-to-br from-violet-500/25 to-cyan-400/20"
                         style={{ boxShadow: "inset 0 0 0 1px oklch(0.62 0.24 290 / 0.4)" }}
                       />
