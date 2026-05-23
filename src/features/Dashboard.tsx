@@ -687,14 +687,13 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequ
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+    <div
       className="fixed inset-0 z-[70] bg-black/50 backdrop-blur-sm"
       onClick={onClose}
     >
       <motion.div
         initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
-        transition={{ type: "spring", damping: 28 }}
+        transition={{ duration: 0.15 }}
         className="ml-auto h-full w-full max-w-2xl glass-strong border-l border-border/40 p-5 overflow-y-auto scrollbar-thin"
         onClick={(e) => e.stopPropagation()}
       >
@@ -902,7 +901,7 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequ
           </div>
         </div>
       </motion.div>
-    </motion.div>
+    </div>
   );
 }
 
@@ -924,14 +923,13 @@ function MoveDocumentDialog({
   return (
     <AnimatePresence>
       {doc && (
-        <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        <div
           className="fixed inset-0 z-[90] grid place-items-center bg-black/60 backdrop-blur-md p-4"
           onClick={onCancel}
         >
           <motion.div
             initial={{ scale: 0.95, y: 10, opacity: 0 }} animate={{ scale: 1, y: 0, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-            transition={{ type: "spring", damping: 22 }}
+            transition={{ duration: 0.15 }}
             className="glass-strong w-full max-w-lg rounded-2xl border-glow p-6"
             onClick={(e) => e.stopPropagation()}
           >
@@ -965,7 +963,7 @@ function MoveDocumentDialog({
               </button>
             </div>
           </motion.div>
-        </motion.div>
+        </div>
       )}
     </AnimatePresence>
   );
@@ -1036,14 +1034,13 @@ function AllDocumentsOverlay({
   return (
     <AnimatePresence>
       {isOpen && (
-        <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        <div
           className="fixed inset-0 z-[70] bg-black/50 backdrop-blur-sm"
           onClick={onClose}
         >
           <motion.div
             initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
-            transition={{ type: "spring", damping: 28 }}
+            transition={{ duration: 0.15 }}
             className="ml-auto h-full w-full max-w-2xl glass-strong border-l border-border/40 p-5 overflow-y-auto scrollbar-thin"
             onClick={(e) => e.stopPropagation()}
           >
@@ -1065,7 +1062,7 @@ function AllDocumentsOverlay({
                 ))}
             </div>
           </motion.div>
-        </motion.div>
+        </div>
       )}
     </AnimatePresence>
   );
