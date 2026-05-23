@@ -500,7 +500,7 @@ export function AppShell() {
                       />
                     )}
                     <Icon className="relative z-10 h-5 w-5 shrink-0" />
-                    <span className="relative z-10 w-full truncate">{label}</span>
+                    <span className="relative z-10 w-full min-w-0 truncate">{label}</span>
                   </Link>
                 </li>
               );
