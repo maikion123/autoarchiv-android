@@ -60,17 +60,18 @@ export default function Dashboard() {
   const [editingFolder, setEditingFolder] = useState<FolderNode | null>(null);
   const [openFolderInSelectionMode, setOpenFolderInSelectionMode] = useState(false);
   const [folderToDelete, setFolderToDelete] = useState<FolderNode | null>(null);
+  const [showAllDocuments, setShowAllDocuments] = useState(false);
   const categoriesRef = useRef<HTMLElement | null>(null);
 
   // Hide bottom nav when modals are open
   useEffect(() => {
-    const isModalOpen = showCreateFolderDialog || showEditFolderDialog;
+    const isModalOpen = showCreateFolderDialog || showEditFolderDialog || showAllDocuments || openFolder;
     if (isModalOpen) {
       document.documentElement.classList.add("modal-open");
     } else {
       document.documentElement.classList.remove("modal-open");
     }
-  }, [showCreateFolderDialog, showEditFolderDialog]);
+  }, [showCreateFolderDialog, showEditFolderDialog, showAllDocuments, openFolder]);
 
   useEffect(() => {
     let mounted = true;
@@ -134,12 +135,7 @@ export default function Dashboard() {
   }, [folderCounts, folders]);
 
   const openFolderOverview = () => {
-    if (defaultFolderId) {
-      setOpenFolder(defaultFolderId);
-      setOpenSubfolder(null);
-      setOpenFolderInSelectionMode(false);
-    }
-    categoriesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setShowAllDocuments(true);
   };
 
   const urgentPayments = useMemo(() => {
@@ -476,6 +472,15 @@ export default function Dashboard() {
           />
         )}
       </AnimatePresence>
+
+      {/* All Documents overlay */}
+      <AllDocumentsOverlay
+        isOpen={showAllDocuments}
+        documents={documents.filter((d) => d.status !== "deleted")}
+        onClose={() => setShowAllDocuments(false)}
+        onPreview={setPreviewDoc}
+        onDelete={setPendingDelete}
+      />
 
       <DocumentPreviewModal
         doc={previewDoc}
@@ -1064,6 +1069,59 @@ function DocRow({ doc, onPreview, onDelete }: { doc: ArchivedDoc; onPreview: () 
         <button onClick={onDelete} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg px-2 text-xs text-rose-300 hover:bg-rose-500/20 sm:grid sm:h-8 sm:w-8 sm:px-0" title="Löschen"><Trash2 className="h-4 w-4" /><span className="sm:hidden">Löschen</span></button>
       </div>
     </motion.div>
+  );
+}
+
+function AllDocumentsOverlay({
+  isOpen,
+  documents,
+  onClose,
+  onPreview,
+  onDelete,
+}: {
+  isOpen: boolean;
+  documents: ArchivedDoc[];
+  onClose: () => void;
+  onPreview: (d: ArchivedDoc) => void;
+  onDelete: (d: ArchivedDoc) => void;
+}) {
+  useAndroidBack(isOpen, onClose);
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[70] bg-black/50 backdrop-blur-sm"
+          onClick={onClose}
+        >
+          <motion.div
+            initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
+            transition={{ type: "spring", damping: 28 }}
+            className="ml-auto h-full w-full max-w-2xl glass-strong border-l border-border/40 p-5 overflow-y-auto scrollbar-thin"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-2 mb-4">
+              <h2 className="text-2xl font-bold">Alle Dokumente</h2>
+              <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-full glass hover:bg-muted">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {documents.length === 0 && (
+                <div className="text-sm text-muted-foreground">Noch keine Dokumente vorhanden.</div>
+              )}
+              {documents
+                .sort((a, b) => +new Date(b.uploadedAt) - +new Date(a.uploadedAt))
+                .map((d) => (
+                  <DocRow key={d.id} doc={d} onPreview={() => onPreview(d)} onDelete={() => onDelete(d)} />
+                ))}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
