@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect, useCallback, ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useAndroidBack } from "../lib/useAndroidBack";
 import {
   Search as SearchIcon,
   Filter,
@@ -579,6 +580,7 @@ function MoveFolderPicker({
   busy: boolean;
   onConfirm: (targetPath: string) => void;
 }) {
+  useAndroidBack(open, onClose);
   const [selected, setSelected] = useState<string>("");
   const flatFolders = flattenFolderTree(folders);
 

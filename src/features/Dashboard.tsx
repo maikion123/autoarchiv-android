@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useAndroidBack } from "../lib/useAndroidBack";
 import {
   FileText, AlertTriangle, CalendarClock, Wallet, Folder,
   Car, ShieldCheck, FileSignature, Landmark, HeartPulse, ChevronRight, X, Eye, Trash2, Download, Edit2, Check,
@@ -677,6 +678,7 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequ
   folderId: string; subfolderId: string | null; onSelectSubfolder: (s: string | null) => void;
   folders: FolderNode[]; onRequestDelete: (folder: FolderNode) => void; onNavigateToFolder: (path: string) => void; onReload: () => Promise<void>; documents: ArchivedDoc[]; onClose: () => void; onPreview: (d: ArchivedDoc) => void; onDelete: (d: ArchivedDoc) => void; onEdit: (folder: FolderNode) => void; startInSelectionMode?: boolean;
 }) {
+  useAndroidBack(true, onClose);
   const folderTree = flattenFolderTree(folders);
   const folder = folderTree.find((f) => f.id === folderId);
   const currentId = subfolderId || folderId;
