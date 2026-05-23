@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from "@tanstack/react-router";
+import { useAndroidBack } from "../lib/useAndroidBack";
 import { User, KeyRound, LogOut, Eye, EyeOff, AlertCircle, CheckCircle, Copy, Check } from 'lucide-react';
 
 interface UserMenuProps {
@@ -91,6 +92,7 @@ function ProfileModal({
   onClose: () => void;
   onSave: (displayName: string, ntfyTopic: string | null) => Promise<void>;
 }) {
+  useAndroidBack(isOpen, onClose);
   const [name, setName] = useState(displayName || '');
   const [topic, setTopic] = useState(ntfyTopic || makeUserNtfyTopic(email, displayName));
   const [topicDeleted, setTopicDeleted] = useState(false);
@@ -391,6 +393,7 @@ function PasswordModal({
   onClose: () => void;
   onSave: (currentPassword: string, newPassword: string) => Promise<void>;
 }) {
+  useAndroidBack(isOpen, onClose);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
