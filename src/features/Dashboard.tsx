@@ -5,7 +5,7 @@ import {
   Car, ShieldCheck, FileSignature, Landmark, HeartPulse, ChevronRight, X, Eye, Trash2, Download, Edit2, Check,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
-import { useArchive } from "../lib/store";
+import { useArchive, removeDocumentsFromCache } from "../lib/store";
 import { DEFAULT_FOLDER_TREE, FOLDER_META, createFolder, deleteFolder, flattenFolderTree, getTopFolder, loadFolderTree, renameFolder, type FolderNode } from "../lib/folders";
 import { fmtEUR, fmtDate, daysUntil, fmtBytes } from "../lib/format";
 import { getIconComponent } from "../lib/iconHelper";
@@ -532,10 +532,12 @@ export default function Dashboard() {
         onCancel={() => setPendingDelete(null)}
         onConfirm={async () => {
           if (!pendingDelete) return;
-          await deleteDocument(pendingDelete.id);
-          await refresh();
-          toast.success("Dokument gelöscht");
+          const id = pendingDelete.id;
           setPendingDelete(null);
+          removeDocumentsFromCache([id]);
+          await deleteDocument(id);
+          refresh();
+          toast.success("Dokument gelöscht");
         }}
       />
 
@@ -743,8 +745,8 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequ
         className="ml-auto h-full w-full max-w-2xl glass-strong border-l border-border/40 p-5 overflow-y-auto scrollbar-thin"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between">
-          <div className="text-xs text-muted-foreground">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
             <span>Archiv</span>
             <ChevronRight className="inline h-3 w-3 mx-1" />
             <button onClick={() => onSelectSubfolder(null)} className="hover:text-foreground">{folder?.name}</button>
@@ -753,7 +755,7 @@ function FolderPanel({ folderId, subfolderId, onSelectSubfolder, folders, onRequ
               <span className="text-foreground">{subfolderId.split("/").slice(1).join("/")}</span>
             </>)}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {currentFolder && (
               <button
                 onClick={() => {

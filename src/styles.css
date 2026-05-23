@@ -159,6 +159,16 @@
     background-attachment: fixed;
     font-feature-settings: "ss01", "cv11";
     -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  * {
+    box-sizing: border-box;
+    min-width: 0;
+  }
+
+  button, a, input, select, textarea {
+    touch-action: manipulation;
   }
 }
 

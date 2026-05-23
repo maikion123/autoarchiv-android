@@ -356,19 +356,19 @@ export default function TerminePage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 lg:min-w-[22rem]">
-          <SummaryCard label="Offene Zahlungen" value={String(totalUpcomingPayments)} tone="rose" />
-          <SummaryCard label="Heute ausgewählt" value={fmtDate(selectedDate)} tone="cyan" />
-          <SummaryCard label="Einträge heute" value={String(counts.appointment + counts.payment + counts.document)} tone="emerald" />
+        <div className="grid grid-cols-3 gap-1.5 sm:gap-2 lg:min-w-[22rem]">
+          <SummaryCard label="Offen" value={String(totalUpcomingPayments)} tone="rose" />
+          <SummaryCard label="Gewählt" value={fmtDate(selectedDate)} tone="cyan" />
+          <SummaryCard label="Heute" value={String(counts.appointment + counts.payment + counts.document)} tone="emerald" />
         </div>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,0.95fr)]">
-        <section className="glass border-glow rounded-2xl p-5">
+        <section className="glass border-glow rounded-2xl p-3 sm:p-5">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold capitalize">{monthLabel}</h2>
-              <p className="text-xs text-muted-foreground">Monatsansicht mit Markierungen für Termine, Zahlungen und Fristen.</p>
+              <p className="hidden sm:block text-xs text-muted-foreground">Monatsansicht mit Markierungen für Termine, Zahlungen und Fristen.</p>
             </div>
             <div className="flex gap-1">
               <NavIconButton onClick={() => goMonth(-1)} label="Vorheriger Monat">
@@ -380,11 +380,11 @@ export default function TerminePage() {
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-7 gap-1.5 text-center text-[10px] uppercase tracking-wider text-muted-foreground">
+          <div className="mt-3 grid grid-cols-7 gap-1 sm:gap-1.5 text-center text-[9px] sm:text-[10px] uppercase tracking-wider text-muted-foreground">
             {["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"].map((label) => <div key={label}>{label}</div>)}
           </div>
 
-          <motion.div key={monthLabel} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} className="mt-1 grid grid-cols-7 gap-1.5">
+          <motion.div key={monthLabel} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} className="mt-1 grid grid-cols-7 gap-1 sm:gap-1.5">
             {cells.map((day, index) => {
               if (!day) return <div key={index} />;
               const dayKey = localDayKey(new Date(cursor.getFullYear(), cursor.getMonth(), day, 12, 0, 0, 0));
@@ -405,22 +405,27 @@ export default function TerminePage() {
                   key={index}
                   type="button"
                   onClick={() => setSelectedKey(dayKey)}
-                  className={`relative flex aspect-square flex-col rounded-xl border p-2 text-left text-xs transition hover:bg-muted/60 ${
+                  className={`relative flex aspect-square flex-col rounded-lg sm:rounded-xl border p-1 sm:p-2 text-left text-xs transition hover:bg-muted/60 ${
                     isSelected ? "border-primary bg-primary/5" : "border-border/50 glass"
                   } ${isToday ? "ring-1 ring-primary/30" : ""}`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className={`text-sm ${isToday ? "font-bold text-primary" : ""}`}>{day}</span>
+                    <span className={`text-[11px] sm:text-sm leading-none ${isToday ? "font-bold text-primary" : ""}`}>{day}</span>
                     {total > 0 && (
-                      <span className="rounded-full bg-background/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      <span className="hidden sm:inline-block rounded-full bg-background/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
                         {total}
                       </span>
                     )}
                   </div>
-                  <div className="mt-auto flex flex-wrap gap-1">
+                  <div className="mt-auto hidden sm:flex flex-wrap gap-1">
                     {kindCounts.appointment > 0 && <DayChip tone="cyan" label={`T ${kindCounts.appointment}`} />}
                     {kindCounts.payment > 0 && <DayChip tone="rose" label={`Z ${kindCounts.payment}`} />}
                     {kindCounts.document > 0 && <DayChip tone="fuchsia" label={`F ${kindCounts.document}`} />}
+                  </div>
+                  <div className="mt-auto sm:hidden flex gap-0.5 flex-wrap">
+                    {kindCounts.appointment > 0 && <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" />}
+                    {kindCounts.payment > 0 && <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />}
+                    {kindCounts.document > 0 && <span className="h-1.5 w-1.5 rounded-full bg-fuchsia-400" />}
                   </div>
                 </button>
               );
@@ -547,9 +552,9 @@ function SummaryCard({ label, value, tone }: { label: string; value: string; ton
   }[tone];
 
   return (
-    <div className={`rounded-2xl border border-border/60 bg-gradient-to-br p-4 ${toneClass}`}>
-      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className="mt-1 text-lg font-semibold">{value}</div>
+    <div className={`rounded-2xl border border-border/60 bg-gradient-to-br p-2 sm:p-4 ${toneClass}`}>
+      <div className="text-[9px] sm:text-[11px] uppercase tracking-wider text-muted-foreground leading-tight">{label}</div>
+      <div className="mt-0.5 sm:mt-1 text-sm sm:text-lg font-semibold leading-tight truncate">{value}</div>
     </div>
   );
 }

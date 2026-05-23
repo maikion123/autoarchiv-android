@@ -42,7 +42,7 @@ export default function ZahlungenPage() {
 
   return (
     <div className="space-y-6 pb-20">
-      <div className="flex items-end justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight md:text-4xl">Zahlungen</h1>
           <p className="mt-1 text-sm text-muted-foreground">Im Blick, was raus muss.</p>
@@ -50,10 +50,11 @@ export default function ZahlungenPage() {
         <button
           type="button"
           onClick={() => setSetupOpen(true)}
-          className="inline-flex items-center gap-2 rounded-full border border-border bg-background/60 px-4 py-2 text-sm font-medium text-foreground shadow-sm transition hover:bg-muted"
+          className="inline-flex items-center gap-2 rounded-full border border-border bg-background/60 px-3 py-2 text-xs sm:px-4 sm:text-sm font-medium text-foreground shadow-sm transition hover:bg-muted shrink-0"
         >
           <Info className="h-4 w-4" />
-          Zahlungserinnerung einrichten
+          <span className="hidden sm:inline">Zahlungserinnerung einrichten</span>
+          <span className="sm:hidden">Erinnerung</span>
         </button>
       </div>
 
@@ -850,14 +851,14 @@ const inputCls = "w-full rounded-lg bg-input/50 border border-border px-3 py-2 t
 function ModalShell({ children, onClose, title, sizeClass = "max-w-md" }: any) {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[80] grid place-items-center bg-black/60 backdrop-blur-md p-4" onClick={onClose}>
+      className="fixed inset-0 z-[80] grid place-items-center bg-black/60 backdrop-blur-md p-2 sm:p-4" onClick={onClose}>
       <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }}
-        className={`glass-strong flex w-full flex-col rounded-2xl border-glow p-5 ${sizeClass} max-h-[88vh]`} onClick={(e)=>e.stopPropagation()}>
+        className={`glass-strong flex w-full flex-col rounded-2xl border-glow p-4 sm:p-5 ${sizeClass} max-h-[92vh] sm:max-h-[88vh]`} onClick={(e)=>e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className="text-base font-semibold">{title}</h3>
-          <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-full hover:bg-muted"><X className="h-4 w-4"/></button>
+          <button onClick={onClose} className="grid h-10 w-10 place-items-center rounded-full hover:bg-muted"><X className="h-4 w-4"/></button>
         </div>
-        <div className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1">{children}</div>
+        <div className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin">{children}</div>
       </motion.div>
     </motion.div>
   );

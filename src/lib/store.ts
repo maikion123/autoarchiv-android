@@ -56,6 +56,12 @@ export async function refreshAll() {
   }
 }
 
+export function removeDocumentsFromCache(ids: string[]) {
+  const idSet = new Set(ids);
+  cache = { ...cache, documents: cache.documents.filter((d) => !idSet.has(d.id)) };
+  notify();
+}
+
 export function resetArchiveCache() {
   cache = {
     documents: [],

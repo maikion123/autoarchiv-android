@@ -13,10 +13,10 @@ import {
   X,
   Loader2,
 } from "lucide-react";
-import { useArchive } from "../lib/store";
+import { useArchive, removeDocumentsFromCache } from "../lib/store";
 import { loadFolderTree, flattenFolderTree, type FolderNode } from "../lib/folders";
 import { fmtDate } from "../lib/format";
-import type { ArchivedDoc } from "../lib/db";
+import { deleteDocument, type ArchivedDoc } from "../lib/db";
 import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
 import { AdminDrawer } from "../components/AdminDrawer";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -298,8 +298,8 @@ function DocTable({
                     review: "Überprüfung",
                     uploaded: "Hochgeladen",
                   };
-                  const color = statusColors[doc.status] || "bg-gray-500/20 text-gray-300";
-                  const label = statusLabels[doc.status] || doc.status;
+                  const color = statusColors[doc.status ?? ""] || "bg-gray-500/20 text-gray-300";
+                  const label = statusLabels[doc.status ?? ""] || doc.status;
                   return (
                     <span className={`inline-block rounded-full px-2 py-0.5 text-white text-[10px] font-medium ${color}`}>
                       {label}
@@ -523,34 +523,34 @@ function BulkActionBar({
           transition={{ type: "spring", damping: 30, stiffness: 300 }}
           className="fixed bottom-20 left-4 right-4 z-50"
         >
-          <div className="glass rounded-2xl border-glow p-4 flex items-center justify-between gap-3">
-            <span className="text-sm font-medium text-foreground flex-shrink-0">
+          <div className="glass rounded-2xl border-glow px-3 py-3 flex items-center justify-between gap-2">
+            <span className="text-sm font-medium text-foreground shrink-0">
               {count} ausgewählt
             </span>
-            <div className="flex gap-2 flex-shrink-0">
+            <div className="flex gap-1.5 shrink-0">
               <button
                 type="button"
                 onClick={onMove}
                 disabled={busy}
-                className="min-h-11 flex items-center gap-2 rounded-lg bg-secondary/20 px-3 text-secondary hover:bg-secondary/30 disabled:opacity-50 transition-colors"
+                className="min-h-11 flex items-center gap-1.5 rounded-lg bg-secondary/20 px-3 text-secondary hover:bg-secondary/30 disabled:opacity-50 transition-colors"
               >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
-                <span className="text-sm font-medium">Verschieben</span>
+                <span className="hidden sm:inline text-sm font-medium">Verschieben</span>
               </button>
               <button
                 type="button"
                 onClick={onDelete}
                 disabled={busy}
-                className="min-h-11 flex items-center gap-2 rounded-lg bg-destructive/20 px-3 text-destructive hover:bg-destructive/30 disabled:opacity-50 transition-colors"
+                className="min-h-11 flex items-center gap-1.5 rounded-lg bg-destructive/20 px-3 text-destructive hover:bg-destructive/30 disabled:opacity-50 transition-colors"
               >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                <span className="text-sm font-medium">Löschen</span>
+                <span className="hidden sm:inline text-sm font-medium">Löschen</span>
               </button>
               <button
                 type="button"
                 onClick={onDeselect}
                 disabled={busy}
-                className="min-h-11 grid place-items-center rounded-lg bg-muted/50 text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                className="min-h-11 min-w-11 grid place-items-center rounded-lg bg-muted/50 text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -743,6 +743,9 @@ export default function ArchivPage() {
   const handleBulkDelete = async () => {
     setBulkBusy(true);
     const ids = [...selectedIds];
+    setSelectedIds(new Set());
+    setDeleteConfirm(false);
+    removeDocumentsFromCache(ids);
     await Promise.allSettled(
       ids.map((id) =>
         fetch(`/api/documents/${encodeURIComponent(id)}`, {
@@ -753,10 +756,8 @@ export default function ArchivPage() {
         }),
       ),
     );
-    await refresh();
-    setSelectedIds(new Set());
+    refresh();
     setBulkBusy(false);
-    setDeleteConfirm(false);
   };
 
   const handleBulkMove = async (targetPath: string) => {
@@ -846,7 +847,7 @@ export default function ArchivPage() {
         {/* Sort chips */}
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
           {(["uploadedAt", "filename", "zahlungsbetrag", "dokumenttyp"] as const).map((key) => {
-            const labels: Record<SortKey, string> = {
+            const labels: Partial<Record<SortKey, string>> = {
               uploadedAt: "Datum",
               filename: "Name",
               zahlungsbetrag: "Betrag",
@@ -951,10 +952,9 @@ export default function ArchivPage() {
         title="Löschen?"
         description={`Wirklich ${selectedIds.size} Dokument(e) löschen?`}
         confirmLabel="Löschen"
-        confirmVariant="destructive"
+        destructive
         onConfirm={handleBulkDelete}
         onCancel={() => setDeleteConfirm(false)}
-        isLoading={bulkBusy}
       />
 
       {/* Preview modal */}
@@ -963,6 +963,11 @@ export default function ArchivPage() {
           doc={previewDoc}
           onClose={() => setPreviewDoc(null)}
           onSaved={refresh}
+          onDelete={(doc) => {
+            setPreviewDoc(null);
+            removeDocumentsFromCache([doc.id]);
+            deleteDocument(doc.id).then(() => refresh());
+          }}
         />
       )}
     </div>
