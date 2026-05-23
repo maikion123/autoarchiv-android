@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
+import { useAndroidBack } from "../lib/useAndroidBack";
 
 interface AdminDrawerProps {
   open: boolean;
@@ -29,6 +30,7 @@ export function AdminDrawer({
   children,
   inlineOnDesktop = false,
 }: AdminDrawerProps) {
+  useAndroidBack(open, onClose);
   // Esc to close + body scroll lock — only while open AND we are on the small-screen path.
   // On desktop with inlineOnDesktop the panel is in-flow so locking would harm UX.
   useEffect(() => {

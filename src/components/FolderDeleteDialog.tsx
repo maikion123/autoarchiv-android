@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { AlertTriangle, X } from "lucide-react";
 import { type FolderNode } from "../lib/folders";
 import { type ArchivedDoc } from "../lib/db";
+import { useAndroidBack } from "../lib/useAndroidBack";
 
 interface FolderDeleteDialogProps {
   isOpen: boolean;
@@ -23,6 +24,7 @@ export function FolderDeleteDialog({
   onConfirmDelete,
   onConfirmMove,
 }: FolderDeleteDialogProps) {
+  useAndroidBack(isOpen, onClose);
   const [mode, setMode] = useState<"options" | "delete" | "move">("options");
   const [selectedTarget, setSelectedTarget] = useState("");
   const [isLoading, setIsLoading] = useState(false);

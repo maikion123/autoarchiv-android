@@ -6,6 +6,7 @@ import { getDocumentBlob, getDocumentDetails, patchDocument } from "../lib/db";
 import { fmtDate, fmtDateTime, fmtBytes, fmtEUR } from "../lib/format";
 import { DEFAULT_FOLDER_TREE, loadFolderTree, type FolderNode } from "../lib/folders";
 import { toast } from "sonner";
+import { useAndroidBack } from "../lib/useAndroidBack";
 
 interface Props {
   doc: ArchivedDoc | null;
@@ -47,6 +48,7 @@ function makeEditForm(doc: ArchivedDoc): EditForm {
 }
 
 export function DocumentPreviewModal({ doc, onClose, onDelete, onMove, onSaved }: Props) {
+  useAndroidBack(!!doc, onClose);
   const [url, setUrl] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [currentDoc, setCurrentDoc] = useState<ArchivedDoc | null>(null);

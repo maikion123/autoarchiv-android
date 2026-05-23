@@ -4,6 +4,7 @@ import { X, CheckCircle, Trash2 } from "lucide-react";
 import { ColorPicker, COLOR_PALETTE } from "./ColorPicker";
 import { IconPicker } from "./IconPicker";
 import { CategoryPreview } from "./CategoryPreview";
+import { useAndroidBack } from "../lib/useAndroidBack";
 
 interface Category {
   id: string;
@@ -30,6 +31,7 @@ export function CategoryEditModal({
   onSave,
   onDelete,
 }: CategoryEditModalProps) {
+  useAndroidBack(isOpen, onClose);
   const [name, setName] = useState("");
   const [color, setColor] = useState(COLOR_PALETTE[0].value);
   const [icon, setIcon] = useState("Folder");

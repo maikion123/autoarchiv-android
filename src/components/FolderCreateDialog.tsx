@@ -5,6 +5,7 @@ import { ColorPicker, COLOR_PALETTE } from "./ColorPicker";
 import { IconPicker } from "./IconPicker";
 import { CategoryPreview } from "./CategoryPreview";
 import { type FolderNode } from "../lib/folders";
+import { useAndroidBack } from "../lib/useAndroidBack";
 
 interface FolderCreateDialogProps {
   isOpen: boolean;
@@ -23,6 +24,7 @@ export function FolderCreateDialog({
   parentName,
   folders,
 }: FolderCreateDialogProps) {
+  useAndroidBack(isOpen, onClose);
   const [name, setName] = useState("");
   const [color, setColor] = useState(COLOR_PALETTE[0].value);
   const [icon, setIcon] = useState("Folder");

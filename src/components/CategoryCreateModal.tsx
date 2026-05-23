@@ -4,6 +4,7 @@ import { X, CheckCircle } from "lucide-react";
 import { ColorPicker, COLOR_PALETTE } from "./ColorPicker";
 import { IconPicker } from "./IconPicker";
 import { CategoryPreview } from "./CategoryPreview";
+import { useAndroidBack } from "../lib/useAndroidBack";
 
 interface CategoryCreateModalProps {
   isOpen: boolean;
@@ -18,6 +19,7 @@ export function CategoryCreateModal({
   onCreate,
   parentName,
 }: CategoryCreateModalProps) {
+  useAndroidBack(isOpen, onClose);
   const [name, setName] = useState("");
   const [color, setColor] = useState(COLOR_PALETTE[0].value);
   const [icon, setIcon] = useState("Folder");

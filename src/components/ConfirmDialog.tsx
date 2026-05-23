@@ -1,5 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertTriangle } from "lucide-react";
+import { useAndroidBack } from "../lib/useAndroidBack";
 
 interface Props {
   open: boolean;
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export function ConfirmDialog({ open, title, description, confirmLabel = "Bestätigen", cancelLabel = "Abbrechen", destructive, onConfirm, onCancel }: Props) {
+  useAndroidBack(open, onCancel);
   return (
     <AnimatePresence>
       {open && (

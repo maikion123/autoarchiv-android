@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
+import { useAndroidBack } from "../lib/useAndroidBack";
 import { fmtDate, fmtDateTime, fmtEUR, daysUntil } from "../lib/format";
 import {
   deleteAppointment,
@@ -779,6 +780,7 @@ function EntryEditorModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  useAndroidBack(true, onClose);
   const isPayment = target.kind === "payment";
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState(

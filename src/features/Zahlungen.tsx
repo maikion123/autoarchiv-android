@@ -7,6 +7,7 @@ import { savePayment, deletePayment, saveAppointment, uid, type PaymentEntry } f
 import { checkAuthStatus, readAuthCache, writeAuthCache } from "../lib/auth";
 import QRCode from "qrcode";
 import { toast } from "sonner";
+import { useAndroidBack } from "../lib/useAndroidBack";
 
 export default function ZahlungenPage() {
   const { payments, refresh, documents } = useArchive();
@@ -128,6 +129,7 @@ function StatusBadge({ status }: { status: PaymentEntry["status"] }) {
 }
 
 function AddPaymentModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  useAndroidBack(true, onClose);
   const [absender, setAbsender] = useState("");
   const [beschreibung, setBeschreibung] = useState("");
   const [betrag, setBetrag] = useState("");
@@ -176,6 +178,7 @@ function AddPaymentModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
 }
 
 function PaymentReminderSetupModal({ onClose }: { onClose: () => void }) {
+  useAndroidBack(true, onClose);
   const [step, setStep] = useState(0);
   const [copyOk, setCopyOk] = useState(false);
   const [testState, setTestState] = useState<"idle" | "sending" | "ok" | "error">("idle");
@@ -742,6 +745,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 function PaymentDetail({ payment, documents, onClose, onChanged }: { payment: PaymentEntry; documents: any[]; onClose: () => void; onChanged: () => void }) {
+  useAndroidBack(true, onClose);
   const [partial, setPartial] = useState("");
   const linkedDoc = documents.find((d) => d.id === payment.documentId);
   const paidSum = payment.paid?.reduce((s, x) => s + x.amount, 0) || 0;
