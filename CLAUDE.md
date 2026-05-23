@@ -6,7 +6,7 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
 
 **What?** Private document archive app (React + Express + SQLite)  
 **Where?** https://nextkm.de  
-**Status?** Production live, auth + OCR/upload working, dashboard fixed, admin refactored (2026-05-21)  
+**Status?** Production live, auth + OCR/upload working, mobile UX polished, Android back button, optimistic delete (2026-05-23)  
 **Tech?** TanStack Start, Express.js (port 3001), better-sqlite3, bcryptjs, JWT cookies  
 
 ## Start Here
@@ -91,6 +91,13 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
     - New API filter: `/api/admin/documents?categorized=true|false`
   - New documents upload with folder_path=NULL (previously defaulted to '07_Sonstiges')
   - Detailed notes: see `.claude/memory/changelog_session_2026_05_21.md`
+- **COMPLETED (2026-05-23):** Mobile UX, Android back button, optimistic delete:
+  - Android back button now closes modals instead of navigating away (useAndroidBack hook)
+  - Optimistic delete: documents removed from cache immediately, refresh syncs state
+  - Mobile responsiveness: Termine calendar (dots on mobile), Zahlungen modals (responsive padding), global CSS (overflow-x, min-width: 0, touch-action)
+  - Fixed nav label "ple" clipping issue: truncate (left-aligned) instead of text-center
+  - Commits: 7a657f5, 61ffb5e, 125c62f, 3c00f6d
+  - Detailed notes: see `.claude/memory/changelog_session_2026_05_23.md`
 
 ## Quick Reference
 
