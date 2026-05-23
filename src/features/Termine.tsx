@@ -385,7 +385,7 @@ export default function TerminePage() {
             {["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"].map((label) => <div key={label}>{label}</div>)}
           </div>
 
-          <motion.div key={monthLabel} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} className="mt-1 grid grid-cols-7 gap-1 sm:gap-1.5">
+          <div key={monthLabel} className="mt-1 grid grid-cols-7 gap-1 sm:gap-1.5">
             {cells.map((day, index) => {
               if (!day) return <div key={index} />;
               const dayKey = localDayKey(new Date(cursor.getFullYear(), cursor.getMonth(), day, 12, 0, 0, 0));
@@ -431,7 +431,7 @@ export default function TerminePage() {
                 </button>
               );
             })}
-          </motion.div>
+          </div>
         </section>
 
         <aside className="space-y-6">
@@ -892,10 +892,7 @@ function EntryEditorModal({
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
+    <div
       className="fixed inset-0 z-[80] grid place-items-center bg-black/60 p-4 backdrop-blur-md"
       onClick={onClose}
     >
@@ -903,6 +900,7 @@ function EntryEditorModal({
         initial={{ scale: 0.98, y: 8 }}
         animate={{ scale: 1, y: 0 }}
         exit={{ scale: 0.98, y: 8 }}
+        transition={{ duration: 0.15 }}
         className="glass-strong w-full max-w-2xl overflow-hidden rounded-2xl border-glow"
         onClick={(event) => event.stopPropagation()}
       >
@@ -1125,7 +1123,7 @@ function EntryEditorModal({
           </form>
         </div>
       </motion.div>
-    </motion.div>
+    </div>
   );
 }
 

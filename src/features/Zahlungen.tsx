@@ -65,10 +65,9 @@ export default function ZahlungenPage() {
         <div className="mt-4 grid grid-cols-6 items-end gap-3 h-32">
           {monthly.map((m, i) => (
             <div key={i} className="flex flex-col items-center gap-1.5">
-              <motion.div initial={{ height: 0 }} animate={{ height: `${(m.total / chartMax) * 100}%` }}
-                transition={{ delay: i * 0.05, duration: 0.6, ease: "easeOut" }}
+              <div
                 className="w-full rounded-md bg-gradient-to-t from-violet-500 to-cyan-400"
-                style={{ minHeight: m.total ? 6 : 2, opacity: m.total ? 1 : 0.2 }} />
+                style={{ height: `${(m.total / chartMax) * 100}%`, minHeight: m.total ? 6 : 2, opacity: m.total ? 1 : 0.2 }} />
               <div className="text-[10px] text-muted-foreground">{m.label}</div>
             </div>
           ))}
@@ -83,10 +82,9 @@ export default function ZahlungenPage() {
           const overdue = dleft != null && dleft < 0 && p.status !== "bezahlt";
           const tone = p.status === "bezahlt" ? "emerald" : overdue ? "rose" : dleft != null && dleft < 7 ? "amber" : "cyan";
           return (
-            <motion.button
-              key={p.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-              whileHover={{ x: 2 }} onClick={() => setActive(p)}
-              className="glass border-glow flex items-center gap-3 rounded-xl p-3 text-left">
+            <button
+              key={p.id} onClick={() => setActive(p)}
+              className="glass border-glow flex items-center gap-3 rounded-xl p-3 text-left transition hover:bg-muted/40">
               <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${
                 tone==="emerald" ? "bg-emerald-400" :
                 tone==="rose" ? "bg-rose-400 animate-pulse" :
@@ -100,7 +98,7 @@ export default function ZahlungenPage() {
                 <div className="text-sm font-semibold">{fmtEUR(p.betrag)}</div>
                 <StatusBadge status={p.status} />
               </div>
-            </motion.button>
+            </button>
           );
         })}
       </div>
@@ -854,9 +852,10 @@ const inputCls = "w-full rounded-lg bg-input/50 border border-border px-3 py-2 t
 
 function ModalShell({ children, onClose, title, sizeClass = "max-w-md" }: any) {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+    <div
       className="fixed inset-0 z-[80] grid place-items-center bg-black/60 backdrop-blur-md p-2 sm:p-4" onClick={onClose}>
       <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }}
+        transition={{ duration: 0.15 }}
         className={`glass-strong flex w-full flex-col rounded-2xl border-glow p-4 sm:p-5 ${sizeClass} max-h-[92vh] sm:max-h-[88vh]`} onClick={(e)=>e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className="text-base font-semibold">{title}</h3>
@@ -864,7 +863,7 @@ function ModalShell({ children, onClose, title, sizeClass = "max-w-md" }: any) {
         </div>
         <div className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin">{children}</div>
       </motion.div>
-    </motion.div>
+    </div>
   );
 }
 
