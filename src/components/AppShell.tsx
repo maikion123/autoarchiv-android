@@ -488,7 +488,7 @@ export function AppShell() {
                 <li key={to} className="flex-1">
                   <Link
                     to={to as any}
-                    className={`relative flex flex-col items-center gap-0.5 rounded-xl px-1 py-1.5 text-[10px] transition ${
+                    className={`relative flex w-full flex-col items-center gap-0.5 overflow-hidden rounded-xl px-1 py-1.5 text-[10px] transition ${
                       active ? "text-foreground" : "text-muted-foreground"
                     }`}
                   >
@@ -499,8 +499,8 @@ export function AppShell() {
                         style={{ boxShadow: "inset 0 0 0 1px oklch(0.62 0.24 290 / 0.4)" }}
                       />
                     )}
-                    <Icon className="relative z-10 h-5 w-5" />
-                    <span className="relative z-10">{label}</span>
+                    <Icon className="relative z-10 h-5 w-5 shrink-0" />
+                    <span className="relative z-10 w-full truncate text-center">{label}</span>
                   </Link>
                 </li>
               );
