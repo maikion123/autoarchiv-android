@@ -92,11 +92,12 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
   - New documents upload with folder_path=NULL (previously defaulted to '07_Sonstiges')
   - Detailed notes: see `.claude/memory/changelog_session_2026_05_21.md`
 - **COMPLETED (2026-05-23):** Mobile UX, Android back button, optimistic delete:
-  - Android back button now closes modals instead of navigating away (useAndroidBack hook)
+  - Android back button now closes **all modals and overlays** instead of navigating away (useAndroidBack hook, 24+ components)
+  - Coverage: Dashboard overlays, Archiv pickers/filters, Admin drawers, Zahlungen/Termine modals, UserMenu, all dialog components
   - Optimistic delete: documents removed from cache immediately, refresh syncs state
   - Mobile responsiveness: Termine calendar (dots on mobile), Zahlungen modals (responsive padding), global CSS (overflow-x, min-width: 0, touch-action)
   - Fixed nav label "ple" clipping issue: truncate (left-aligned) instead of text-center
-  - Commits: 7a657f5, 61ffb5e, 125c62f, 3c00f6d
+  - Commits: 7a657f5, 61ffb5e, 125c62f, 3c00f6d, 295b054 (strengthened), 314f3d5, 724423d, 15d38c3
   - Detailed notes: see `.claude/memory/changelog_session_2026_05_23.md`
 
 ## Quick Reference
