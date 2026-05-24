@@ -157,7 +157,7 @@ function DocTable({
   };
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-border/40">
+    <div className="glass rounded-2xl border-glow overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="sticky top-0 border-b border-border/40 bg-background/80 backdrop-blur-sm">
           <tr>
