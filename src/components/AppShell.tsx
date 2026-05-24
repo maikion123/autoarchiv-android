@@ -516,7 +516,6 @@ export function AppShell() {
                       />
                     )}
                     <Icon className="relative z-10 h-6 w-6 shrink-0" />
-                    <span className="relative z-10 text-[11px] font-medium whitespace-nowrap hidden sm:inline">{label}</span>
                   </Link>
                 </li>
               );
