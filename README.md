@@ -1,6 +1,8 @@
-# AutoArchiv Android App
+# nextKM Android App
 
 Pure native Android app in Kotlin using Google ML Kit Document Scanner and OkHttp API client.
+
+**Auto-builds with GitHub Actions** — APK ready after every push!
 
 ## Project Structure
 
@@ -44,7 +46,18 @@ autoarchiv-android/
 - **Build tools**: 33.0.0+
 - **OS**: Linux or macOS x86_64 (**not ARM64** — AAPT2 is x86_64 only)
 
-## Quick Build
+## Get APK
+
+### Easiest: Download from GitHub Actions ✅
+
+1. Go to **Actions** tab in GitHub
+2. Select latest **Build Android APK** run
+3. Download `autoarchiv-android-debug` artifact
+4. Install: `adb install app-debug.apk`
+
+No setup needed!
+
+### Manual Build (x86_64 Linux/Mac)
 
 ```bash
 export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
@@ -54,13 +67,7 @@ export ANDROID_SDK_ROOT=~/android-sdk
 # Output: app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Full Setup Guide
-
-See **[BUILD_GUIDE.md](BUILD_GUIDE.md)** for complete step-by-step instructions:
-- Java 17 installation
-- Android SDK download + setup
-- Build, test, upload to server
-- Troubleshooting
+See **[BUILD_GUIDE.md](BUILD_GUIDE.md)** for full setup instructions.
 
 ## Install to Device
 

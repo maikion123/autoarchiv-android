@@ -1,4 +1,20 @@
-# Build APK on x86_64 Linux/Mac
+# Build nextKM Android App
+
+## Auto-Build with GitHub Actions ✅ (Easiest)
+
+APK builds automatically on every push to `main` or `master`:
+
+1. Push code to GitHub
+2. GitHub Actions builds on Ubuntu (x86_64)
+3. Download APK from:
+   - **Artifacts tab** (Actions page) — latest build
+   - **Releases** — tagged versions
+
+No manual setup needed!
+
+---
+
+# Manual Build on x86_64 Linux/Mac
 
 ## Prerequisites
 
