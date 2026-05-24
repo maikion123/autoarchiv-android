@@ -454,24 +454,38 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
           className="absolute inset-0 pointer-events-none"
         />
 
-        {/* Quality indicator */}
-        {quality && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="absolute top-4 right-4 rounded-full px-3 py-1.5 text-xs font-semibold text-white"
-            style={{
-              backgroundColor:
-                quality === "good"
-                  ? "rgba(34, 197, 94, 0.8)"
-                  : quality === "ok"
-                    ? "rgba(251, 146, 60, 0.8)"
-                    : "rgba(239, 68, 68, 0.8)",
-            }}
-          >
-            {quality === "good" ? "✓ Bereit" : quality === "ok" ? "~ OK" : "✗ Zu klein"}
-          </motion.div>
-        )}
+        {/* Quality indicator with lighting guidance */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="absolute top-4 left-4 right-4 flex flex-col gap-2"
+        >
+          {quality && (
+            <div
+              className="rounded-full px-3 py-1.5 text-xs font-semibold text-white text-center"
+              style={{
+                backgroundColor:
+                  quality === "good"
+                    ? "rgba(34, 197, 94, 0.8)"
+                    : quality === "ok"
+                      ? "rgba(251, 146, 60, 0.8)"
+                      : "rgba(239, 68, 68, 0.8)",
+              }}
+            >
+              {quality === "good"
+                ? "✓ Dokument erkannt"
+                : quality === "ok"
+                  ? "~ Größe OK, näher heran"
+                  : "✗ Dokument zu klein oder nicht erkannt"}
+            </div>
+          )}
+
+          {!quality && (
+            <div className="rounded-full px-3 py-1.5 text-xs font-semibold text-white text-center bg-blue-500/60">
+              📸 Richte Kamera auf Dokument
+            </div>
+          )}
+        </motion.div>
 
         {/* Auto-capture pulse */}
         {autoCapturePending && (
