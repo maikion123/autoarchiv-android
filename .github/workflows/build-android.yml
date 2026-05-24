@@ -27,7 +27,14 @@ jobs:
       run: chmod +x ./gradlew
 
     - name: Build APK
-      run: ./gradlew clean assembleDebug
+      run: ./gradlew clean assembleDebug --stacktrace
+
+    - name: Debug - list build outputs
+      if: always()
+      run: |
+        echo "Build directory contents:"
+        find app/build -type f -name "*.apk" 2>/dev/null | head -20
+        ls -la app/build/outputs/apk/debug/ 2>/dev/null || echo "Debug dir not found"
 
     - name: Upload APK as artifact
       uses: actions/upload-artifact@v4
