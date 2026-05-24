@@ -54,7 +54,7 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
 - ntfy topics are per user account now: existing users were backfilled, new accounts get a stable personal topic, and reminders must never fall back to a shared/global channel.
 - iPhone payment reminders now also have a per-user calendar feed on `/profil` with a default 2-day lead time and selectable 1/2/7-day lead times. Keep the feed URL, lead-days selector, and the reminder onboarding copy consistent.
 - **Calendar feed** is now iCalendar .ics subscription (NOT CalDAV UI — that was replaced 2026-05-18). Profile shows personalized ICS URL + "Link kopieren" + "Neuen Link generieren". CalDAV server at `/dav/` still runs in backend but profile no longer exposes credentials. `POST /api/auth/reset-calendar-token` generates new token + invalidates old URL.
-- `autoarchiv-api` runs as a **systemd service** (user-independent). Both maik and kevin can manage it: `sudo systemctl restart autoarchiv-api`. Logs: `journalctl -u autoarchiv-api -f`. Kevin's pm2 (tanstack-ssr frontend) and Kevin's pm2 processes are separate — PM2 is no longer used for the API server.
+- Both `autoarchiv-api` (Express, port 3001) and `autoarchiv-frontend` (Vite/bun, port 8080) run as **systemd services** (user-independent). Both maik and kevin can manage them: `sudo systemctl restart autoarchiv-api` / `sudo systemctl restart autoarchiv-frontend`. Logs: `journalctl -u autoarchiv-api -f` / `journalctl -u autoarchiv-frontend -f`. PM2 is no longer used.
 - Express 5 uses path-to-regexp v8 (via `router` package): bare `*` wildcards are INVALID. Use `app.use` with `req.path.startsWith(...)` for wildcard routes.
 - The reminder worker currently runs every minute during testing so reminder changes can be verified quickly.
 - The payment save path is server-first; do not reintroduce silent local-only fallback for reminders.
@@ -149,7 +149,8 @@ npm run dev                         # Dev mode (if using Vite)
 sudo systemctl status autoarchiv-api    # API server status (works for both maik & kevin)
 sudo systemctl restart autoarchiv-api   # Restart API server
 journalctl -u autoarchiv-api -n 50      # API server logs
-PM2_HOME=/home/kevin/.pm2 pm2 status    # Frontend (tanstack-ssr via kevin's PM2)
+sudo systemctl status autoarchiv-frontend   # Frontend status (works for both maik & kevin)
+sudo systemctl restart autoarchiv-frontend  # Restart frontend
 
 # Database
 node check-db.mjs                   # Inspect database state
@@ -224,7 +225,7 @@ Everything is documented there. No surprises.
 ### "Something's slow"
 1. Check database: `node check-db.mjs` (size? users count?)
 2. Check API response time: `curl -w "@curl-format.txt" http://localhost:3001/api/health`
-3. Check frontend bundle size: `npm run build && ls -la dist/`
+3. Check frontend bundle size: `bun run build && ls -la dist/`
 
 ### "I need to add a new environment variable"
 1. Add to `.env`
