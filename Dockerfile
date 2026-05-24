@@ -21,12 +21,14 @@ RUN mkdir -p $ANDROID_SDK_ROOT/licenses && \
     echo -e "\n24333f8a63b6825ea9c5514f83c2829b004d1fee" > $ANDROID_SDK_ROOT/licenses/android-sdk-license && \
     yes | sdkmanager --sdk_root=$ANDROID_SDK_ROOT "platforms;android-33" "build-tools;33.0.0" 2>&1 | tail -20
 
+RUN apt-get update && apt-get install -y gradle && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY . /app
 
-RUN apt-get update && apt-get install -y gradle && rm -rf /var/lib/apt/lists/*
-
-RUN gradle -v && \
-    gradle clean assembleDebug --stacktrace 2>&1 | tail -50
+RUN rm -f gradlew gradlew.bat gradle/wrapper/gradle-wrapper.jar && \
+    gradle wrapper --gradle-version 8.2 && \
+    chmod +x gradlew && \
+    ./gradlew clean assembleDebug --stacktrace 2>&1 | tail -100
 
 ENTRYPOINT ["bash"]
