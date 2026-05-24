@@ -5218,7 +5218,7 @@ app.get('/api/admin/users', requireAdmin, (_req, res) => {
 });
 
 app.get('/api/admin/documents', requireAdmin, (req, res) => {
-  const limit = Math.max(10, Math.min(100, parseInt(req.query.limit || '25', 10) || 25));
+  const limit = Math.max(10, Math.min(5000, parseInt(req.query.limit || '1000', 10) || 1000));
   const status = String(req.query.status || '').trim();
   const categorized = String(req.query.categorized || '').trim();
 
