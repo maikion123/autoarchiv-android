@@ -121,6 +121,17 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
   - Build: ✓ Clean, scanner.worker bundle generated
   - Commit: a87de76
   - Detailed notes: see `.claude/memory/changelog_session_2026_05_24.md`
+- **COMPLETED (2026-05-24):** Native Android app (Kotlin) with Google ML Kit Document Scanner:
+  - Pure native alternative to web scanner — solves fundamental performance limits
+  - Full project at `/srv/projects/autoarchiv-android/` (separate git repo)
+  - Complete Kotlin implementation: MainActivity (session router), LoginActivity (email/password), ScanActivity (ML Kit scanner + upload)
+  - OkHttp client handles login (POST /api/auth/login), session check (GET /api/auth/me), document upload (POST /api/documents/upload)
+  - Session cookie persisted in SharedPreferences, sent with every request
+  - Material Design 3 UI, German strings, Gradle 8.2 wrapper for CLI builds
+  - Build: `./gradlew assembleDebug` → `app-debug.apk` (requires JDK + Android SDK, not on deployment server)
+  - Install: `adb install app/build/outputs/apk/debug/app-debug.apk`
+  - Test: Tap app → login → "Dokument scannen" → native ML Kit scanner opens (same as Google Lens)
+  - See `.claude/memory/android_app_project.md` for full details
 
 ## Quick Reference
 
