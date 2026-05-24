@@ -28,8 +28,8 @@ jobs:
 
     - name: Download Android SDK components
       run: |
-        sdkmanager "platforms;android-33"
-        sdkmanager "build-tools;33.0.0"
+        sdkmanager "platforms;android-34"
+        sdkmanager "build-tools;34.0.0"
         sdkmanager "platform-tools"
 
     - name: Setup Gradle
