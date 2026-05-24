@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-05-24]
+
+### Infrastructure
+- **systemd Migration:** PM2 vollständig ersetzt durch systemd-Services (`autoarchiv-api`, `autoarchiv-frontend`, `autoarchiv-scanner`) unter dediziertem `autoarchiv` System-User
+- **Deploy Pipeline:** GitHub Actions nutzt jetzt `bun` statt `npm`; deploy-Webhook `POST /api/deploy` mit Token-Auth; `systemctl restart` statt PM2
+- **`autoarchiv.service` (Briefsortierer) entfernt** — Python/gunicorn-Überrest, venv fehlte seit Monaten
+
+### Bug Fixes
+- **`src/features/Eingang.tsx`:** `AnimatePresence mode="wait"` entfernt — verursachte `insertBefore` DOM-Crash nach Dokument-Analyse
+
 ## [Unreleased]
 
 ### Phase A: Admin Mobile-First Responsive Overhaul

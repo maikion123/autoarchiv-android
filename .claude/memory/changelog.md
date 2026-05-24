@@ -7,6 +7,27 @@ metadata:
 
 ## Changelog
 
+### [2026-05-24] Infra: systemd Migration + Deploy Pipeline + Bug Fixes
+
+**systemd Migration (PM2 → systemd):**
+- Alle Dienste laufen jetzt als systemd-Services unter dediziertem `autoarchiv` System-User (uid 995, kein Login, kein Home)
+- Services: `autoarchiv-api` (Node/Express, Port 3001), `autoarchiv-frontend` (bun/Vite, Port 8080), `autoarchiv-scanner` (Python)
+- `autoarchiv.service` (Briefsortierer) deaktiviert + gelöscht — venv fehlte, 246k Restarts
+- PM2 komplett entfernt für produktive Dienste
+- Sudoers-Regel: beide User (maik + kevin) können `sudo systemctl restart autoarchiv-*`
+
+**Deploy Pipeline:**
+- GitHub Actions: npm → bun (`oven-sh/setup-bun@v2`)
+- Deploy-Webhook `POST /api/deploy`: git pull + bun install + bun build + systemctl restart
+- Fix: `--frozen-lockfile` entfernt (bun version mismatch CI vs Server)
+
+**Bug Fix:**
+- `AnimatePresence mode="wait"` in `Eingang.tsx` entfernt → `insertBefore` DOM-crash nach Analyse behoben
+
+**Build:** ✅ Clean
+
+---
+
 ### [2026-05-20] DocumentScanner: Quality + Performance Pass ✅
 - **`Eingang.tsx` — `imageToScanBase64`:** maxSide 1800→2048, JPEG quality 0.86→0.90. Better resolution + less compression = improved OCR accuracy for multi-page camera scans.
 - **`DocumentScanner.tsx` — stream liveness:** `startCamera` now checks `tracks[0].readyState === "live"` before reusing an existing stream. Prevents broken camera after OS suspends tracks during editing phase.

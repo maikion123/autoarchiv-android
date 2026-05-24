@@ -64,9 +64,12 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 - **Hosting:** netcup VPS
 - **Web Server:** Nginx (reverse proxy HTTPS 443)
 - **Upload Limit:** `client_max_body_size 25m;` in `/etc/nginx/sites-enabled/nextkm.de` for phone photos/PDFs
-- **Process Manager:** PM2 (2 processes)
-  - `autoarchiv-frontend` (Vite, port 8080)
-  - `autoarchiv-api` (Express, port 3001)
+- **Process Manager:** systemd (user-independent, `User=autoarchiv`)
+  - `autoarchiv-frontend` (bun/Vite, port 8080) → `sudo systemctl restart autoarchiv-frontend`
+  - `autoarchiv-api` (Node/Express, port 3001) → `sudo systemctl restart autoarchiv-api`
+  - `autoarchiv-scanner` (Python, internal) → `sudo systemctl restart autoarchiv-scanner`
+  - Both maik + kevin can manage via devteam sudoers rule
+  - Logs: `journalctl -u autoarchiv-api -f`
 - **Database Location:** `/srv/projects/autoarchiv/data/autoarchiv.db`
 - **Domain:** nextkm.de (HTTPS via Let's Encrypt)
 
@@ -207,7 +210,7 @@ See `.claude/memory/changelog.md` for the full change history.
    - `ntfy-setup.tsx`: calendar mode initializes as "saved" when token exists.
    - Nginx: `/dav/` and `/.well-known/caldav` routing added.
    - Express 5 / path-to-regexp v8 fix: wildcard `*` not supported — use `app.use` with `req.path.startsWith` instead.
-   - pm2: Maik's daemon manages the API (user maik); always restart via `sudo -u maik PM2_HOME=/home/maik/.pm2 pm2 restart autoarchiv-api`.
+   - Service management: `sudo systemctl restart autoarchiv-api` (works for both maik + kevin).
 
 1. 2026-05-12 — Payment Reminder Onboarding Cleanup:
    - Removed the separate `Testen` tab from `src/features/Zahlungen.tsx`.

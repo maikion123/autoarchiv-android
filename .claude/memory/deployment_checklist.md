@@ -8,12 +8,15 @@ originSessionId: cedebed3-0b75-4549-a14d-fd3fbc8be27d
 
 ## Pre-Deployment (Local)
 
-- [ ] `npm run build` succeeds without errors or warnings
-- [ ] `npm run lint` (if configured) passes
+- [ ] `bun run build` succeeds without errors or warnings
+- [ ] No TS/lint errors
 - [ ] No uncommitted changes (except `data/autoarchiv.db-*` WAL files)
 - [ ] Recent commits have clear messages describing what changed
 
 ## Deployment Steps (on VPS)
+
+Automatic via GitHub Actions + deploy webhook (`POST /api/deploy`).
+Manual steps if needed:
 
 ### 1. Pull Latest Code
 ```bash
@@ -23,24 +26,24 @@ git pull origin main
 
 ### 2. Install/Update Dependencies
 ```bash
-npm ci  # Use instead of npm install for reproducible installs
+bun install  # Project uses bun.lockb — do NOT use npm ci
 ```
 
 ### 3. Build Frontend
 ```bash
-npm run build
+bun run build
 ```
 
 ### 4. Restart Services
 ```bash
-pm2 restart all
-pm2 save  # Persist PM2 config
+sudo systemctl restart autoarchiv-api
+sudo systemctl restart autoarchiv-frontend
 ```
 
 ### 5. Verify Services Are Running
 ```bash
-pm2 status
-# Both autoarchiv-api and autoarchiv-frontend should show "online"
+sudo systemctl status autoarchiv-api autoarchiv-frontend
+# Both should show "active (running)"
 ```
 
 ## Post-Deployment Verification
@@ -114,16 +117,16 @@ curl -s https://nextkm.de/api/auth/me | jq .
 
 ## Monitoring Commands
 
-### PM2 Logs
+### Service Logs
 ```bash
 # Last 50 lines of API server
-pm2 logs autoarchiv-api --lines 50
+journalctl -u autoarchiv-api -n 50
 
 # Last 50 lines of frontend
-pm2 logs autoarchiv-frontend --lines 50
+journalctl -u autoarchiv-frontend -n 50
 
-# Real-time monitoring
-pm2 monit
+# Real-time follow
+journalctl -u autoarchiv-api -f
 ```
 
 ### System Resources
@@ -159,8 +162,8 @@ git revert HEAD  # Creates a new commit that undoes the last one
 # git reset --hard <commit-hash>
 
 # 3. Rebuild and restart
-npm run build
-pm2 restart all
+bun run build
+sudo systemctl restart autoarchiv-api autoarchiv-frontend
 
 # 4. Test
 curl -I https://nextkm.de/api/health
@@ -175,7 +178,7 @@ git push origin main
 
 ### API Server Won't Start
 ```bash
-pm2 logs autoarchiv-api --lines 100
+journalctl -u autoarchiv-api -n 100
 # Look for "Cannot find module", "ENOENT", "SyntaxError"
 
 # If dotenv not loading:
@@ -218,14 +221,12 @@ curl -I https://nextkm.de/api/health
 ```bash
 # SQLite locks if multiple processes try to write
 # Solution: check if multiple api-server processes running
-pm2 status
+sudo systemctl status autoarchiv-api
 ps aux | grep "api-server"
 # Should only see ONE api-server process
 
-# If duplicates, kill extras:
-pm2 kill  # WARNING: kills all PM2 processes
-pm2 start "node /srv/projects/autoarchiv/api-server.mjs" --name autoarchiv-api --cwd /srv/projects/autoarchiv
-pm2 start "npm run dev" --name autoarchiv-frontend --cwd /srv/projects/autoarchiv
+# If issues:
+sudo systemctl restart autoarchiv-api
 ```
 
 ### Login Rate Limit Trips During Testing
@@ -234,7 +235,7 @@ pm2 start "npm run dev" --name autoarchiv-frontend --cwd /srv/projects/autoarchi
 rg -n "authLimiter|skipSuccessfulRequests|max: 25" /srv/projects/autoarchiv/api-server.mjs
 
 # Restart API to clear the in-memory limiter state
-pm2 restart autoarchiv-api
+sudo systemctl restart autoarchiv-api
 
 # Then retry login once with the same email/IP
 ```
@@ -249,7 +250,7 @@ pm2 restart autoarchiv-api
 ## Alerting
 
 Consider setting up:
-- PM2+ alerts for process crashes
+- systemd/journald alerts for process crashes
 - Disk space monitoring (database could fill drive)
 - SMTP failure notifications (registration broken)
 - Nginx 5xx error spikes
