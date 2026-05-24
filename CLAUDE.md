@@ -128,7 +128,9 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
   - OkHttp client handles login (POST /api/auth/login), session check (GET /api/auth/me), document upload (POST /api/documents/upload)
   - Session cookie persisted in SharedPreferences, sent with every request
   - Material Design 3 UI, German strings, Gradle 8.2 wrapper for CLI builds
-  - **Build via Docker** (2026-05-24): Server is ARM64, AAPT2 only available x86_64. Dockerfile at `/srv/projects/autoarchiv-android/Dockerfile` runs x86_64 Ubuntu + JDK 17 + Android SDK. Build: `sudo docker build -t autoarchiv-android-builder:latest /srv/projects/autoarchiv-android && sudo docker run --rm -v /srv/projects/autoarchiv-android:/app autoarchiv-android-builder:latest` → extracts APK to `/srv/projects/autoarchiv/public/eingang/nextKM.apk`
+  - **Build path** (2026-05-24): Server is ARM64, AAPT2 only available x86_64. Two options:
+    1. **GitHub Actions** (recommended): Separate x86_64 runners, build on push, auto-deploy to server → users download from `https://nextkm.de/eingang/nextKM.apk` (no GitHub for users)
+    2. **Docker** (local, WIP): Dockerfile at `/srv/projects/autoarchiv-android/Dockerfile` for x86_64 build environment. Blocker: gradlew script corrupted during copy (ARM64→Docker), Gradle install in container still being debugged
   - Install: `adb install app/build/outputs/apk/debug/app-debug.apk`
   - Test: Tap app → login → "Dokument scannen" → native ML Kit scanner opens (same as Google Lens)
   - Download: Users access `https://nextkm.de/eingang/nextKM.apk` directly (no GitHub dependency)
