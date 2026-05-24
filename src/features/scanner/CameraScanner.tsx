@@ -1,6 +1,9 @@
 // Ultra-simple camera scanner - video + capture button only
 // No detection, no overlays, no state updates in render loop
 // Stable 60fps guaranteed
+//
+// WebView bridge support: When running in AutoArchivMobile app,
+// uses native document scanner APIs (iOS Vision, Android ML Kit)
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Camera, Zap, ZapOff, Loader2 } from "lucide-react";
@@ -16,10 +19,14 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const capturingRef = useRef(false);
+  const webViewRef = useRef<any>(typeof window !== "undefined" ? (window as any).ReactNativeWebView : null);
 
   // UI state (minimal)
   const [torchOn, setTorchOn] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
+  const [nativeBridgeAvailable] = useState(
+    typeof window !== "undefined" && !!(window as any).NativeScanner
+  );
 
   // Store callbacks in refs to avoid re-triggering camera
   const onLoadingChangeRef = useRef(onLoadingChange);
@@ -30,13 +37,63 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
     onCaptureRef.current = onCapture;
   }, [onLoadingChange, onCapture]);
 
-  // Start camera - only once on mount
+  // Handle native bridge messages
   useEffect(() => {
+    if (!nativeBridgeAvailable) return;
+
+    const handleMessage = async (event: MessageEvent) => {
+      try {
+        const data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
+
+        if (data.type === "scan_result" && data.images && Array.isArray(data.images)) {
+          // Process each base64 image
+          for (const dataUrl of data.images) {
+            try {
+              // Fetch the data URL to get blob
+              const response = await fetch(dataUrl);
+              const blob = await response.blob();
+
+              // Create a canvas to get dimensions
+              const img = new Image();
+              await new Promise<void>((resolve, reject) => {
+                img.onload = () => resolve();
+                img.onerror = reject;
+                img.src = dataUrl;
+              });
+
+              const dims = { w: img.width, h: img.height };
+              // Default corners (full frame)
+              const corners: [number, number][] = [
+                [0, 0],
+                [img.width, 0],
+                [img.width, img.height],
+                [0, img.height],
+              ];
+
+              onCaptureRef.current(dataUrl, dims, corners);
+            } catch (err) {
+              console.error("[Scanner] Failed to process native image:", err);
+              toast.error("Bild konnte nicht verarbeitet werden");
+            }
+          }
+        }
+      } catch (err) {
+        console.error("[Scanner] Message handler error:", err);
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [nativeBridgeAvailable]);
+
+  // Browser camera setup (only if no native bridge)
+  useEffect(() => {
+    if (nativeBridgeAvailable) return;
+
     const startCamera = async () => {
       try {
         onLoadingChangeRef.current(true, "Kamera wird gestartet...");
 
-        // Simple camera request - no detection, no opencv
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: "environment" },
@@ -54,13 +111,11 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
         streamRef.current = stream;
         videoRef.current.srcObject = stream;
 
-        // Wait for video to load
         await new Promise<void>((resolve) => {
           const handler = () => {
             videoRef.current?.removeEventListener("loadedmetadata", handler);
             videoRef.current?.play().catch(console.error);
 
-            // Check torch capability
             const track = stream.getVideoTracks()[0];
             if (track?.getCapabilities) {
               try {
@@ -91,9 +146,9 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
         streamRef.current.getTracks().forEach((t) => t.stop());
       }
     };
-  }, []);
+  }, [nativeBridgeAvailable]);
 
-  // Capture frame
+  // Capture frame (browser only)
   const capture = useCallback(async () => {
     const video = videoRef.current;
     if (!video || video.videoWidth === 0 || capturingRef.current) return;
@@ -109,7 +164,6 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
       ctx.drawImage(video, 0, 0);
       const dataUrl = canvas.toDataURL("image/jpeg", 0.94);
 
-      // Return default corners (full frame)
       const corners: [number, number][] = [
         [0, 0],
         [video.videoWidth, 0],
@@ -124,6 +178,13 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
       capturingRef.current = false;
     }
   }, []);
+
+  // Invoke native scanner
+  const invokeNativeScanner = useCallback(() => {
+    if (nativeBridgeAvailable && (window as any).NativeScanner) {
+      (window as any).NativeScanner.scan();
+    }
+  }, [nativeBridgeAvailable]);
 
   // Toggle torch
   const toggleTorch = useCallback(async () => {
@@ -142,9 +203,32 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
     }
   }, [torchOn, torchSupported]);
 
+  // Native bridge UI (button only)
+  if (nativeBridgeAvailable) {
+    return (
+      <div className="flex h-full flex-col bg-black">
+        <div className="relative flex-1 overflow-hidden bg-black flex items-center justify-center">
+          {isLoading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur">
+              <Loader2 className="h-8 w-8 animate-spin text-white" />
+            </div>
+          )}
+
+          <button
+            onClick={invokeNativeScanner}
+            disabled={isLoading}
+            className="rounded-xl bg-cyan-500 px-6 py-3 text-lg font-semibold text-black transition hover:bg-cyan-400 disabled:bg-gray-600 disabled:text-gray-400 active:scale-95"
+          >
+            📸 Dokument scannen
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Browser camera UI (original)
   return (
     <div className="flex h-full flex-col bg-black">
-      {/* Video only - no overlays, no canvas */}
       <div className="relative flex-1 overflow-hidden bg-black">
         <video
           ref={videoRef}
@@ -155,14 +239,12 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
           disablePictureInPicture
         />
 
-        {/* Loading spinner */}
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur">
             <Loader2 className="h-8 w-8 animate-spin text-white" />
           </div>
         )}
 
-        {/* Guidance text */}
         <div className="absolute top-4 left-4 right-4">
           <div className="rounded-full px-3 py-1.5 text-xs font-semibold text-white text-center bg-blue-500/60">
             📸 Tap to capture
@@ -170,9 +252,7 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
         </div>
       </div>
 
-      {/* Bottom controls */}
       <div className="flex items-center justify-between gap-2 border-t border-gray-700 bg-black/80 px-3 py-4 safe-area-inset-bottom">
-        {/* Torch button */}
         <button
           onClick={toggleTorch}
           disabled={!torchSupported}
@@ -188,10 +268,8 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
           {torchOn ? <Zap className="h-6 w-6" /> : <ZapOff className="h-6 w-6" />}
         </button>
 
-        {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Capture button */}
         <button
           onClick={capture}
           disabled={isLoading || capturingRef.current}

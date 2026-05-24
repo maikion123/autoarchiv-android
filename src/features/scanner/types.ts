@@ -81,3 +81,11 @@ export interface WorkerResult {
   error?: string;
   metrics?: DetectionMetrics;
 }
+
+// WebView bridge for native document scanner (iOS/Android app)
+declare global {
+  interface Window {
+    NativeScanner?: { scan: () => void };
+    ReactNativeWebView?: { postMessage: (msg: string) => void };
+  }
+}
