@@ -71,7 +71,7 @@ class ScanActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val pages = result.pages
-                if (pages.isEmpty()) {
+                if (pages.isNullOrEmpty()) {
                     Toast.makeText(this@ScanActivity, "Keine Seiten gescannt", Toast.LENGTH_SHORT).show()
                     resetButton()
                     return@launch
@@ -101,7 +101,7 @@ class ScanActivity : AppCompatActivity() {
                     }
                 }
 
-                if (uploadedCount == pages.size) {
+                if (uploadedCount == pages!!.size) {
                     Toast.makeText(
                         this@ScanActivity,
                         "$uploadedCount Dokument(e) hochgeladen!",
@@ -111,7 +111,7 @@ class ScanActivity : AppCompatActivity() {
                 } else {
                     Toast.makeText(
                         this@ScanActivity,
-                        "Nur $uploadedCount von ${pages.size} hochgeladen",
+                        "Nur $uploadedCount von ${pages!!.size} hochgeladen",
                         Toast.LENGTH_LONG
                     ).show()
                     resetButton()
