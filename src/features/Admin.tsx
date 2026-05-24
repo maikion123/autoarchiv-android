@@ -340,14 +340,14 @@ export default function AdminPage() {
 
   const filteredReviewDocs = useMemo(() => {
     const q = documentSearch.trim().toLowerCase();
-    const sorted = [...uncategorizedDocs].sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
+    const sorted = [...reviewDocs].sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
     if (!q) return sorted;
     return sorted.filter((doc) =>
-      [doc.filename, doc.userEmail, doc.absender, doc.dokumenttyp, doc.reviewStatus, doc.status].some((v) =>
+      [doc.filename, doc.userEmail, doc.folderPath, doc.absender, doc.dokumenttyp, doc.reviewStatus, doc.status].some((v) =>
         String(v || "").toLowerCase().includes(q),
       ),
     );
-  }, [uncategorizedDocs, documentSearch]);
+  }, [reviewDocs, documentSearch]);
 
   const selectedUser = useMemo(
     () => users.find((u) => u.id === selectedUserId) || null,
@@ -1062,14 +1062,14 @@ export default function AdminPage() {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Prüfung</h2>
-                <p className="mt-1 text-sm text-muted-foreground">Unkategorisierte Dokumente zum Einsortieren.</p>
+                <p className="mt-1 text-sm text-muted-foreground">Alle Dokumente in Prüfung zur Überprüfung und Bearbeitung.</p>
               </div>
               <span className="text-xs text-muted-foreground">{filteredReviewDocs.length} offen</span>
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {filteredReviewDocs.length === 0 && (
                 <div className="col-span-full rounded-xl border border-dashed border-border/40 p-8 text-center text-sm text-muted-foreground">
-                  Keine unkategorisierten Dokumente.
+                  Keine Dokumente in Prüfung.
                 </div>
               )}
               {filteredReviewDocs.map((doc) => (
