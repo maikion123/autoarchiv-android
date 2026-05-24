@@ -60,7 +60,7 @@ export default function DocumentScanner({ onScanComplete, onClose, initialDraft 
 
   const isLoadingRef = useRef(false);
 
-  // Load initial draft
+  // Load initial draft + hide nav
   useEffect(() => {
     const loadDraft = async () => {
       try {
@@ -76,7 +76,15 @@ export default function DocumentScanner({ onScanComplete, onClose, initialDraft 
       }
     };
 
+    // Hide bottom nav while scanner is open
+    document.documentElement.classList.add("modal-open");
+
     void loadDraft();
+
+    return () => {
+      // Restore nav when scanner closes
+      document.documentElement.classList.remove("modal-open");
+    };
   }, [initialDraft]);
 
   // Transition to camera after loading

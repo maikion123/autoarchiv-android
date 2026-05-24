@@ -159,11 +159,15 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
 
     let lastDetect = 0;
     let rafId: number;
+    let lastWidth = 0;
+    let lastHeight = 0;
 
     function drawFrame(ts: number) {
-      // Sync canvas size to video aspect ratio
+      // Sync canvas size only if dimensions changed (avoid flicker from frequent resizing)
       const rect = canvas.parentElement?.getBoundingClientRect();
-      if (rect) {
+      if (rect && (lastWidth !== rect.width || lastHeight !== rect.height)) {
+        lastWidth = rect.width;
+        lastHeight = rect.height;
         canvas.width = rect.width;
         canvas.height = rect.height;
       }
@@ -402,36 +406,36 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
       </div>
 
       {/* Bottom controls */}
-      <div className="flex items-center justify-between gap-3 border-t border-gray-700 bg-black/80 px-4 py-3">
+      <div className="flex items-center justify-between gap-2 border-t border-gray-700 bg-black/80 px-3 py-4 safe-area-inset-bottom">
         {/* Torch button */}
         <button
           onClick={toggleTorch}
-          className={`rounded-full p-2 transition ${
+          className={`flex-shrink-0 rounded-full p-3 transition min-h-12 min-w-12 flex items-center justify-center ${
             torchOn ? "bg-yellow-500/20 text-yellow-400" : "bg-gray-700/40 text-gray-400"
           }`}
           title={torchOn ? "Blitzlicht aus" : "Blitzlicht an"}
         >
-          {torchOn ? <Zap className="h-5 w-5" /> : <ZapOff className="h-5 w-5" />}
+          {torchOn ? <Zap className="h-6 w-6" /> : <ZapOff className="h-6 w-6" />}
         </button>
 
         {/* Auto-capture toggle */}
-        <label className="flex items-center gap-2 text-xs text-gray-300">
+        <label className="flex items-center gap-2 text-xs text-gray-300 flex-shrink-0">
           <input
             type="checkbox"
             checked={autoCaptureEnabled}
             onChange={(e) => setAutoCaptureEnabled(e.target.checked)}
-            className="h-4 w-4 rounded border-gray-600"
+            className="h-5 w-5 rounded border-gray-600 cursor-pointer"
           />
-          Automatisch
+          <span>Auto</span>
         </label>
 
         {/* Capture button */}
         <button
           onClick={capture}
           disabled={isLoading || capturingRef.current}
-          className="ml-auto flex items-center gap-2 rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-black transition hover:bg-cyan-400 disabled:bg-gray-600 disabled:text-gray-400"
+          className="ml-auto flex items-center gap-2 rounded-full bg-cyan-500 px-5 py-3 text-sm font-semibold text-black transition hover:bg-cyan-400 disabled:bg-gray-600 disabled:text-gray-400 min-h-12 active:scale-95"
         >
-          <Camera className="h-4 w-4" />
+          <Camera className="h-5 w-5" />
           Aufnahme
         </button>
       </div>
