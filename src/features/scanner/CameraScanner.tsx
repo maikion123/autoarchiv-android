@@ -16,9 +16,9 @@ interface CameraScannerProps {
   isLoading: boolean;
 }
 
-const DETECT_INTERVAL = 120; // ms ~ 8fps for detection
-const AUTO_CAPTURE_THRESHOLD = 4; // Require N consecutive good frames for auto-capture
-const CORNER_VARIANCE_THRESHOLD = 0.008; // Normalized variance for stability
+const DETECT_INTERVAL = 250; // ms ~ 4fps for detection (reduced for performance)
+const AUTO_CAPTURE_THRESHOLD = 3; // Require N consecutive good frames for auto-capture
+const CORNER_VARIANCE_THRESHOLD = 0.01; // Normalized variance for stability (relaxed)
 
 export default function CameraScanner({ onCapture, onLoadingChange, isLoading }: CameraScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -180,7 +180,7 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
     }
   }, []);
 
-  // Overlay canvas drawing (RAF loop)
+  // Overlay canvas drawing (RAF loop) - optimized to prevent flicker
   useEffect(() => {
     const canvas = overlayCanvasRef.current;
     const video = videoRef.current;
@@ -188,37 +188,39 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
 
     let lastDetect = 0;
     let rafId: number;
-    let lastWidth = 0;
-    let lastHeight = 0;
+
+    // Set canvas resolution once at start (matches video, not CSS)
+    const initCanvas = () => {
+      // Use display size, not parent bounds
+      const displayRect = canvas.parentElement?.getBoundingClientRect();
+      if (!displayRect) return false;
+
+      const pixelRatio = window.devicePixelRatio || 1;
+      const width = Math.round(displayRect.width * pixelRatio);
+      const height = Math.round(displayRect.height * pixelRatio);
+
+      canvas.width = width;
+      canvas.height = height;
+
+      // Set CSS size to match
+      canvas.style.width = `${displayRect.width}px`;
+      canvas.style.height = `${displayRect.height}px`;
+
+      return true;
+    };
+
+    if (!initCanvas()) return;
 
     function drawFrame(ts: number) {
-      // Get canvas parent dimensions
-      const parent = canvas.parentElement;
-      if (!parent) {
+      const ctx = canvas.getContext("2d", { alpha: true });
+      if (!ctx) {
         rafId = requestAnimationFrame(drawFrame);
         return;
       }
 
-      const rect = parent.getBoundingClientRect();
-      const newWidth = Math.max(1, Math.round(rect.width));
-      const newHeight = Math.max(1, Math.round(rect.height));
-
-      // Sync canvas size only if dimensions changed (avoid flicker from frequent resizing)
-      if (lastWidth !== newWidth || lastHeight !== newHeight) {
-        lastWidth = newWidth;
-        lastHeight = newHeight;
-        canvas.width = newWidth;
-        canvas.height = newHeight;
-      }
-
-      const ctx = canvas.getContext("2d");
-      if (!ctx || canvas.width === 0 || canvas.height === 0) {
-        rafId = requestAnimationFrame(drawFrame);
-        return;
-      }
-
-      // Draw overlay
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Clear canvas once at frame start (no partial clears)
+      ctx.fillStyle = "rgba(0, 0, 0, 0)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       const corners = detectedCornersRef.current;
       const qual = detectedQualityRef.current;
@@ -239,7 +241,7 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
           offsetX = (canvas.width - video.videoWidth * scale) / 2;
         }
 
-        // Draw polygon
+        // Determine colors based on quality
         const color =
           qual === "good"
             ? "rgba(34, 197, 94, 0.15)"
@@ -254,57 +256,64 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
               ? "rgb(251, 146, 60)"
               : "rgb(239, 68, 68)";
 
+        // Transform corners to canvas space
+        const transformedCorners = corners.map((corner) => ({
+          x: offsetX + corner[0] * scale,
+          y: offsetY + corner[1] * scale,
+        }));
+
+        // Draw filled polygon
         ctx.fillStyle = color;
         ctx.beginPath();
-        corners.forEach((corner, i) => {
-          const x = offsetX + corner[0] * scale;
-          const y = offsetY + corner[1] * scale;
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        });
+        ctx.moveTo(transformedCorners[0].x, transformedCorners[0].y);
+        for (let i = 1; i < transformedCorners.length; i++) {
+          ctx.lineTo(transformedCorners[i].x, transformedCorners[i].y);
+        }
         ctx.closePath();
         ctx.fill();
 
-        // Draw glow stroke
+        // Draw outline with glow
         ctx.strokeStyle = strokeColor;
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2;
         ctx.shadowColor = strokeColor;
-        ctx.shadowBlur = 16;
+        ctx.shadowBlur = 12;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
         ctx.beginPath();
-        corners.forEach((corner, i) => {
-          const x = offsetX + corner[0] * scale;
-          const y = offsetY + corner[1] * scale;
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        });
+        ctx.moveTo(transformedCorners[0].x, transformedCorners[0].y);
+        for (let i = 1; i < transformedCorners.length; i++) {
+          ctx.lineTo(transformedCorners[i].x, transformedCorners[i].y);
+        }
         ctx.closePath();
         ctx.stroke();
         ctx.shadowBlur = 0;
 
-        // Draw corner dots
-        corners.forEach((corner) => {
-          const x = offsetX + corner[0] * scale;
-          const y = offsetY + corner[1] * scale;
-
-          ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+        // Draw corner indicators (smaller circles)
+        const cornerRadius = 6;
+        transformedCorners.forEach((corner) => {
+          // White circle
+          ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
           ctx.beginPath();
-          ctx.arc(x, y, 8, 0, Math.PI * 2);
+          ctx.arc(corner.x, corner.y, cornerRadius, 0, Math.PI * 2);
           ctx.fill();
 
+          // Colored outline
           ctx.strokeStyle = strokeColor;
-          ctx.lineWidth = 3;
+          ctx.lineWidth = 2;
           ctx.beginPath();
-          ctx.arc(x, y, 8, 0, Math.PI * 2);
+          ctx.arc(corner.x, corner.y, cornerRadius, 0, Math.PI * 2);
           ctx.stroke();
         });
       }
 
-      // Throttle detection to DETECT_INTERVAL
+      // Throttle detection - run async so RAF doesn't wait
       if (ts - lastDetect >= DETECT_INTERVAL) {
         lastDetect = ts;
-        void runDetect();
+        // Run detection in background without waiting
+        void runDetect().catch((err) => console.debug("[Scanner] Detection error:", err));
       }
 
+      // Continue RAF loop immediately (don't wait for detection)
       rafId = requestAnimationFrame(drawFrame);
     }
 
@@ -337,11 +346,15 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
 
         onLoadingChange(true, "Kamera wird gestartet...");
 
+        // Request camera with mobile-friendly constraints
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: "environment" },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
+            width: { ideal: 1280, min: 480 },
+            height: { ideal: 960, min: 360 },
+            // Prefer autofocus and continuous auto-exposure
+            focusMode: { ideal: "continuous" } as any,
+            exposureMode: { ideal: "continuous" } as any,
           },
           audio: false,
         });
@@ -427,6 +440,12 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
           className="h-full w-full object-cover"
           playsInline
           muted
+          autoPlay
+          disablePictureInPicture
+          style={{
+            WebkitTransform: "scaleX(-1)",
+            transform: "scaleX(-1)",
+          }}
         />
 
         {/* Overlay canvas */}
