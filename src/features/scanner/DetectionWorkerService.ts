@@ -25,19 +25,33 @@ class DetectionWorkerService {
         type: "module",
       });
 
+      // Initialize worker with timeout
+      let initTimeout: NodeJS.Timeout | null = null;
+      initTimeout = setTimeout(() => {
+        console.warn("[Scanner] Worker init timeout, falling back to main thread");
+        this.workerSupported = false;
+        this.worker = null;
+        this.isReady = false;
+        try {
+          workerModule.terminate();
+        } catch (e) {
+          // ignore
+        }
+      }, 10000); // 10 second timeout
+
       // Set up message handler
       workerModule.onmessage = (event: MessageEvent<WorkerResult>) => {
         const { type } = event.data;
 
         if (type === "ready") {
+          if (initTimeout) clearTimeout(initTimeout);
           this.isReady = true;
+          console.debug("[Scanner] Worker ready");
           return;
         }
 
         if (type === "result" || type === "error") {
-          // Find the pending request (we use a simple counter for request ID)
-          // In a production app, you'd want proper request tracking
-          // For now, we handle the most recent request
+          // Find the pending request
           const callbacks = Array.from(this.pendingCallbacks.values());
           if (callbacks.length > 0) {
             const { resolve, reject, timeout } = callbacks[0];
@@ -54,9 +68,11 @@ class DetectionWorkerService {
       };
 
       workerModule.onerror = (error) => {
+        if (initTimeout) clearTimeout(initTimeout);
         console.error("[Scanner] Worker error:", error);
         this.workerSupported = false;
         this.worker = null;
+        this.isReady = false;
       };
 
       // Initialize worker
@@ -68,6 +84,7 @@ class DetectionWorkerService {
       console.warn("[Scanner] Worker initialization failed, will use main thread", err);
       this.workerSupported = false;
       this.worker = null;
+      this.isReady = false;
     }
   }
 
