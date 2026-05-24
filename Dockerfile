@@ -24,7 +24,9 @@ RUN mkdir -p $ANDROID_SDK_ROOT/licenses && \
 WORKDIR /app
 COPY . /app
 
-RUN chmod +x gradlew && \
-    ./gradlew clean assembleDebug --stacktrace
+RUN apt-get update && apt-get install -y gradle && rm -rf /var/lib/apt/lists/*
+
+RUN gradle -v && \
+    gradle clean assembleDebug --stacktrace 2>&1 | tail -50
 
 ENTRYPOINT ["bash"]
