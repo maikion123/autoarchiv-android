@@ -474,9 +474,13 @@ export function AppShell() {
       </main>
 
       {/* Bottom tab bar (mobile) */}
-              <nav className="fixed bottom-3 left-3 right-3 z-50 md:hidden transition-all duration-300" style={{
+              <nav className="fixed z-50 md:hidden" style={{
+        bottom: 'max(12px, calc(env(safe-area-inset-bottom) + 12px))',
+        left: '12px',
+        right: '12px',
         transform: isModalOpen ? 'translateY(150%)' : 'translateY(0)',
-        pointerEvents: isModalOpen ? 'none' : 'auto'
+        pointerEvents: isModalOpen ? 'none' : 'auto',
+        transition: 'transform 300ms ease-in-out'
       }}>
         <div className="glass-strong rounded-2xl border-glow px-2 py-2">
           <ul className="flex items-center justify-center gap-1">
