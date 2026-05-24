@@ -6,7 +6,7 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
 
 **What?** Private document archive app (React + Express + SQLite)  
 **Where?** https://nextkm.de  
-**Status?** Production live, auth + OCR/upload working, mobile UX polished, scanner modernized (2026-05-24)  
+**Status?** Production live, auth + OCR/upload working, mobile UX polished, scanner modernized, Android APK live (2026-05-24)  
 **Tech?** TanStack Start, Express.js (port 3001), better-sqlite3, bcryptjs, JWT cookies, OpenCV.js, Web Workers  
 
 ## Start Here
@@ -121,20 +121,16 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
   - Build: ✓ Clean, scanner.worker bundle generated
   - Commit: a87de76
   - Detailed notes: see `.claude/memory/changelog_session_2026_05_24.md`
-- **COMPLETED (2026-05-24):** Native Android app (Kotlin) with Google ML Kit Document Scanner:
+- **COMPLETED (2026-05-24):** Native Android app (Kotlin) mit Google ML Kit Document Scanner + GitHub Actions CI/CD:
   - Pure native alternative to web scanner — solves fundamental performance limits
-  - Full project at `/srv/projects/autoarchiv-android/` (separate git repo)
+  - Full project at `/srv/projects/autoarchiv-android/` (separate git repo: `maikion123/autoarchiv-android`)
   - Complete Kotlin implementation: MainActivity (session router), LoginActivity (email/password), ScanActivity (ML Kit scanner + upload)
-  - OkHttp client handles login (POST /api/auth/login), session check (GET /api/auth/me), document upload (POST /api/documents/upload)
-  - Session cookie persisted in SharedPreferences, sent with every request
-  - Material Design 3 UI, German strings, Gradle 8.2 wrapper for CLI builds
-  - **Build path** (2026-05-24): Server is ARM64, AAPT2 only available x86_64. Two options:
-    1. **GitHub Actions** (recommended): Separate x86_64 runners, build on push, auto-deploy to server → users download from `https://nextkm.de/eingang/nextKM.apk` (no GitHub for users)
-    2. **Docker** (local, WIP): Dockerfile at `/srv/projects/autoarchiv-android/Dockerfile` for x86_64 build environment. Blocker: gradlew script corrupted during copy (ARM64→Docker), Gradle install in container still being debugged
-  - Install: `adb install app/build/outputs/apk/debug/app-debug.apk`
-  - Test: Tap app → login → "Dokument scannen" → native ML Kit scanner opens (same as Google Lens)
-  - Download: Users access `https://nextkm.de/eingang/nextKM.apk` directly (no GitHub dependency)
-  - See `.claude/memory/android_app_project.md` for full details
+  - AGP 8.2.2, Kotlin 1.9.20, Gradle 8.2
+  - **Build: GitHub Actions** — push to master → APK built on x86_64 runner → GitHub Release `latest` → Deploy-Script lädt APK auf Server
+  - **Deploy APK nach neuem Build:** `bash scripts/deploy-android-apk.sh`
+  - Download: `https://nextkm.de/eingang/nextKM.apk` (18 MB, direkt für Nutzer)
+  - Install dev: `adb install app/build/outputs/apk/debug/app-debug.apk`
+  - See `.claude/memory/android_app_project.md` für alle Details + CI/CD Fixes
 
 ## Quick Reference
 
