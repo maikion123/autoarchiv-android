@@ -56,7 +56,8 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
 
     try {
       const detectionService = getDetectionService();
-      const result = await detectionService.detect(video, 3000);
+      // Use shorter timeout to fail fast if detection hangs
+      const result = await detectionService.detect(video, 2000);
 
       // Update refs for RAF loop
       detectedCornersRef.current = result.corners;
@@ -293,7 +294,18 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
     const startCamera = async () => {
       try {
         onLoadingChange(true, "OpenCV wird geladen...");
-        await loadOpenCV();
+
+        // Add timeout to prevent infinite loading
+        const opencvTimeout = new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error("OpenCV Laden hat zu lange gedauert")), 15000)
+        );
+
+        try {
+          await Promise.race([loadOpenCV(), opencvTimeout]);
+        } catch (err: any) {
+          console.error("[Scanner] OpenCV load failed:", err);
+          throw new Error("OpenCV konnte nicht geladen werden: " + (err?.message || "Unbekannter Fehler"));
+        }
 
         onLoadingChange(true, "Kamera wird gestartet...");
 
@@ -315,29 +327,37 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
         videoRef.current.srcObject = stream;
 
         // Start overlay drawing on video load
-        await new Promise<void>((resolve) => {
-          const handler = () => {
-            videoRef.current?.removeEventListener("loadedmetadata", handler);
-            videoRef.current?.play().catch(console.error);
+        const videoLoadTimeout = new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error("Video konnte nicht geladen werden")), 10000)
+        );
 
-            // Check torch capability
-            const track = stream.getVideoTracks()[0];
-            if (track?.getCapabilities) {
-              try {
-                const capabilities = track.getCapabilities() as any;
-                setTorchSupported(!!capabilities.torch);
-              } catch (e) {
-                setTorchSupported(false);
+        await Promise.race([
+          new Promise<void>((resolve) => {
+            const handler = () => {
+              videoRef.current?.removeEventListener("loadedmetadata", handler);
+              videoRef.current?.play().catch(console.error);
+
+              // Check torch capability
+              const track = stream.getVideoTracks()[0];
+              if (track?.getCapabilities) {
+                try {
+                  const capabilities = track.getCapabilities() as any;
+                  setTorchSupported(!!capabilities.torch);
+                } catch (e) {
+                  setTorchSupported(false);
+                }
               }
-            }
 
-            resolve();
-          };
-          videoRef.current!.addEventListener("loadedmetadata", handler);
-        });
+              resolve();
+            };
+            videoRef.current!.addEventListener("loadedmetadata", handler);
+          }),
+          videoLoadTimeout,
+        ]);
 
         onLoadingChange(false, "");
       } catch (err: any) {
+        console.error("[Scanner] Camera startup failed:", err);
         toast.error(err?.message || "Kamera konnte nicht gestartet werden");
         onLoadingChange(false, "");
       }
