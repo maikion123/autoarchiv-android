@@ -1,0 +1,76 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: gradle
+
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v2
+      with:
+        api-level: 33
+        build-tools-version: 33.0.0
+
+    - name: Make gradlew executable
+      run: chmod +x ./gradlew
+
+    - name: Resize app icons
+      run: |
+        # Install ImageMagick
+        sudo apt-get update -qq && sudo apt-get install -y imagemagick > /dev/null 2>&1
+
+        # Resize logo for different densities
+        convert app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png -resize 48x48 app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png
+        convert app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png -resize 72x72 app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png
+        convert app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png -resize 96x96 app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png
+
+        echo "✅ App icons resized for all densities"
+
+    - name: Build APK
+      run: ./gradlew clean assembleDebug
+      env:
+        ANDROID_SDK_ROOT: ${{ android.sdk_root }}
+
+    - name: Upload APK as artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: autoarchiv-android-debug
+        path: app/build/outputs/apk/debug/app-debug.apk
+        retention-days: 30
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      if: startsWith(github.ref, 'refs/tags/')
+      with:
+        files: app/build/outputs/apk/debug/app-debug.apk
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Comment on PR with APK download
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: '✅ Android APK built! Download from Artifacts tab above.'
+          })
