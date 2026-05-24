@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AutoArchiv</string>
+    <string name="email">E-Mail</string>
+    <string name="password">Passwort</string>
+    <string name="login_button">Anmelden</string>
+    <string name="logging_in">Wird angemeldet...</string>
+    <string name="scan_title">Dokumentenscanner</string>
+    <string name="scan_button">Dokument scannen</string>
+    <string name="uploading">Werden hochgeladen...</string>
+    <string name="uploading_complete">Hochladen abgeschlossen</string>
+    <string name="no_pages_scanned">Keine Seiten gescannt</string>
+    <string name="upload_failed">Upload fehlgeschlagen</string>
+    <string name="scanner_error">Scanner konnte nicht geöffnet werden</string>
+    <string name="error">Fehler</string>
+    <string name="email_and_password_required">E-Mail und Passwort erforderlich</string>
+    <string name="login_failed">Login fehlgeschlagen</string>
+    <string name="document_uploaded">Dokument hochgeladen!</string>
+    <string name="documents_uploaded">%d Dokument(e) hochgeladen!</string>
+    <string name="documents_partial">Nur %d von %d hochgeladen</string>
+    <string name="no_session">Keine Session</string>
+</resources>
