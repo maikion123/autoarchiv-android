@@ -66,6 +66,16 @@ else
     command -v java >/dev/null 2>&1 || { echo "error: JAVA_HOME is not defined and java could not be found" >&2 ; exit 1; }
 fi
 
+# Detect OS
+cygwin=false
+darwin=false
+nonstop=false
+case "$(uname)" in
+  CYGWIN*) cygwin=true ;;
+  Darwin*) darwin=true ;;
+  MINGW*) nonstop=true ;;
+esac
+
 # Increase the maximum file descriptors if we can.
 if ! "$cygwin" && ! "$darwin" && ! "$nonstop" ; then
     case $MAX_FD in #(
