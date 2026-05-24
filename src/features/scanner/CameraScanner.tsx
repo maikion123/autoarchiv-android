@@ -16,9 +16,9 @@ interface CameraScannerProps {
   isLoading: boolean;
 }
 
-const DETECT_INTERVAL = 250; // ms ~ 4fps for detection (reduced for performance)
-const AUTO_CAPTURE_THRESHOLD = 3; // Require N consecutive good frames for auto-capture
-const CORNER_VARIANCE_THRESHOLD = 0.01; // Normalized variance for stability (relaxed)
+const DETECT_INTERVAL = 500; // ms ~ 2fps for detection (optimize for performance/battery)
+const AUTO_CAPTURE_THRESHOLD = 2; // Require N consecutive good frames for auto-capture
+const CORNER_VARIANCE_THRESHOLD = 0.015; // Normalized variance for stability (more relaxed)
 
 export default function CameraScanner({ onCapture, onLoadingChange, isLoading }: CameraScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -272,13 +272,11 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
         ctx.closePath();
         ctx.fill();
 
-        // Draw outline with glow
+        // Draw outline (no shadow for performance)
         ctx.strokeStyle = strokeColor;
-        ctx.lineWidth = 2;
-        ctx.shadowColor = strokeColor;
-        ctx.shadowBlur = 12;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 0;
+        ctx.lineWidth = 2.5;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
         ctx.beginPath();
         ctx.moveTo(transformedCorners[0].x, transformedCorners[0].y);
         for (let i = 1; i < transformedCorners.length; i++) {
@@ -286,23 +284,15 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
         }
         ctx.closePath();
         ctx.stroke();
-        ctx.shadowBlur = 0;
 
-        // Draw corner indicators (smaller circles)
-        const cornerRadius = 6;
+        // Draw corner circles (small, simple)
+        const cornerRadius = 5;
         transformedCorners.forEach((corner) => {
-          // White circle
-          ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+          // Colored circle only
+          ctx.fillStyle = strokeColor;
           ctx.beginPath();
           ctx.arc(corner.x, corner.y, cornerRadius, 0, Math.PI * 2);
           ctx.fill();
-
-          // Colored outline
-          ctx.strokeStyle = strokeColor;
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.arc(corner.x, corner.y, cornerRadius, 0, Math.PI * 2);
-          ctx.stroke();
         });
       }
 
@@ -451,10 +441,6 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
           muted
           autoPlay
           disablePictureInPicture
-          style={{
-            WebkitTransform: "scaleX(-1)",
-            transform: "scaleX(-1)",
-          }}
         />
 
         {/* Overlay canvas */}
