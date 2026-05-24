@@ -85,7 +85,9 @@ function computePolygonArea(corners: [number, number][]): number {
 }
 
 export async function detectDocument(video: HTMLVideoElement): Promise<DetectionResult & { metrics?: DetectionMetrics }> {
+  // If OpenCV.js not available, return no detection (allows manual capture)
   if (!window.cv) {
+    console.warn("[Scanner] OpenCV.js not available, detection disabled. Manual capture still works.");
     return { corners: null, quality: null, confidence: 0 };
   }
 

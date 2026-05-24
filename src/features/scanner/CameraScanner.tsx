@@ -52,12 +52,22 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
   // Detect document in video frame
   const runDetect = useCallback(async () => {
     const video = videoRef.current;
-    if (!video || video.videoWidth === 0) return;
+    if (!video || video.videoWidth === 0) {
+      console.debug("[Scanner] Video not ready for detection");
+      return;
+    }
 
+    // TEMPORARY: Skip detection if opencv.wasm missing
+    // Return minimal result to allow manual capture
     try {
       const detectionService = getDetectionService();
       // Use shorter timeout to fail fast if detection hangs
-      const result = await detectionService.detect(video, 2000);
+      const result = await Promise.race([
+        detectionService.detect(video, 2000),
+        new Promise<any>((_resolve, reject) =>
+          setTimeout(() => reject(new Error("Detection timeout")), 2000)
+        ),
+      ]);
 
       // Update refs for RAF loop
       detectedCornersRef.current = result.corners;
@@ -67,6 +77,10 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
       // Update UI
       setQuality(result.quality);
       setConfidence(result.confidence);
+
+      if (!result.corners) {
+        console.debug("[Scanner] No document detected", { quality: result.quality });
+      }
 
       // Auto-capture logic: check stability via corner variance
       if (autoCaptureRef.current && result.quality === "good" && result.corners) {
@@ -110,6 +124,11 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
       }
     } catch (err) {
       console.error("[Scanner] Detection error:", err);
+      // On error, clear detection state but keep UI functional
+      detectedCornersRef.current = null;
+      detectedQualityRef.current = null;
+      detectedConfidenceRef.current = 0;
+      // Don't update state on error - keep last known good state
     }
   }, []);
 
@@ -293,18 +312,19 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
   useEffect(() => {
     const startCamera = async () => {
       try {
-        onLoadingChange(true, "OpenCV wird geladen...");
+        onLoadingChange(true, "Kamera wird vorbereitet...");
 
-        // Add timeout to prevent infinite loading
-        const opencvTimeout = new Promise<void>((_, reject) =>
-          setTimeout(() => reject(new Error("OpenCV Laden hat zu lange gedauert")), 15000)
-        );
-
+        // Try to load OpenCV but don't block on failure (manual capture still works)
         try {
+          const opencvTimeout = new Promise<void>((_, reject) =>
+            setTimeout(() => reject(new Error("OpenCV Laden hat zu lange gedauert")), 10000)
+          );
+
           await Promise.race([loadOpenCV(), opencvTimeout]);
+          console.debug("[Scanner] OpenCV loaded successfully");
         } catch (err: any) {
-          console.error("[Scanner] OpenCV load failed:", err);
-          throw new Error("OpenCV konnte nicht geladen werden: " + (err?.message || "Unbekannter Fehler"));
+          console.warn("[Scanner] OpenCV load failed, continuing without detection:", err?.message);
+          // Continue anyway - detection disabled but manual capture works
         }
 
         onLoadingChange(true, "Kamera wird gestartet...");
