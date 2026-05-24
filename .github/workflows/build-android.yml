@@ -23,25 +23,8 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
 
-    - name: Regenerate gradle wrapper
-      run: |
-        rm -f gradlew gradlew.bat gradle/wrapper/gradle-wrapper.jar gradle/wrapper/gradle-wrapper.properties
-        gradle wrapper --gradle-version 8.2
-
     - name: Make gradlew executable
       run: chmod +x ./gradlew
-
-    - name: Resize app icons
-      run: |
-        # Install ImageMagick
-        sudo apt-get update -qq && sudo apt-get install -y imagemagick > /dev/null 2>&1
-
-        # Resize logo for different densities
-        convert app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png -resize 48x48 app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png
-        convert app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png -resize 72x72 app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png
-        convert app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png -resize 96x96 app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png
-
-        echo "✅ App icons resized for all densities"
 
     - name: Build APK
       run: ./gradlew clean assembleDebug
