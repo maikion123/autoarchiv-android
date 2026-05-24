@@ -6,8 +6,8 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
 
 **What?** Private document archive app (React + Express + SQLite)  
 **Where?** https://nextkm.de  
-**Status?** Production live, auth + OCR/upload working, mobile UX polished, Android back button, optimistic delete (2026-05-23)  
-**Tech?** TanStack Start, Express.js (port 3001), better-sqlite3, bcryptjs, JWT cookies  
+**Status?** Production live, auth + OCR/upload working, mobile UX polished, scanner modernized (2026-05-24)  
+**Tech?** TanStack Start, Express.js (port 3001), better-sqlite3, bcryptjs, JWT cookies, OpenCV.js, Web Workers  
 
 ## Start Here
 
@@ -99,6 +99,28 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
   - Fixed nav label "ple" clipping issue: truncate (left-aligned) instead of text-center
   - Commits: 7a657f5, 61ffb5e, 125c62f, 3c00f6d, 295b054 (strengthened), 314f3d5, 724423d, 15d38c3
   - Detailed notes: see `.claude/memory/changelog_session_2026_05_23.md`
+- **COMPLETED (2026-05-24):** Scanner modernization — modular architecture + OpenCV.js detection + Web Workers:
+  - Refactored `DocumentScanner.tsx` from 1278-line monolith to 200-line orchestrator
+  - New modular architecture in `src/features/scanner/`:
+    - `types.ts`: Centralized Phase, Quality, FilterPreset, DetectionResult types
+    - `opencvLoader.ts`: Dynamic OpenCV.js WASM loader with singleton pattern
+    - `DocumentDetectionService.ts`: Direct OpenCV.js Canny pipeline (50-150 threshold, dilate, approxPolyDP)
+    - `scanner.worker.ts`: Web Worker entry point for non-blocking detection
+    - `DetectionWorkerService.ts`: Worker lifecycle manager with automatic main-thread fallback
+    - `PerspectiveCorrection.ts`: jscanify perspective warp + canvas filters (sharpen, shadow removal, B&W)
+    - `PDFExportService.ts`: jsPDF A4 multi-page generation
+    - `CameraScanner.tsx`: Live video + throttled RAF loop (detection ~8fps, overlay 60fps)
+    - `ScanPreview.tsx`: Corner dragging + filter selection
+  - Key improvements:
+    - Direct OpenCV.js Canny detection (better tuning than jscanify's simple approach)
+    - Web Worker support for non-blocking detection on weak devices
+    - Single throttled RAF loop (no setInterval drift)
+    - Corner variance stability tracking (5-frame history) for reliable auto-capture
+    - Modular, testable architecture
+    - All existing features preserved: torch, IDB draft persistence, multi-page PDF, filter presets
+  - Build: ✓ Clean, scanner.worker bundle generated
+  - Commit: a87de76
+  - Detailed notes: see `.claude/memory/changelog_session_2026_05_24.md`
 
 ## Quick Reference
 
@@ -141,6 +163,8 @@ npm run agent:done claude-code "Task completed"
 | `src/components/LoginForm.tsx` | Login UI + API calls |
 | `src/components/RegisterForm.tsx` | Register UI + OTP flow |
 | `src/components/AppShell.tsx` | Auth guard + main layout |
+| `src/features/DocumentScanner.tsx` | Scanner orchestrator (200 lines) — coordinates camera, preview, PDF export |
+| `src/features/scanner/` | Modular scanner components (9 files): types, loaders, detection (OpenCV.js), worker, perspective correction, PDF export, UI |
 | `docs/AGENT_WORKFLOW.md` | Live dashboard workflow for Claude Code, Codex, Kevin, Maik |
 | `scripts/agent-log.mjs` | CLI logger used by `npm run agent:*` |
 | `/etc/nginx/sites-enabled/nextkm.de` | Reverse proxy config |
