@@ -18,7 +18,6 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
-        cache: gradle
 
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
@@ -32,13 +31,8 @@ jobs:
         sdkmanager "build-tools;34.0.0"
         sdkmanager "platform-tools"
 
-    - name: Setup Gradle
-      uses: gradle/gradle-build-action@v2
-      with:
-        gradle-version: '8.2'
-
     - name: Build APK
-      run: gradle clean assembleDebug --stacktrace
+      run: ./gradlew clean assembleDebug --stacktrace
 
     - name: Debug - list build outputs
       if: always()
