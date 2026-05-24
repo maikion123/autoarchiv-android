@@ -604,7 +604,7 @@ export default function AdminPage() {
   const sectionCounts: Record<AdminSection, number | string> = {
     users: users.length,
     documents: categorizedDocs.length,
-    reviews: uncategorizedDocs.length,
+    reviews: reviewDocs.length,
     navigation: navigationItems.length,
     logs: logsTotal > 0 ? logsTotal : "",
   };
