@@ -230,28 +230,41 @@ export function AppShell() {
     };
   }, [isPublicPage, authState]);
 
-  // Auto-redirect to /login after 60 seconds when unauthenticated (not on / or /admin)
+  // Auto-redirect to /login after 60 seconds when unauthenticated
+  // Separate effect: depends only on authState, not path
   useEffect(() => {
-    if (!isPublicPage && authState === "unauthenticated" && path !== "/" && path !== "/admin") {
-      setAutoRedirectCountdown(60);
-      redirectTimerRef.current = setInterval(() => {
-        setAutoRedirectCountdown(prev => {
-          if (prev === null || prev <= 1) {
-            window.location.replace("/login");
-            return null;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-      return () => {
-        if (redirectTimerRef.current) {
-          clearInterval(redirectTimerRef.current);
-          redirectTimerRef.current = null;
-        }
-        setAutoRedirectCountdown(null);
-      };
+    // Don't redirect if on public pages or already authenticated
+    if (isPublicPage || authState !== "unauthenticated") {
+      // Clean up timer if transitioning away from unauthenticated state
+      if (redirectTimerRef.current) {
+        clearInterval(redirectTimerRef.current);
+        redirectTimerRef.current = null;
+      }
+      setAutoRedirectCountdown(null);
+      return;
     }
-  }, [isPublicPage, authState, path]);
+
+    // Start countdown timer
+    setAutoRedirectCountdown(60);
+    redirectTimerRef.current = setInterval(() => {
+      setAutoRedirectCountdown(prev => {
+        if (prev === null || prev <= 1) {
+          // Redirect after countdown completes
+          window.location.replace("/login");
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (redirectTimerRef.current) {
+        clearInterval(redirectTimerRef.current);
+        redirectTimerRef.current = null;
+      }
+      setAutoRedirectCountdown(null);
+    };
+  }, [isPublicPage, authState]);
 
   useEffect(() => {
     const handleProfileUpdated = (event: Event) => {
