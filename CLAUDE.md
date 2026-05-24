@@ -54,7 +54,7 @@ Welcome! This file gets you up to speed on the project in 5 minutes.
 - ntfy topics are per user account now: existing users were backfilled, new accounts get a stable personal topic, and reminders must never fall back to a shared/global channel.
 - iPhone payment reminders now also have a per-user calendar feed on `/profil` with a default 2-day lead time and selectable 1/2/7-day lead times. Keep the feed URL, lead-days selector, and the reminder onboarding copy consistent.
 - **Calendar feed** is now iCalendar .ics subscription (NOT CalDAV UI — that was replaced 2026-05-18). Profile shows personalized ICS URL + "Link kopieren" + "Neuen Link generieren". CalDAV server at `/dav/` still runs in backend but profile no longer exposes credentials. `POST /api/auth/reset-calendar-token` generates new token + invalidates old URL.
-- Two pm2 daemons: Maik's (user maik) manages `autoarchiv-api` on port 3001. Always restart with `sudo -u maik PM2_HOME=/home/maik/.pm2 pm2 restart autoarchiv-api`. Kevin's pm2 shows `autoarchiv-api` as errored — ignore it.
+- `autoarchiv-api` runs as a **systemd service** (user-independent). Both maik and kevin can manage it: `sudo systemctl restart autoarchiv-api`. Logs: `journalctl -u autoarchiv-api -f`. Kevin's pm2 (tanstack-ssr frontend) and Kevin's pm2 processes are separate — PM2 is no longer used for the API server.
 - Express 5 uses path-to-regexp v8 (via `router` package): bare `*` wildcards are INVALID. Use `app.use` with `req.path.startsWith(...)` for wildcard routes.
 - The reminder worker currently runs every minute during testing so reminder changes can be verified quickly.
 - The payment save path is server-first; do not reintroduce silent local-only fallback for reminders.
@@ -146,9 +146,10 @@ npm run build                       # Production build
 npm run dev                         # Dev mode (if using Vite)
 
 # Services (on production VPS)
-pm2 status                          # Check if api-server & frontend running
-pm2 logs autoarchiv-api --lines 50  # See API logs
-pm2 logs autoarchiv-frontend        # See frontend logs
+sudo systemctl status autoarchiv-api    # API server status (works for both maik & kevin)
+sudo systemctl restart autoarchiv-api   # Restart API server
+journalctl -u autoarchiv-api -n 50      # API server logs
+PM2_HOME=/home/kevin/.pm2 pm2 status    # Frontend (tanstack-ssr via kevin's PM2)
 
 # Database
 node check-db.mjs                   # Inspect database state
@@ -211,7 +212,7 @@ Everything is documented there. No surprises.
 ## Common Tasks
 
 ### "The registration is broken"
-1. Check PM2 logs: `pm2 logs autoarchiv-api --lines 100`
+1. Check logs: `journalctl -u autoarchiv-api -n 100`
 2. Look for SMTP error, dotenv issue, or database lock
 3. See `.claude/memory/working_approach.md` → "Debugging Strategy"
 
@@ -229,7 +230,7 @@ Everything is documented there. No surprises.
 1. Add to `.env`
 2. Add to `.env.example` (without value)
 3. Update `.claude/memory/project_status.md` to document it
-4. Restart api-server: `pm2 restart autoarchiv-api`
+4. Restart api-server: `sudo systemctl restart autoarchiv-api`
 
 ## Before You Deploy
 
@@ -239,14 +240,14 @@ Checklist:
 - [ ] Tested manually in browser
 - [ ] Git committed with clear message
 - [ ] No `.env` secrets in commit
-- [ ] Verified with `pm2 status` (services running)
+- [ ] Verified with `sudo systemctl status autoarchiv-api` (running)
 - [ ] Tested health endpoints (`curl http://localhost:3001/api/health`)
 
 ## Emergency Contacts
 
 If something is totally broken:
 
-1. Check logs: `pm2 logs autoarchiv-api --lines 200 | grep -i error`
+1. Check logs: `journalctl -u autoarchiv-api -n 200 | grep -i error`
 2. Check memory: `.claude/memory/deployment_checklist.md` → "Emergency Fixes"
 3. Last resort: `git log --oneline` → see what changed, consider reverting
 
