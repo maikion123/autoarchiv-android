@@ -5723,8 +5723,8 @@ app.post('/api/deploy', express.json(), async (req, res) => {
   res.json({ ok: true, message: 'Deploy gestartet' });
   try {
     await execFileAsync('git', ['-C', __dirname, 'pull', '--ff-only']);
-    await execFileAsync('npm', ['ci', '--prefix', __dirname]);
-    await execFileAsync('npm', ['run', 'build', '--prefix', __dirname]);
+    await execFileAsync('/usr/local/bin/bun', ['install', '--frozen-lockfile'], { cwd: __dirname });
+    await execFileAsync('/usr/local/bin/bun', ['run', 'build'], { cwd: __dirname });
     await execFileAsync('sudo', ['systemctl', 'restart', 'autoarchiv-api']);
     console.log('✓ Deploy erfolgreich');
   } catch (err) {
