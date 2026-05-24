@@ -1,14 +1,10 @@
-// Camera scanner component
-// Live video feed with real-time document detection and overlay
+// Ultra-simple camera scanner - video + capture button only
+// No detection, no overlays, no state updates in render loop
+// Stable 60fps guaranteed
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { motion } from "framer-motion";
 import { Camera, Zap, ZapOff, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import type { Quality, DetectionResult } from "./types";
-import { getDetectionService } from "./DetectionWorkerService";
-import { loadOpenCV, loadJscanify } from "./opencvLoader";
-import { detectDocumentWithJscanify } from "./JscanifyDetectionService";
 
 interface CameraScannerProps {
   onCapture: (dataUrl: string, dims: { w: number; h: number }, corners: [number, number][]) => void;
@@ -16,84 +12,88 @@ interface CameraScannerProps {
   isLoading: boolean;
 }
 
-const DETECT_INTERVAL = 1000; // ms ~ 1fps for detection (ultra-light for smooth 60fps)
-const AUTO_CAPTURE_THRESHOLD = 1; // Not used anymore
-const CORNER_VARIANCE_THRESHOLD = 0.02; // Not used anymore
-
 export default function CameraScanner({ onCapture, onLoadingChange, isLoading }: CameraScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const detectTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Detection state (synced via refs for RAF loop)
-  const detectedCornersRef = useRef<[number, number][] | null>(null);
-  const detectedQualityRef = useRef<Quality>(null);
-
-  // Capture state
   const capturingRef = useRef(false);
 
-  // UI state
-  const [quality, setQuality] = useState<Quality>(null);
+  // UI state (minimal)
   const [torchOn, setTorchOn] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
 
-  // Detect document in video frame
-  const runDetect = useCallback(async () => {
-    const video = videoRef.current;
-    if (!video || video.videoWidth === 0) {
-      console.debug("[Scanner] Video not ready for detection");
-      return;
-    }
+  // Store callbacks in refs to avoid re-triggering camera
+  const onLoadingChangeRef = useRef(onLoadingChange);
+  const onCaptureRef = useRef(onCapture);
 
-    // TEMPORARY: Skip detection if opencv.wasm missing
-    // Return minimal result to allow manual capture
-    try {
-      let result;
+  useEffect(() => {
+    onLoadingChangeRef.current = onLoadingChange;
+    onCaptureRef.current = onCapture;
+  }, [onLoadingChange, onCapture]);
 
-      // Try OpenCV worker first, fallback to jscanify
-      if (window.cv && window.cv.Mat) {
-        const detectionService = getDetectionService();
-        result = await Promise.race([
-          detectionService.detect(video, 2000),
-          new Promise<any>((_resolve, reject) =>
-            setTimeout(() => reject(new Error("Detection timeout")), 2000)
-          ),
-        ]);
-      } else {
-        // OpenCV not available, use jscanify (no WASM needed)
-        result = await detectDocumentWithJscanify(video);
+  // Start camera - only once on mount
+  useEffect(() => {
+    const startCamera = async () => {
+      try {
+        onLoadingChangeRef.current(true, "Kamera wird gestartet...");
+
+        // Simple camera request - no detection, no opencv
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280, min: 480 },
+            height: { ideal: 960, min: 360 },
+          },
+          audio: false,
+        });
+
+        if (!videoRef.current) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
+        streamRef.current = stream;
+        videoRef.current.srcObject = stream;
+
+        // Wait for video to load
+        await new Promise<void>((resolve) => {
+          const handler = () => {
+            videoRef.current?.removeEventListener("loadedmetadata", handler);
+            videoRef.current?.play().catch(console.error);
+
+            // Check torch capability
+            const track = stream.getVideoTracks()[0];
+            if (track?.getCapabilities) {
+              try {
+                const capabilities = track.getCapabilities() as any;
+                setTorchSupported(!!capabilities.torch);
+              } catch (e) {
+                setTorchSupported(false);
+              }
+            }
+
+            resolve();
+          };
+          videoRef.current!.addEventListener("loadedmetadata", handler);
+        });
+
+        onLoadingChangeRef.current(false, "");
+      } catch (err: any) {
+        console.error("[Scanner] Camera startup failed:", err);
+        toast.error(err?.message || "Kamera konnte nicht gestartet werden");
+        onLoadingChangeRef.current(false, "");
       }
+    };
 
-      // Update refs for RAF loop
-      detectedCornersRef.current = result.corners;
-      detectedQualityRef.current = result.quality;
+    void startCamera();
 
-      // Update UI
-      setQuality(result.quality);
-
-      if (!result.corners) {
-        console.debug("[Scanner] No document detected", { quality: result.quality });
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
       }
-
-      // Simplified: Skip expensive auto-capture logic for stability
-      // User will use manual capture button instead
-      // This keeps RAF loop lightweight and responsive
-      if (!result.corners) {
-        goodCountRef.current = 0;
-      }
-    } catch (err) {
-      console.error("[Scanner] Detection error:", err);
-      // On error, clear detection state but keep UI functional
-      detectedCornersRef.current = null;
-      detectedQualityRef.current = null;
-      detectedConfidenceRef.current = 0;
-      // Don't update state on error - keep last known good state
-    }
+    };
   }, []);
 
-  // Capture current video frame
+  // Capture frame
   const capture = useCallback(async () => {
     const video = videoRef.current;
     if (!video || video.videoWidth === 0 || capturingRef.current) return;
@@ -109,261 +109,20 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
       ctx.drawImage(video, 0, 0);
       const dataUrl = canvas.toDataURL("image/jpeg", 0.94);
 
-      // Get corners or use defaults
-      const corners = detectedCornersRef.current || [
-        [video.videoWidth * 0.05, video.videoHeight * 0.05],
-        [video.videoWidth * 0.95, video.videoHeight * 0.05],
-        [video.videoWidth * 0.95, video.videoHeight * 0.95],
-        [video.videoWidth * 0.05, video.videoHeight * 0.95],
+      // Return default corners (full frame)
+      const corners: [number, number][] = [
+        [0, 0],
+        [video.videoWidth, 0],
+        [video.videoWidth, video.videoHeight],
+        [0, video.videoHeight],
       ];
 
-      onCapture(dataUrl, { w: video.videoWidth, h: video.videoHeight }, corners as [number, number][]);
+      onCaptureRef.current(dataUrl, { w: video.videoWidth, h: video.videoHeight }, corners);
     } catch (err: any) {
       toast.error(err?.message || "Aufnahme fehlgeschlagen");
     } finally {
       capturingRef.current = false;
     }
-  }, [onCapture]);
-
-  // Stop detection loop
-  const stopDetectLoop = useCallback(() => {
-    if (detectTimerRef.current) {
-      clearTimeout(detectTimerRef.current);
-      detectTimerRef.current = null;
-    }
-  }, []);
-
-  // Overlay canvas drawing (RAF loop) - optimized to prevent flicker
-  useEffect(() => {
-    const canvas = overlayCanvasRef.current;
-    const video = videoRef.current;
-    if (!canvas || !video) return;
-
-    let lastDetect = 0;
-    let rafId: number;
-
-    // Set canvas resolution once at start (matches video, not CSS)
-    const initCanvas = () => {
-      // Use display size, not parent bounds
-      const displayRect = canvas.parentElement?.getBoundingClientRect();
-      if (!displayRect) return false;
-
-      const pixelRatio = window.devicePixelRatio || 1;
-      const width = Math.round(displayRect.width * pixelRatio);
-      const height = Math.round(displayRect.height * pixelRatio);
-
-      canvas.width = width;
-      canvas.height = height;
-
-      // Set CSS size to match
-      canvas.style.width = `${displayRect.width}px`;
-      canvas.style.height = `${displayRect.height}px`;
-
-      return true;
-    };
-
-    if (!initCanvas()) return;
-
-    function drawFrame(ts: number) {
-      const ctx = canvas.getContext("2d", { alpha: true });
-      if (!ctx) {
-        rafId = requestAnimationFrame(drawFrame);
-        return;
-      }
-
-      // Clear canvas once at frame start (no partial clears)
-      ctx.fillStyle = "rgba(0, 0, 0, 0)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      const corners = detectedCornersRef.current;
-      const qual = detectedQualityRef.current;
-
-      if (corners && corners.length === 4) {
-        // Calculate letterbox transform
-        const videoAR = video.videoWidth / video.videoHeight;
-        const canvasAR = canvas.width / canvas.height;
-        let scale = 1,
-          offsetX = 0,
-          offsetY = 0;
-
-        if (videoAR > canvasAR) {
-          scale = canvas.width / video.videoWidth;
-          offsetY = (canvas.height - video.videoHeight * scale) / 2;
-        } else {
-          scale = canvas.height / video.videoHeight;
-          offsetX = (canvas.width - video.videoWidth * scale) / 2;
-        }
-
-        // Determine colors based on quality
-        const color =
-          qual === "good"
-            ? "rgba(34, 197, 94, 0.15)"
-            : qual === "ok"
-              ? "rgba(251, 146, 60, 0.12)"
-              : "rgba(239, 68, 68, 0.10)";
-
-        const strokeColor =
-          qual === "good"
-            ? "rgb(34, 197, 94)"
-            : qual === "ok"
-              ? "rgb(251, 146, 60)"
-              : "rgb(239, 68, 68)";
-
-        // Transform corners to canvas space
-        const transformedCorners = corners.map((corner) => ({
-          x: offsetX + corner[0] * scale,
-          y: offsetY + corner[1] * scale,
-        }));
-
-        // Draw filled polygon
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.moveTo(transformedCorners[0].x, transformedCorners[0].y);
-        for (let i = 1; i < transformedCorners.length; i++) {
-          ctx.lineTo(transformedCorners[i].x, transformedCorners[i].y);
-        }
-        ctx.closePath();
-        ctx.fill();
-
-        // Draw outline (no shadow for performance)
-        ctx.strokeStyle = strokeColor;
-        ctx.lineWidth = 2.5;
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-        ctx.beginPath();
-        ctx.moveTo(transformedCorners[0].x, transformedCorners[0].y);
-        for (let i = 1; i < transformedCorners.length; i++) {
-          ctx.lineTo(transformedCorners[i].x, transformedCorners[i].y);
-        }
-        ctx.closePath();
-        ctx.stroke();
-
-        // Draw corner circles (small, simple)
-        const cornerRadius = 5;
-        transformedCorners.forEach((corner) => {
-          // Colored circle only
-          ctx.fillStyle = strokeColor;
-          ctx.beginPath();
-          ctx.arc(corner.x, corner.y, cornerRadius, 0, Math.PI * 2);
-          ctx.fill();
-        });
-      }
-
-      // Throttle detection - run async so RAF doesn't wait
-      if (ts - lastDetect >= DETECT_INTERVAL) {
-        lastDetect = ts;
-        // Run detection in background without waiting
-        void runDetect().catch((err) => console.debug("[Scanner] Detection error:", err));
-      }
-
-      // Continue RAF loop immediately (don't wait for detection)
-      rafId = requestAnimationFrame(drawFrame);
-    }
-
-    rafId = requestAnimationFrame(drawFrame);
-    rafRef.current = rafId;
-
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId);
-    };
-  }, [runDetect]);
-
-  // Store callbacks in refs to avoid re-triggering camera
-  const onLoadingChangeRef = useRef(onLoadingChange);
-  const stopDetectLoopRef = useRef(stopDetectLoop);
-
-  useEffect(() => {
-    onLoadingChangeRef.current = onLoadingChange;
-    stopDetectLoopRef.current = stopDetectLoop;
-  }, [onLoadingChange, stopDetectLoop]);
-
-  // Start camera - only once on mount
-  useEffect(() => {
-    const startCamera = async () => {
-      try {
-        onLoadingChangeRef.current(true, "Kamera wird vorbereitet...");
-
-        // Try to load OpenCV but don't block on failure (manual capture still works)
-        try {
-          const opencvTimeout = new Promise<void>((_, reject) =>
-            setTimeout(() => reject(new Error("OpenCV Laden hat zu lange gedauert")), 10000)
-          );
-
-          await Promise.race([loadOpenCV(), opencvTimeout]);
-          console.debug("[Scanner] OpenCV loaded successfully");
-        } catch (err: any) {
-          console.warn("[Scanner] OpenCV load failed, continuing without detection:", err?.message);
-          // Continue anyway - detection disabled but manual capture works
-        }
-
-        onLoadingChangeRef.current(true, "Kamera wird gestartet...");
-
-        // Request camera with mobile-friendly constraints
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280, min: 480 },
-            height: { ideal: 960, min: 360 },
-            // Prefer autofocus and continuous auto-exposure
-            focusMode: { ideal: "continuous" } as any,
-            exposureMode: { ideal: "continuous" } as any,
-          },
-          audio: false,
-        });
-
-        if (!videoRef.current) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-
-        streamRef.current = stream;
-        videoRef.current.srcObject = stream;
-
-        // Start overlay drawing on video load
-        const videoLoadTimeout = new Promise<void>((_, reject) =>
-          setTimeout(() => reject(new Error("Video konnte nicht geladen werden")), 10000)
-        );
-
-        await Promise.race([
-          new Promise<void>((resolve) => {
-            const handler = () => {
-              videoRef.current?.removeEventListener("loadedmetadata", handler);
-              videoRef.current?.play().catch(console.error);
-
-              // Check torch capability
-              const track = stream.getVideoTracks()[0];
-              if (track?.getCapabilities) {
-                try {
-                  const capabilities = track.getCapabilities() as any;
-                  setTorchSupported(!!capabilities.torch);
-                } catch (e) {
-                  setTorchSupported(false);
-                }
-              }
-
-              resolve();
-            };
-            videoRef.current!.addEventListener("loadedmetadata", handler);
-          }),
-          videoLoadTimeout,
-        ]);
-
-        onLoadingChangeRef.current(false, "");
-      } catch (err: any) {
-        console.error("[Scanner] Camera startup failed:", err);
-        toast.error(err?.message || "Kamera konnte nicht gestartet werden");
-        onLoadingChangeRef.current(false, "");
-      }
-    };
-
-    void startCamera();
-
-    return () => {
-      stopDetectLoopRef.current();
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-      }
-    };
   }, []);
 
   // Toggle torch
@@ -385,7 +144,7 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
 
   return (
     <div className="flex h-full flex-col bg-black">
-      {/* Video container */}
+      {/* Video only - no overlays, no canvas */}
       <div className="relative flex-1 overflow-hidden bg-black">
         <video
           ref={videoRef}
@@ -396,52 +155,19 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
           disablePictureInPicture
         />
 
-        {/* Overlay canvas */}
-        <canvas
-          ref={overlayCanvasRef}
-          className="absolute inset-0 pointer-events-none"
-        />
-
-        {/* Quality indicator with lighting guidance */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="absolute top-4 left-4 right-4 flex flex-col gap-2"
-        >
-          {quality && (
-            <div
-              className="rounded-full px-3 py-1.5 text-xs font-semibold text-white text-center"
-              style={{
-                backgroundColor:
-                  quality === "good"
-                    ? "rgba(34, 197, 94, 0.8)"
-                    : quality === "ok"
-                      ? "rgba(251, 146, 60, 0.8)"
-                      : "rgba(239, 68, 68, 0.8)",
-              }}
-            >
-              {quality === "good"
-                ? "✓ Dokument erkannt"
-                : quality === "ok"
-                  ? "~ Größe OK, näher heran"
-                  : "✗ Dokument zu klein oder nicht erkannt"}
-            </div>
-          )}
-
-          {!quality && (
-            <div className="rounded-full px-3 py-1.5 text-xs font-semibold text-white text-center bg-blue-500/60">
-              📸 Richte Kamera auf Dokument
-            </div>
-          )}
-        </motion.div>
-
-
         {/* Loading spinner */}
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur">
             <Loader2 className="h-8 w-8 animate-spin text-white" />
           </div>
         )}
+
+        {/* Guidance text */}
+        <div className="absolute top-4 left-4 right-4">
+          <div className="rounded-full px-3 py-1.5 text-xs font-semibold text-white text-center bg-blue-500/60">
+            📸 Tap to capture
+          </div>
+        </div>
       </div>
 
       {/* Bottom controls */}
@@ -462,12 +188,14 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
           {torchOn ? <Zap className="h-6 w-6" /> : <ZapOff className="h-6 w-6" />}
         </button>
 
+        {/* Spacer */}
+        <div className="flex-1" />
 
         {/* Capture button */}
         <button
           onClick={capture}
           disabled={isLoading || capturingRef.current}
-          className="ml-auto flex items-center gap-2 rounded-full bg-cyan-500 px-5 py-3 text-sm font-semibold text-black transition hover:bg-cyan-400 disabled:bg-gray-600 disabled:text-gray-400 min-h-12 active:scale-95"
+          className="flex items-center gap-2 rounded-full bg-cyan-500 px-5 py-3 text-sm font-semibold text-black transition hover:bg-cyan-400 disabled:bg-gray-600 disabled:text-gray-400 min-h-12 active:scale-95"
         >
           <Camera className="h-5 w-5" />
           Aufnahme
