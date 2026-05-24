@@ -704,7 +704,7 @@ export default function EingangPage() {
         </div>
       )}
 
-      <AnimatePresence mode="wait">
+      <AnimatePresence>
         {queue.length === 0 && (
           <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="glass rounded-2xl p-10 text-center">
