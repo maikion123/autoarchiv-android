@@ -38,65 +38,44 @@ autoarchiv-android/
 
 ## Build Requirements
 
-- **JDK**: Java 11+ (OpenJDK or Oracle JDK)
+- **JDK**: Java 17+ (OpenJDK or Oracle JDK)
 - **Gradle**: 8.2 (via wrapper, auto-downloaded)
-- **Android SDK**: API 34 (targetSdk), API 29+ (minSdk for ML Kit)
-- **Build tools**: 34.0.0+
+- **Android SDK**: API 33 (compileSdk/targetSdk), API 29+ (minSdk)
+- **Build tools**: 33.0.0+
+- **OS**: Linux or macOS x86_64 (**not ARM64** — AAPT2 is x86_64 only)
 
-## Build Instructions
-
-### 1. Install JDK (if not present)
-
-```bash
-# Ubuntu/Debian
-sudo apt-get install openjdk-11-jdk
-
-# macOS
-brew install openjdk@11
-export JAVA_HOME=$(/usr/libexec/java_home -v 11)
-
-# Or set JAVA_HOME to your JDK installation
-export JAVA_HOME=/path/to/jdk
-```
-
-### 2. Install Android SDK
-
-Download SDK command-line tools from https://developer.android.com/studio and set:
-```bash
-export ANDROID_SDK_ROOT=/path/to/android-sdk
-export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
-```
-
-Install required SDK components:
-```bash
-sdkmanager "platforms;android-34"
-sdkmanager "build-tools;34.0.0"
-sdkmanager "platform-tools"
-```
-
-### 3. Build APK
+## Quick Build
 
 ```bash
-./gradlew assembleDebug
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+export ANDROID_SDK_ROOT=~/android-sdk
+
+./gradlew clean assembleDebug
+# Output: app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Output: `app/build/outputs/apk/debug/app-debug.apk`
+## Full Setup Guide
 
-### 4. Install to Device
+See **[BUILD_GUIDE.md](BUILD_GUIDE.md)** for complete step-by-step instructions:
+- Java 17 installation
+- Android SDK download + setup
+- Build, test, upload to server
+- Troubleshooting
+
+## Install to Device
 
 ```bash
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
-### 5. Test
+## Test Flow
 
-1. Tap AutoArchiv icon to open
-2. Login with nextkm.de credentials (email/password)
-3. Tap "Dokument scannen" button
-4. ML Kit Document Scanner UI opens (native Android)
-5. Scan document → perspective correction → confirm pages
-6. Documents upload to nextkm.de backend
-7. Check archive at https://nextkm.de/archiv
+1. Open AutoArchiv → login with nextkm.de credentials
+2. Tap "Dokument scannen"
+3. Native ML Kit Scanner opens (same as Google Lens)
+4. Scan document → perspective correction → confirm
+5. Upload to nextkm.de backend
+6. Verify in https://nextkm.de/archiv
 
 ## Key Features
 
