@@ -3,7 +3,7 @@
 
 set -e
 
-REPO_OWNER="YOUR-GITHUB-USERNAME"
+REPO_OWNER="naikionion-pixel"
 REPO_NAME="autoarchiv-android"
 DOWNLOAD_DIR="/srv/projects/autoarchiv/public/eingang"
 APK_FILE="$DOWNLOAD_DIR/nextKM.apk"
