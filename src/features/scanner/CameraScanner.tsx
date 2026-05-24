@@ -16,9 +16,9 @@ interface CameraScannerProps {
   isLoading: boolean;
 }
 
-const DETECT_INTERVAL = 500; // ms ~ 2fps for detection (optimize for performance/battery)
-const AUTO_CAPTURE_THRESHOLD = 2; // Require N consecutive good frames for auto-capture
-const CORNER_VARIANCE_THRESHOLD = 0.015; // Normalized variance for stability (more relaxed)
+const DETECT_INTERVAL = 1000; // ms ~ 1fps for detection (ultra-light for smooth 60fps)
+const AUTO_CAPTURE_THRESHOLD = 1; // Not used anymore
+const CORNER_VARIANCE_THRESHOLD = 0.02; // Not used anymore
 
 export default function CameraScanner({ onCapture, onLoadingChange, isLoading }: CameraScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -30,25 +30,14 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
   // Detection state (synced via refs for RAF loop)
   const detectedCornersRef = useRef<[number, number][] | null>(null);
   const detectedQualityRef = useRef<Quality>(null);
-  const detectedConfidenceRef = useRef(0);
 
-  // Auto-capture state
-  const goodCountRef = useRef(0);
-  const cornerHistoryRef = useRef<Array<[number, number][]>>([]);
+  // Capture state
   const capturingRef = useRef(false);
 
   // UI state
   const [quality, setQuality] = useState<Quality>(null);
-  const [confidence, setConfidence] = useState(0);
   const [torchOn, setTorchOn] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
-  const [autoCaptureEnabled, setAutoCaptureEnabled] = useState(true);
-  const [autoCapturePending, setAutoCapturePending] = useState(false);
-
-  const autoCaptureRef = useRef(autoCaptureEnabled);
-  useEffect(() => {
-    autoCaptureRef.current = autoCaptureEnabled;
-  }, [autoCaptureEnabled]);
 
   // Detect document in video frame
   const runDetect = useCallback(async () => {
@@ -80,55 +69,19 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
       // Update refs for RAF loop
       detectedCornersRef.current = result.corners;
       detectedQualityRef.current = result.quality;
-      detectedConfidenceRef.current = result.confidence;
 
       // Update UI
       setQuality(result.quality);
-      setConfidence(result.confidence);
 
       if (!result.corners) {
         console.debug("[Scanner] No document detected", { quality: result.quality });
       }
 
-      // Auto-capture logic: check stability via corner variance
-      if (autoCaptureRef.current && result.quality === "good" && result.corners) {
-        cornerHistoryRef.current.push(result.corners);
-        if (cornerHistoryRef.current.length > 5) {
-          cornerHistoryRef.current.shift();
-        }
-
-        // Compute corner variance over history
-        let variance = Infinity;
-        if (cornerHistoryRef.current.length >= 4) {
-          let totalVariance = 0;
-          for (let i = 0; i < 4; i++) {
-            const values = cornerHistoryRef.current.map((corners) => corners[i][0] + corners[i][1]);
-            const mean = values.reduce((a, b) => a + b, 0) / values.length;
-            const sumSq = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0);
-            totalVariance += sumSq / values.length;
-          }
-          variance = totalVariance / 4 / (video.videoWidth + video.videoHeight);
-        }
-
-        // Auto-capture if stable and consecutive good frames
-        if (variance < CORNER_VARIANCE_THRESHOLD) {
-          goodCountRef.current += 1;
-          setAutoCapturePending(goodCountRef.current >= 2);
-
-          if (goodCountRef.current >= AUTO_CAPTURE_THRESHOLD && !capturingRef.current) {
-            goodCountRef.current = 0;
-            cornerHistoryRef.current = [];
-            setAutoCapturePending(false);
-            await capture();
-          }
-        } else {
-          goodCountRef.current = 0;
-          setAutoCapturePending(false);
-        }
-      } else {
+      // Simplified: Skip expensive auto-capture logic for stability
+      // User will use manual capture button instead
+      // This keeps RAF loop lightweight and responsive
+      if (!result.corners) {
         goodCountRef.current = 0;
-        cornerHistoryRef.current = [];
-        setAutoCapturePending(false);
       }
     } catch (err) {
       console.error("[Scanner] Detection error:", err);
@@ -482,14 +435,6 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
           )}
         </motion.div>
 
-        {/* Auto-capture pulse */}
-        {autoCapturePending && (
-          <motion.div
-            animate={{ scale: [1, 1.1, 1] }}
-            transition={{ duration: 0.6, repeat: Infinity }}
-            className="absolute inset-0 border-4 border-cyan-400/50 pointer-events-none"
-          />
-        )}
 
         {/* Loading spinner */}
         {isLoading && (
@@ -517,16 +462,6 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
           {torchOn ? <Zap className="h-6 w-6" /> : <ZapOff className="h-6 w-6" />}
         </button>
 
-        {/* Auto-capture toggle */}
-        <label className="flex items-center gap-2 text-xs text-gray-300 flex-shrink-0">
-          <input
-            type="checkbox"
-            checked={autoCaptureEnabled}
-            onChange={(e) => setAutoCaptureEnabled(e.target.checked)}
-            className="h-5 w-5 rounded border-gray-600 cursor-pointer"
-          />
-          <span>Auto</span>
-        </label>
 
         {/* Capture button */}
         <button
