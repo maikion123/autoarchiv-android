@@ -325,11 +325,20 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
     };
   }, [runDetect]);
 
-  // Start camera
+  // Store callbacks in refs to avoid re-triggering camera
+  const onLoadingChangeRef = useRef(onLoadingChange);
+  const stopDetectLoopRef = useRef(stopDetectLoop);
+
+  useEffect(() => {
+    onLoadingChangeRef.current = onLoadingChange;
+    stopDetectLoopRef.current = stopDetectLoop;
+  }, [onLoadingChange, stopDetectLoop]);
+
+  // Start camera - only once on mount
   useEffect(() => {
     const startCamera = async () => {
       try {
-        onLoadingChange(true, "Kamera wird vorbereitet...");
+        onLoadingChangeRef.current(true, "Kamera wird vorbereitet...");
 
         // Try to load OpenCV but don't block on failure (manual capture still works)
         try {
@@ -344,7 +353,7 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
           // Continue anyway - detection disabled but manual capture works
         }
 
-        onLoadingChange(true, "Kamera wird gestartet...");
+        onLoadingChangeRef.current(true, "Kamera wird gestartet...");
 
         // Request camera with mobile-friendly constraints
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -396,23 +405,23 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
           videoLoadTimeout,
         ]);
 
-        onLoadingChange(false, "");
+        onLoadingChangeRef.current(false, "");
       } catch (err: any) {
         console.error("[Scanner] Camera startup failed:", err);
         toast.error(err?.message || "Kamera konnte nicht gestartet werden");
-        onLoadingChange(false, "");
+        onLoadingChangeRef.current(false, "");
       }
     };
 
     void startCamera();
 
     return () => {
-      stopDetectLoop();
+      stopDetectLoopRef.current();
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
       }
     };
-  }, [onLoadingChange, stopDetectLoop]);
+  }, []);
 
   // Toggle torch
   const toggleTorch = useCallback(async () => {
