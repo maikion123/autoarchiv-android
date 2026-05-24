@@ -5714,7 +5714,6 @@ app.get('/api/scan/health', requireAuth, async (req, res) => {
 
 // ── DEPLOY WEBHOOK ────────────────────────────────────────────────────────────
 const DEPLOY_TOKEN = process.env.DEPLOY_TOKEN;
-const execFileAsync = promisify(execFile);
 
 app.post('/api/deploy', express.json(), async (req, res) => {
   const token = req.headers['x-deploy-token'];
@@ -5726,7 +5725,7 @@ app.post('/api/deploy', express.json(), async (req, res) => {
     await execFileAsync('git', ['-C', __dirname, 'pull', '--ff-only']);
     await execFileAsync('npm', ['ci', '--prefix', __dirname]);
     await execFileAsync('npm', ['run', 'build', '--prefix', __dirname]);
-    await execFileAsync('sudo', ['-u', 'maik', 'PM2_HOME=/home/maik/.pm2', 'pm2', 'restart', 'autoarchiv-api']);
+    await execFileAsync('/usr/local/bin/pm2', ['restart', 'autoarchiv-api'], { env: { ...process.env, PM2_HOME: '/home/maik/.pm2' } });
     console.log('✓ Deploy erfolgreich');
   } catch (err) {
     console.error('✗ Deploy fehlgeschlagen:', err.message);
