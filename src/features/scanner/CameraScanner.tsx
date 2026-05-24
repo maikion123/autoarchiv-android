@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import type { Quality, DetectionResult } from "./types";
 import { getDetectionService } from "./DetectionWorkerService";
 import { loadOpenCV, loadJscanify } from "./opencvLoader";
+import { detectDocumentWithJscanify } from "./JscanifyDetectionService";
 
 interface CameraScannerProps {
   onCapture: (dataUrl: string, dims: { w: number; h: number }, corners: [number, number][]) => void;
@@ -60,14 +61,21 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
     // TEMPORARY: Skip detection if opencv.wasm missing
     // Return minimal result to allow manual capture
     try {
-      const detectionService = getDetectionService();
-      // Use shorter timeout to fail fast if detection hangs
-      const result = await Promise.race([
-        detectionService.detect(video, 2000),
-        new Promise<any>((_resolve, reject) =>
-          setTimeout(() => reject(new Error("Detection timeout")), 2000)
-        ),
-      ]);
+      let result;
+
+      // Try OpenCV worker first, fallback to jscanify
+      if (window.cv && window.cv.Mat) {
+        const detectionService = getDetectionService();
+        result = await Promise.race([
+          detectionService.detect(video, 2000),
+          new Promise<any>((_resolve, reject) =>
+            setTimeout(() => reject(new Error("Detection timeout")), 2000)
+          ),
+        ]);
+      } else {
+        // OpenCV not available, use jscanify (no WASM needed)
+        result = await detectDocumentWithJscanify(video);
+      }
 
       // Update refs for RAF loop
       detectedCornersRef.current = result.corners;
