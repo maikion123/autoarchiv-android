@@ -5712,6 +5712,27 @@ app.get('/api/scan/health', requireAuth, async (req, res) => {
   }
 });
 
+// ── DEPLOY WEBHOOK ────────────────────────────────────────────────────────────
+const DEPLOY_TOKEN = process.env.DEPLOY_TOKEN;
+const execFileAsync = promisify(execFile);
+
+app.post('/api/deploy', express.json(), async (req, res) => {
+  const token = req.headers['x-deploy-token'];
+  if (!DEPLOY_TOKEN || token !== DEPLOY_TOKEN) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  res.json({ ok: true, message: 'Deploy gestartet' });
+  try {
+    await execFileAsync('git', ['-C', __dirname, 'pull', '--ff-only']);
+    await execFileAsync('npm', ['ci', '--prefix', __dirname]);
+    await execFileAsync('npm', ['run', 'build', '--prefix', __dirname]);
+    await execFileAsync('sudo', ['-u', 'maik', 'PM2_HOME=/home/maik/.pm2', 'pm2', 'restart', 'autoarchiv-api']);
+    console.log('✓ Deploy erfolgreich');
+  } catch (err) {
+    console.error('✗ Deploy fehlgeschlagen:', err.message);
+  }
+});
+
 // ── START ─────────────────────────────────────────────────────────────────────
 transporter.verify()
   .then(() => console.log(`✓ SMTP verbunden (${SMTP_HOST}:${SMTP_PORT})`))
