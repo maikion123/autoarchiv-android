@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, Camera, FileCheck2, Sparkles, Loader2, Check, X, Tag, Eye, FolderPlus, Scan } from "lucide-react";
+import { Upload, Camera, FileCheck2, Sparkles, Loader2, Check, X, Tag, Eye, FolderPlus, Scan, Smartphone } from "lucide-react";
 import { useArchive } from "../lib/store";
 import { savePayment, uid, type Importance, type ArchivedDoc } from "../lib/db";
 import { createFolder, DEFAULT_FOLDER_TREE, flattenFolderTree, loadFolderTree, type FolderNode } from "../lib/folders";
@@ -639,6 +639,16 @@ export default function EingangPage() {
           <div className="mt-2 text-base font-semibold md:mt-3">Dokument scannen</div>
           <div className="mt-1 text-xs text-muted-foreground">Smartphone‑Scanner mit Kantenerkennung</div>
         </button>
+
+        <a
+          href="/eingang/autoarchiv-android-debug.apk"
+          download
+          className="glass border-glow relative cursor-pointer overflow-hidden rounded-2xl p-5 text-center transition hover:shadow-[0_0_30px_oklch(0.72_0.16_20/0.4)] md:p-8"
+        >
+          <Smartphone className="mx-auto h-9 w-9 text-orange-500 md:h-10 md:w-10" />
+          <div className="mt-2 text-base font-semibold md:mt-3">Android App</div>
+          <div className="mt-1 text-xs text-muted-foreground">Native Scanner für Android</div>
+        </a>
       </div>
 
       {pendingCameraFiles.length > 0 && (
