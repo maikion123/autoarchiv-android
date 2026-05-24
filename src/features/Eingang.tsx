@@ -641,13 +641,14 @@ export default function EingangPage() {
         </button>
 
         <a
-          href="/eingang/autoarchiv-android-debug.apk"
-          download
+          href="https://github.com/YOUR-ORG/autoarchiv-android/releases"
+          target="_blank"
+          rel="noopener noreferrer"
           className="glass border-glow relative cursor-pointer overflow-hidden rounded-2xl p-5 text-center transition hover:shadow-[0_0_30px_oklch(0.72_0.16_20/0.4)] md:p-8"
         >
           <Smartphone className="mx-auto h-9 w-9 text-orange-500 md:h-10 md:w-10" />
-          <div className="mt-2 text-base font-semibold md:mt-3">Android App</div>
-          <div className="mt-1 text-xs text-muted-foreground">Native Scanner für Android</div>
+          <div className="mt-2 text-base font-semibold md:mt-3">nextKM Android</div>
+          <div className="mt-1 text-xs text-muted-foreground">Native Scanner · GitHub Download</div>
         </a>
       </div>
 
