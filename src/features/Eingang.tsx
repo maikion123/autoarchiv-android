@@ -592,6 +592,23 @@ export default function EingangPage() {
         <p className="mt-1 text-sm text-muted-foreground">Hochladen — die KI sortiert für dich.</p>
       </div>
 
+      <div className="glass border-glow rounded-2xl p-5 md:p-6 bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border-blue-400/30">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 className="font-semibold text-blue-400">📱 Native Scanner-App</h3>
+            <p className="mt-1 text-sm text-muted-foreground">iOS + Android mit Hardware-beschleunigter Kantenerkennung. Schneller, flüssiger, zuverlässiger als der Browser-Scanner.</p>
+          </div>
+          <a
+            href="https://github.com/autoarchiv/autoarchiv-mobile#setup"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-shrink-0 rounded-lg bg-blue-500 px-4 py-2 text-sm font-semibold text-black transition hover:bg-blue-400"
+          >
+            App installieren →
+          </a>
+        </div>
+      </div>
+
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
         <div {...getRootProps()}
           className={`glass border-glow relative cursor-pointer overflow-hidden rounded-2xl p-5 text-center transition md:p-8 ${isDragActive ? "scale-[1.01] shadow-[0_0_40px_oklch(0.62_0.24_290/0.5)]" : ""}`}>
