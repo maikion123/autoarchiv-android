@@ -844,33 +844,6 @@ export default function ArchivPage() {
           />
           {isSearching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-primary" />}
         </div>
-
-        {/* Sort chips */}
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-          {(["uploadedAt", "filename", "zahlungsbetrag", "dokumenttyp"] as const).map((key) => {
-            const labels: Partial<Record<SortKey, string>> = {
-              uploadedAt: "Datum",
-              filename: "Name",
-              zahlungsbetrag: "Betrag",
-              dokumenttyp: "Typ",
-            };
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => toggleSort(key)}
-                className={`whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition-colors flex-shrink-0 ${
-                  sortKey === key
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted/50 text-muted-foreground hover:bg-muted"
-                }`}
-              >
-                {labels[key]}
-                {sortKey === key && (sortDir === "asc" ? "↑" : "↓")}
-              </button>
-            );
-          })}
-        </div>
       </div>
 
       {/* Main content */}
