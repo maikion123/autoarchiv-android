@@ -479,15 +479,16 @@ export function AppShell() {
         pointerEvents: isModalOpen ? 'none' : 'auto'
       }}>
         <div className="glass-strong rounded-2xl border-glow px-2 py-2">
-          <ul className="flex items-center justify-between">
+          <ul className="flex items-center justify-center gap-1">
             {TABS.filter((tab) => tab.adminOnly ? userRole === "admin" : true).map(({ to, label, icon }) => {
               const Icon = getIconComponent(icon);
               const active = to === "/" ? path === "/" : path.startsWith(to);
               return (
-                <li key={to} className="flex-1">
+                <li key={to}>
                   <Link
                     to={to as any}
-                    className={`relative flex w-full flex-col items-center gap-0.5 overflow-hidden rounded-xl px-1 py-1.5 text-[10px] transition ${
+                    title={label}
+                    className={`relative flex flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 transition ${
                       active ? "text-foreground" : "text-muted-foreground"
                     }`}
                   >
@@ -497,8 +498,8 @@ export function AppShell() {
                         style={{ boxShadow: "inset 0 0 0 1px oklch(0.62 0.24 290 / 0.4)" }}
                       />
                     )}
-                    <Icon className="relative z-10 h-5 w-5 shrink-0" />
-                    <span className="relative z-10 w-full min-w-0 truncate">{label}</span>
+                    <Icon className="relative z-10 h-6 w-6 shrink-0" />
+                    <span className="relative z-10 text-[11px] font-medium whitespace-nowrap hidden sm:inline">{label}</span>
                   </Link>
                 </li>
               );
