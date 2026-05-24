@@ -40,6 +40,7 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
   const [quality, setQuality] = useState<Quality>(null);
   const [confidence, setConfidence] = useState(0);
   const [torchOn, setTorchOn] = useState(false);
+  const [torchSupported, setTorchSupported] = useState(false);
   const [autoCaptureEnabled, setAutoCaptureEnabled] = useState(true);
   const [autoCapturePending, setAutoCapturePending] = useState(false);
 
@@ -163,17 +164,27 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
     let lastHeight = 0;
 
     function drawFrame(ts: number) {
+      // Get canvas parent dimensions
+      const parent = canvas.parentElement;
+      if (!parent) {
+        rafId = requestAnimationFrame(drawFrame);
+        return;
+      }
+
+      const rect = parent.getBoundingClientRect();
+      const newWidth = Math.max(1, Math.round(rect.width));
+      const newHeight = Math.max(1, Math.round(rect.height));
+
       // Sync canvas size only if dimensions changed (avoid flicker from frequent resizing)
-      const rect = canvas.parentElement?.getBoundingClientRect();
-      if (rect && (lastWidth !== rect.width || lastHeight !== rect.height)) {
-        lastWidth = rect.width;
-        lastHeight = rect.height;
-        canvas.width = rect.width;
-        canvas.height = rect.height;
+      if (lastWidth !== newWidth || lastHeight !== newHeight) {
+        lastWidth = newWidth;
+        lastHeight = newHeight;
+        canvas.width = newWidth;
+        canvas.height = newHeight;
       }
 
       const ctx = canvas.getContext("2d");
-      if (!ctx) {
+      if (!ctx || canvas.width === 0 || canvas.height === 0) {
         rafId = requestAnimationFrame(drawFrame);
         return;
       }
@@ -308,6 +319,18 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
           const handler = () => {
             videoRef.current?.removeEventListener("loadedmetadata", handler);
             videoRef.current?.play().catch(console.error);
+
+            // Check torch capability
+            const track = stream.getVideoTracks()[0];
+            if (track?.getCapabilities) {
+              try {
+                const capabilities = track.getCapabilities() as any;
+                setTorchSupported(!!capabilities.torch);
+              } catch (e) {
+                setTorchSupported(false);
+              }
+            }
+
             resolve();
           };
           videoRef.current!.addEventListener("loadedmetadata", handler);
@@ -332,25 +355,20 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
 
   // Toggle torch
   const toggleTorch = useCallback(async () => {
-    if (!streamRef.current) return;
+    if (!streamRef.current || !torchSupported) return;
 
     try {
       const track = streamRef.current.getVideoTracks()[0];
       if (!track) return;
-
-      const capabilities = track.getCapabilities?.() as any;
-      if (!capabilities || !capabilities.torch) {
-        toast.error("Blitzlicht nicht verfügbar");
-        return;
-      }
 
       const newState = !torchOn;
       await track.applyConstraints({ advanced: [{ torch: newState } as any] });
       setTorchOn(newState);
     } catch (err) {
       console.error("[Scanner] Torch toggle error:", err);
+      toast.error("Blitzlicht konnte nicht aktiviert werden");
     }
-  }, [torchOn]);
+  }, [torchOn, torchSupported]);
 
   return (
     <div className="flex h-full flex-col bg-black">
@@ -410,10 +428,15 @@ export default function CameraScanner({ onCapture, onLoadingChange, isLoading }:
         {/* Torch button */}
         <button
           onClick={toggleTorch}
+          disabled={!torchSupported}
           className={`flex-shrink-0 rounded-full p-3 transition min-h-12 min-w-12 flex items-center justify-center ${
-            torchOn ? "bg-yellow-500/20 text-yellow-400" : "bg-gray-700/40 text-gray-400"
+            !torchSupported
+              ? "bg-gray-700/20 text-gray-600 cursor-not-allowed opacity-50"
+              : torchOn
+                ? "bg-yellow-500/20 text-yellow-400"
+                : "bg-gray-700/40 text-gray-400"
           }`}
-          title={torchOn ? "Blitzlicht aus" : "Blitzlicht an"}
+          title={!torchSupported ? "Blitzlicht nicht verfügbar" : torchOn ? "Blitzlicht aus" : "Blitzlicht an"}
         >
           {torchOn ? <Zap className="h-6 w-6" /> : <ZapOff className="h-6 w-6" />}
         </button>
